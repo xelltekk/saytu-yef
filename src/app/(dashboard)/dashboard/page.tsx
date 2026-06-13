@@ -33,8 +33,6 @@ export default function DashboardPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  const skeletonClass = 'animate-pulse bg-white/[0.06] rounded-lg h-7 w-24'
-
   return (
     <div className="min-h-screen">
       <Header title="Tableau de bord" subtitle="Aperçu de votre activité" />

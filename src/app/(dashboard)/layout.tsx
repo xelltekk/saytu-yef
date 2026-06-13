@@ -1,5 +1,6 @@
 import { Sidebar } from '@/components/layout/Sidebar'
 import { BottomNav } from '@/components/layout/BottomNav'
+import { InstallPrompt } from '@/components/pwa/InstallPrompt'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -9,6 +10,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <main className="flex-1 pb-20 lg:pb-0">{children}</main>
       </div>
       <BottomNav />
+      <InstallPrompt />
     </div>
   )
 }
