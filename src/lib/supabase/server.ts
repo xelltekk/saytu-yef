@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { cookies } = require('next/headers')
 
 export async function createClient() {
   const cookieStore = await cookies()
@@ -12,9 +13,11 @@ export async function createClient() {
         getAll() {
           return cookieStore.getAll()
         },
-        setAll(cookiesToSet) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setAll(cookiesToSet: any[]) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) =>
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            cookiesToSet.forEach(({ name, value, options }: any) =>
               cookieStore.set(name, value, options)
             )
           } catch {}

@@ -29,7 +29,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="fr" className={`${inter.variable} h-full`}>
-      <body className="min-h-full gradient-bg">{children}</body>
+      <body className="min-h-full gradient-bg" suppressHydrationWarning>{children}</body>
     </html>
   )
 }
