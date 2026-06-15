@@ -1,19 +1,33 @@
 import { cn } from '@/lib/utils'
+import Link from 'next/link'
 
 interface CardProps {
   children: React.ReactNode
   className?: string
   hover?: boolean
   glow?: boolean
+  accent?: boolean
+  mint?: boolean
 }
 
-export function Card({ children, className, hover, glow }: CardProps) {
+export function Card({ children, className, hover, glow, accent, mint }: CardProps) {
   return (
     <div
       className={cn(
-        'rounded-2xl border border-white/[0.06] bg-[#0d1120] p-5',
-        hover && 'transition-all duration-200 hover:border-white/[0.12] hover:bg-[#111827] cursor-pointer',
-        glow && 'hover:shadow-lg hover:shadow-[rgba(79,110,247,0.1)]',
+        'relative rounded-2xl p-5',
+        mint
+          ? 'bg-[#E8F4F2] border border-[#2D7D7D]/[0.08]'
+          : 'bg-white border border-[#2D7D7D]/[0.08]',
+        'shadow-[0_6px_20px_rgba(26,54,54,0.06)]',
+        hover && [
+          'cursor-pointer',
+          'transition-all duration-200',
+          'hover:border-[#2D7D7D]/[0.16]',
+          'hover:shadow-[0_10px_28px_rgba(26,54,54,0.10)]',
+          'hover:-translate-y-0.5',
+        ],
+        glow && 'hover:shadow-[0_10px_28px_rgba(108,92,231,0.18)]',
+        accent && 'card-accent',
         className
       )}
     >
@@ -29,39 +43,73 @@ interface MetricCardProps {
   changeType?: 'up' | 'down' | 'neutral'
   icon: React.ReactNode
   color?: string
+  gradient?: string
+  href?: string
 }
 
-export function MetricCard({ title, value, change, changeType = 'neutral', icon, color = '#4f6ef7' }: MetricCardProps) {
-  return (
-    <Card className="relative overflow-hidden">
+export function MetricCard({
+  title, value, change, changeType = 'neutral',
+  icon, color = '#2D7D7D', gradient, href
+}: MetricCardProps) {
+  const grad = gradient || `${color}1A`
+  const isUp   = changeType === 'up'
+  const isDown = changeType === 'down'
+
+  const className = cn(
+    'group relative block overflow-hidden rounded-2xl bg-white border border-[#2D7D7D]/[0.08] p-5 shadow-[0_6px_20px_rgba(26,54,54,0.06)] transition-all duration-200 hover:border-[#2D7D7D]/[0.16] hover:-translate-y-0.5',
+    href && 'cursor-pointer hover:shadow-[0_10px_28px_rgba(26,54,54,0.12)]'
+  )
+
+  const inner = (
+    <>
+      {/* Background glow blob */}
       <div
-        className="absolute top-0 right-0 w-24 h-24 rounded-full opacity-10 blur-2xl"
+        className="absolute -top-6 -right-6 w-28 h-28 rounded-full blur-3xl opacity-[0.14] pointer-events-none"
         style={{ background: color }}
       />
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-[#8892aa] text-xs font-medium uppercase tracking-wider">{title}</p>
-          <p className="text-2xl font-bold text-[#f0f2f8] mt-1">{value}</p>
+
+      {/* Top line accent */}
+      <div
+        className="absolute top-0 left-0 right-0 h-[2px] opacity-70"
+        style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }}
+      />
+
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[#5C6B73] mb-2">
+            {title}
+          </p>
+          <p className="font-display text-[22px] font-bold text-[#1A3636] leading-none tracking-tight truncate">
+            {value}
+          </p>
           {change && (
-            <p
-              className={cn(
-                'text-xs mt-1 font-medium',
-                changeType === 'up' && 'text-emerald-400',
-                changeType === 'down' && 'text-red-400',
-                changeType === 'neutral' && 'text-[#8892aa]'
-              )}
-            >
-              {changeType === 'up' ? '↑' : changeType === 'down' ? '↓' : ''} {change}
-            </p>
+            <div className="flex items-center gap-1.5 mt-2">
+              <span
+                className={cn(
+                  'inline-flex items-center gap-0.5 text-[11px] font-semibold px-1.5 py-0.5 rounded-md',
+                  isUp   && 'stat-up',
+                  isDown && 'stat-down',
+                  !isUp && !isDown && 'text-[#5C6B73] bg-[#2D7D7D]/[0.07]'
+                )}
+              >
+                {isUp ? '↑' : isDown ? '↓' : ''} {change}
+              </span>
+            </div>
           )}
         </div>
+
         <div
-          className="p-2.5 rounded-xl"
-          style={{ background: `${color}20`, color }}
+          className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center"
+          style={{ background: grad, color }}
         >
           {icon}
         </div>
       </div>
-    </Card>
+    </>
   )
+
+  if (href) {
+    return <Link href={href} className={className}>{inner}</Link>
+  }
+  return <div className={className}>{inner}</div>
 }

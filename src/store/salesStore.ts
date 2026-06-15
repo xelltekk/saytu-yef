@@ -35,10 +35,11 @@ export const useSalesStore = create<SalesState>()((set, get) => ({
     set((state) => {
       const existing = state.cart.find((c) => c.product_id === item.product_id)
       if (existing) {
+        const nextQuantity = Math.min(existing.quantity + 1, existing.max_quantity)
         return {
           cart: state.cart.map((c) =>
             c.product_id === item.product_id
-              ? { ...c, quantity: Math.min(c.quantity + 1, c.max_quantity), total: (c.quantity + 1) * c.unit_price }
+              ? { ...c, quantity: nextQuantity, total: nextQuantity * c.unit_price }
               : c
           ),
         }
@@ -50,13 +51,14 @@ export const useSalesStore = create<SalesState>()((set, get) => ({
   updateCartQuantity: (productId, quantity) =>
     set((state) => ({
       cart: state.cart.map((c) =>
-        c.product_id === productId
-          ? { ...c, quantity, total: quantity * c.unit_price }
-          : c
+        c.product_id === productId ? (() => {
+          const nextQuantity = Math.max(1, Math.min(quantity, c.max_quantity))
+          return { ...c, quantity: nextQuantity, total: nextQuantity * c.unit_price }
+        })() : c
       ),
     })),
   clearCart: () => set({ cart: [], discount: 0, customerName: '', customerPhone: '' }),
-  setDiscount: (discount) => set({ discount }),
+  setDiscount: (discount) => set({ discount: Math.max(0, Math.min(discount, 100)) }),
   setCustomer: (customerName, customerPhone) => set({ customerName, customerPhone }),
   setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
   setSales: (sales) => set({ sales }),

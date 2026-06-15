@@ -46,7 +46,8 @@ export default function DashboardPage() {
             change={loading ? '' : `${metrics?.salesToday ?? 0} transaction(s)`}
             changeType="neutral"
             icon={<TrendingUp size={20} />}
-            color="#4f6ef7"
+            color="#2D7D7D"
+            href="/sales"
           />
           <MetricCard
             title="Ce mois-ci"
@@ -54,7 +55,8 @@ export default function DashboardPage() {
             change={loading ? '' : `${metrics?.salesMonth ?? 0} ventes`}
             changeType="up"
             icon={<ShoppingCart size={20} />}
-            color="#8b5cf6"
+            color="#6C5CE7"
+            href="/sales"
           />
           <MetricCard
             title="Produits en stock"
@@ -62,7 +64,8 @@ export default function DashboardPage() {
             change={loading ? '' : `${metrics?.lowStockCount ?? 0} en alerte`}
             changeType={(metrics?.lowStockCount ?? 0) > 0 ? 'down' : 'neutral'}
             icon={<Package size={20} />}
-            color="#10b981"
+            color="#16A34A"
+            href="/inventory"
           />
           <MetricCard
             title="Marge moyenne"
@@ -70,7 +73,8 @@ export default function DashboardPage() {
             change={loading ? '' : 'Sur tous les produits'}
             changeType="neutral"
             icon={<AlertTriangle size={20} />}
-            color="#f59e0b"
+            color="#F59E0B"
+            href="/reports"
           />
         </div>
 

@@ -94,6 +94,18 @@ export async function addCategory(name: string, color: string): Promise<Category
   return data as Category
 }
 
+export async function updateCategory(id: string, updates: { name?: string; color?: string }): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('categories').update(updates).eq('id', id)
+  if (error) throw error
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('categories').delete().eq('id', id)
+  if (error) throw error
+}
+
 // ─── FOURNISSEURS ─────────────────────────────────────────────────────────────
 
 export async function getSuppliers(): Promise<Supplier[]> {
@@ -121,7 +133,7 @@ export async function getSales(limit = 50): Promise<Sale[]> {
   return (data ?? []) as Sale[]
 }
 
-export async function createSale(sale: {
+type CreateSaleInput = {
   customer_name?: string
   customer_phone?: string
   items: { product_id: string; product_name: string; quantity: number; unit_price: number; total: number }[]
@@ -131,16 +143,68 @@ export async function createSale(sale: {
   total: number
   payment_method: 'cash' | 'wave' | 'orange_money' | 'card'
   notes?: string
-}): Promise<Sale> {
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Non connecté')
+}
 
-  // Créer la vente
+type SupabaseLikeError = {
+  code?: string
+  message?: string
+  details?: string
+  hint?: string
+}
+
+function getSupabaseErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object') {
+    const err = error as SupabaseLikeError
+    const parts = [err.message, err.details, err.hint].filter(Boolean)
+    if (parts.length > 0) return parts.join(' ')
+  }
+  if (typeof error === 'string' && error.trim()) return error
+  return fallback
+}
+
+function isMissingCreateSaleRpc(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const err = error as SupabaseLikeError
+  const code = err.code ?? ''
+  const text = `${err.message ?? ''} ${err.details ?? ''} ${err.hint ?? ''}`.toLowerCase()
+
+  return (
+    code === 'PGRST202' ||
+    code === '42883' ||
+    (
+      text.includes('create_sale_with_items') &&
+      (text.includes('could not find') || text.includes('does not exist') || text.includes('schema cache'))
+    )
+  )
+}
+
+function throwSupabaseError(error: unknown, fallback: string): never {
+  throw new Error(getSupabaseErrorMessage(error, fallback))
+}
+
+async function createSaleLegacy(sale: CreateSaleInput, userId: string): Promise<Sale> {
+  const supabase = createClient()
+  const productIds = sale.items.map((item) => item.product_id)
+  const { data: products, error: productsError } = await supabase
+    .from('products')
+    .select('id, name, quantity')
+    .in('id', productIds)
+
+  if (productsError) throwSupabaseError(productsError, 'Impossible de vérifier le stock')
+
+  for (const item of sale.items) {
+    const product = products?.find((p) => p.id === item.product_id)
+    if (!product) throw new Error(`Produit introuvable: ${item.product_name}`)
+    if (product.quantity < item.quantity) {
+      throw new Error(`Stock insuffisant pour ${product.name}. Disponible: ${product.quantity}`)
+    }
+  }
+
   const { data: saleData, error: saleError } = await supabase
     .from('sales')
     .insert({
-      user_id: user.id,
+      user_id: userId,
       customer_name: sale.customer_name,
       customer_phone: sale.customer_phone,
       subtotal: sale.subtotal,
@@ -154,9 +218,8 @@ export async function createSale(sale: {
     .select()
     .single()
 
-  if (saleError) throw saleError
+  if (saleError) throwSupabaseError(saleError, 'Impossible de créer la vente')
 
-  // Insérer les articles (le trigger SQL mettra à jour le stock automatiquement)
   const { error: itemsError } = await supabase
     .from('sale_items')
     .insert(
@@ -170,9 +233,52 @@ export async function createSale(sale: {
       }))
     )
 
-  if (itemsError) throw itemsError
+  if (itemsError) {
+    await supabase.from('sales').delete().eq('id', saleData.id)
+    throwSupabaseError(itemsError, "Impossible d'enregistrer les articles de la vente")
+  }
 
   return { ...saleData, items: sale.items } as Sale
+}
+
+export async function createSale(sale: CreateSaleInput): Promise<Sale> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Non connecté')
+
+  const { data, error } = await supabase
+    .rpc('create_sale_with_items', {
+      p_customer_name: sale.customer_name ?? null,
+      p_customer_phone: sale.customer_phone ?? null,
+      p_items: sale.items,
+      p_subtotal: sale.subtotal,
+      p_discount: sale.discount,
+      p_tax: sale.tax,
+      p_total: sale.total,
+      p_payment_method: sale.payment_method,
+      p_notes: sale.notes ?? null,
+    })
+
+  if (error) {
+    if (isMissingCreateSaleRpc(error)) {
+      return createSaleLegacy(sale, user.id)
+    }
+    throwSupabaseError(error, 'Erreur lors du paiement')
+  }
+
+  return { ...(data as Omit<Sale, 'items'>), items: sale.items } as Sale
+}
+
+export async function updateSale(id: string, updates: {
+  customer_name?: string
+  customer_phone?: string
+  payment_method?: 'cash' | 'wave' | 'orange_money' | 'card'
+  payment_status?: 'completed' | 'pending' | 'cancelled' | 'refunded'
+  notes?: string
+}): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('sales').update(updates).eq('id', id)
+  if (error) throw error
 }
 
 // ─── PRODUITS ÉTRANGER ────────────────────────────────────────────────────────

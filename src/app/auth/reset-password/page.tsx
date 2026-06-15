@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Zap, Lock, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react'
+import { TrendingUp, Lock, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { createClient } from '@/lib/supabase/client'
 
@@ -53,46 +53,46 @@ export default function ResetPasswordPage() {
 
   return (
     <div className="min-h-screen gradient-bg flex items-center justify-center p-4">
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-96 h-96 bg-[#4f6ef7]/15 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-96 h-96 bg-[#6C5CE7]/10 rounded-full blur-[100px] pointer-events-none" />
 
       <div className="w-full max-w-md relative z-10">
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2.5 mb-6">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#4f6ef7] to-[#8b5cf6] flex items-center justify-center shadow-xl shadow-[rgba(79,110,247,0.4)]">
-              <Zap size={20} className="text-white" />
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#2D7D7D] to-[#4FA3A3] flex items-center justify-center shadow-[0_6px_18px_rgba(45,125,125,0.28)]">
+              <TrendingUp size={20} className="text-white" strokeWidth={2.5} />
             </div>
-            <span className="font-bold text-xl text-[#f0f2f8]">Saytu Yëf</span>
+            <span className="font-bold text-xl text-[#1A3636]">Saytu Yëf</span>
           </Link>
-          <h1 className="text-2xl font-bold text-[#f0f2f8] mb-2">Nouveau mot de passe</h1>
-          <p className="text-sm text-[#8892aa]">Choisissez un mot de passe sécurisé</p>
+          <h1 className="text-2xl font-bold text-[#1A3636] mb-2">Nouveau mot de passe</h1>
+          <p className="text-sm text-[#6B7682]">Choisissez un mot de passe sécurisé</p>
         </div>
 
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0d1120] p-6 shadow-2xl shadow-black/40">
+        <div className="rounded-3xl border border-[#2D7D7D]/[0.08] bg-white p-6 shadow-[0_12px_40px_rgba(26,54,54,0.08)]">
           {success ? (
             <div className="text-center py-4 space-y-4">
               <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto">
-                <CheckCircle size={32} className="text-emerald-400" />
+                <CheckCircle size={32} className="text-emerald-500" />
               </div>
               <div>
-                <p className="text-sm text-[#f0f2f8] font-medium">Mot de passe mis à jour !</p>
-                <p className="text-xs text-[#8892aa] mt-1">Redirection vers le tableau de bord…</p>
+                <p className="text-sm text-[#1A3636] font-medium">Mot de passe mis à jour !</p>
+                <p className="text-xs text-[#6B7682] mt-1">Redirection vers le tableau de bord…</p>
               </div>
             </div>
           ) : !ready ? (
             <div className="text-center py-8 space-y-3">
               <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto">
-                <Lock size={18} className="text-amber-400" />
+                <Lock size={18} className="text-amber-500" />
               </div>
-              <p className="text-sm text-[#8892aa]">Vérification du lien en cours…</p>
-              <p className="text-xs text-[#4a5568]">
+              <p className="text-sm text-[#5C6B73]">Vérification du lien en cours…</p>
+              <p className="text-xs text-[#6B7682]">
                 Si la page reste bloquée, le lien a peut-être expiré.{' '}
-                <Link href="/forgot-password" className="text-[#4f6ef7] hover:underline">Renvoyer un lien</Link>
+                <Link href="/forgot-password" className="text-[#6C5CE7] hover:underline">Renvoyer un lien</Link>
               </p>
             </div>
           ) : (
             <>
               {error && (
-                <div className="flex items-center gap-2 p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+                <div className="flex items-center gap-2 p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-600">
                   <AlertCircle size={15} className="flex-shrink-0" />
                   {error}
                 </div>
@@ -100,30 +100,30 @@ export default function ResetPasswordPage() {
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-[#8892aa] uppercase tracking-wider">Nouveau mot de passe</label>
+                  <label className="text-[11px] font-semibold text-[#5C6B73] uppercase tracking-[0.06em] ml-1">Nouveau mot de passe</label>
                   <div className="relative flex items-center">
-                    <Lock size={14} className="absolute left-3 text-[#8892aa]" />
+                    <Lock size={14} className="absolute left-4 text-[#6B7682] z-10" />
                     <input
                       type={showPassword ? 'text' : 'password'}
                       placeholder="Min. 8 caractères"
                       value={form.password}
                       onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                      className="w-full h-10 pl-9 pr-10 rounded-xl bg-white/[0.04] border border-white/[0.08] text-sm text-[#f0f2f8] placeholder:text-[#4a5568] focus:border-[#4f6ef7] transition-all"
+                      className="w-full h-12 pl-10 pr-11 rounded-full bg-white border border-[#2D7D7D]/[0.14] text-sm text-[#1A3636] placeholder:text-[#6B7682] focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)] hover:border-[#2D7D7D]/[0.24] transition-all"
                       required
                     />
-                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 text-[#8892aa] hover:text-[#f0f2f8] transition-colors">
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 text-[#6B7682] hover:text-[#1A3636] transition-colors z-10">
                       {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                     </button>
                   </div>
                   {form.password && (
-                    <div className="flex gap-1 mt-1">
+                    <div className="flex gap-1 mt-1 px-1">
                       {[...Array(4)].map((_, i) => (
-                        <div key={i} className={`h-0.5 flex-1 rounded-full transition-colors ${
+                        <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${
                           form.password.length > i * 3
-                            ? form.password.length >= 12 ? 'bg-emerald-400'
-                            : form.password.length >= 8 ? 'bg-amber-400'
-                            : 'bg-red-400'
-                            : 'bg-white/[0.08]'
+                            ? form.password.length >= 12 ? 'bg-emerald-500'
+                            : form.password.length >= 8 ? 'bg-amber-500'
+                            : 'bg-red-500'
+                            : 'bg-[#2D7D7D]/[0.1]'
                         }`} />
                       ))}
                     </div>
@@ -131,22 +131,22 @@ export default function ResetPasswordPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-[#8892aa] uppercase tracking-wider">Confirmer le mot de passe</label>
+                  <label className="text-[11px] font-semibold text-[#5C6B73] uppercase tracking-[0.06em] ml-1">Confirmer le mot de passe</label>
                   <div className="relative flex items-center">
-                    <Lock size={14} className="absolute left-3 text-[#8892aa]" />
+                    <Lock size={14} className="absolute left-4 text-[#6B7682] z-10" />
                     <input
                       type={showPassword ? 'text' : 'password'}
                       placeholder="Répétez le mot de passe"
                       value={form.confirm}
                       onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))}
-                      className={`w-full h-10 pl-9 pr-4 rounded-xl bg-white/[0.04] border text-sm text-[#f0f2f8] placeholder:text-[#4a5568] focus:border-[#4f6ef7] transition-all ${
-                        form.confirm && form.confirm !== form.password ? 'border-red-500/50' : 'border-white/[0.08]'
+                      className={`w-full h-12 pl-10 pr-4 rounded-full bg-white border text-sm text-[#1A3636] placeholder:text-[#6B7682] focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)] transition-all ${
+                        form.confirm && form.confirm !== form.password ? 'border-red-500/50' : 'border-[#2D7D7D]/[0.14]'
                       }`}
                       required
                     />
                   </div>
                   {form.confirm && form.confirm === form.password && (
-                    <p className="text-xs text-emerald-400 flex items-center gap-1">
+                    <p className="text-xs text-emerald-600 flex items-center gap-1 ml-1">
                       <CheckCircle size={11} /> Les mots de passe correspondent
                     </p>
                   )}

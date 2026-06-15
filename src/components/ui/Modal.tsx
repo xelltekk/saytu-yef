@@ -51,19 +51,19 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', footer }:
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 sm:p-6"
       onClick={(e) => { if (e.target === overlayRef.current) onClose() }}
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-[#1A3636]/40 backdrop-blur-sm" onClick={onClose} />
       <div
         className={cn(
-          'relative w-full rounded-2xl border border-white/[0.08] bg-[#0d1120] shadow-2xl shadow-black/50 fade-in',
+          'relative w-full rounded-2xl border border-[#2D7D7D]/[0.1] bg-white shadow-[0_20px_60px_rgba(26,54,54,0.25)] fade-in',
           sizes[size]
         )}
       >
         {title && (
-          <div className="flex items-center justify-between p-5 border-b border-white/[0.06]">
-            <h2 className="text-base font-semibold text-[#f0f2f8]">{title}</h2>
+          <div className="flex items-center justify-between p-5 border-b border-[#2D7D7D]/[0.07]">
+            <h2 className="text-base font-semibold text-[#1A3636]">{title}</h2>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-white/[0.06] text-[#8892aa] hover:text-[#f0f2f8] transition-colors"
+              className="p-1.5 rounded-lg hover:bg-[#2D7D7D]/[0.07] text-[#6B7682] hover:text-[#1A3636] transition-colors"
               aria-label="Fermer"
             >
               <X size={16} />
@@ -72,7 +72,7 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', footer }:
         )}
         <div className="p-5 max-h-[70vh] overflow-y-auto">{children}</div>
         {footer && (
-          <div className="flex items-center justify-end gap-3 p-5 border-t border-white/[0.06]">
+          <div className="flex items-center justify-end gap-3 p-5 border-t border-[#2D7D7D]/[0.07]">
             {footer}
           </div>
         )}

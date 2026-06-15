@@ -1,9 +1,10 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { Upload, Camera, X, ImageIcon } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
-import { generateSKU, getProfitMargin } from '@/lib/utils'
+import { generateSKU, getProfitMargin, compressImage } from '@/lib/utils'
 import { addProduct, updateProduct, getCategories } from '@/lib/supabase/queries'
 import type { Product, Category } from '@/types'
 
@@ -37,12 +38,34 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
   const [categories, setCategories] = useState<Category[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [image, setImage] = useState<string>(product?.image_url || '')
+  const [imgLoading, setImgLoading] = useState(false)
+  const uploadRef = useRef<HTMLInputElement>(null)
+  const cameraRef = useRef<HTMLInputElement>(null)
+
+  const handleImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // permet de re-sélectionner le même fichier
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setError('Fichier image invalide'); return }
+    setImgLoading(true)
+    try {
+      const dataUrl = await compressImage(file)
+      setImage(dataUrl)
+    } catch (err) {
+      console.error(err)
+      setError('Impossible de charger l\'image')
+    } finally {
+      setImgLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (!isOpen) return
     getCategories().then(setCategories).catch(console.error)
     setError('')
-  }, [isOpen])
+    setImage(product?.image_url || '')
+  }, [isOpen, product])
 
   // Sync form when product changes (edit vs new)
   useEffect(() => {
@@ -92,6 +115,7 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
         quantity: Number(form.quantity) || 0,
         min_quantity: Number(form.min_quantity) || 5,
         currency: form.currency,
+        image_url: image || undefined,
         status: 'active' as const,
       }
 
@@ -131,10 +155,47 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
-          <div className="px-3 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+          <div className="px-3 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-600">
             {error}
           </div>
         )}
+
+        {/* Photo du produit */}
+        <div className="flex items-center gap-4">
+          <div className="relative w-20 h-20 rounded-2xl bg-[#F4F7FB] border border-[#2D7D7D]/[0.1] flex items-center justify-center overflow-hidden flex-shrink-0">
+            {imgLoading ? (
+              <div className="w-5 h-5 border-2 border-[#6C5CE7] border-t-transparent rounded-full animate-spin" />
+            ) : image ? (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={image} alt="Aperçu produit" className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setImage('')}
+                  className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/55 text-white flex items-center justify-center hover:bg-black/75 transition-colors"
+                  aria-label="Retirer la photo"
+                >
+                  <X size={11} />
+                </button>
+              </>
+            ) : (
+              <ImageIcon size={22} className="text-[#9AA7AE]" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73] mb-2">Photo du produit</p>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" leftIcon={<Upload size={14} />} onClick={() => uploadRef.current?.click()}>
+                Charger
+              </Button>
+              <Button type="button" variant="outline" size="sm" leftIcon={<Camera size={14} />} onClick={() => cameraRef.current?.click()}>
+                Photo
+              </Button>
+            </div>
+            <input ref={uploadRef} type="file" accept="image/*" onChange={handleImageFile} className="hidden" />
+            <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleImageFile} className="hidden" />
+          </div>
+        </div>
 
         <Input
           label="Nom du produit"
@@ -144,7 +205,7 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
           required
         />
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Input
               label="SKU / Référence"
@@ -155,7 +216,7 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
             <button
               type="button"
               onClick={autoSKU}
-              className="text-xs text-[#4f6ef7] hover:text-[#3d5ce5] transition-colors"
+              className="text-xs text-[#6C5CE7] hover:text-[#5A4BD4] transition-colors"
             >
               Générer automatiquement
             </button>
@@ -168,7 +229,7 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <Select
             label="Devise"
             options={CURRENCIES}
@@ -191,7 +252,7 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
               onChange={(e) => setForm((f) => ({ ...f, selling_price: e.target.value }))}
             />
             {margin > 0 && (
-              <p className={`text-xs mt-1 font-medium ${margin > 20 ? 'text-emerald-400' : margin > 10 ? 'text-amber-400' : 'text-red-400'}`}>
+              <p className={`text-xs mt-1 font-medium ${margin > 20 ? 'text-emerald-600' : margin > 10 ? 'text-amber-600' : 'text-red-600'}`}>
                 Marge: {margin.toFixed(1)}%
               </p>
             )}

@@ -13,9 +13,9 @@ const FALLBACK = [
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) => {
   if (active && payload && payload.length) {
     return (
-      <div className="glass rounded-xl px-3 py-2 border border-white/[0.08] text-xs">
-        <p className="text-[#8892aa] mb-1">{label}</p>
-        <p className="text-[#f0f2f8] font-medium">{formatCurrency(payload[0].value)}</p>
+      <div className="rounded-xl px-3 py-2 border border-[#2D7D7D]/[0.12] bg-white shadow-lg text-xs">
+        <p className="text-[#6B7682] mb-1">{label}</p>
+        <p className="text-[#1A3636] font-semibold">{formatCurrency(payload[0].value)}</p>
       </div>
     )
   }
@@ -34,29 +34,29 @@ export function SalesChart({ data, loading }: SalesChartProps) {
     <Card className="col-span-full lg:col-span-2">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-sm font-semibold text-[#f0f2f8]">Revenus ce mois</h3>
-          <p className="text-xs text-[#8892aa] mt-0.5">Comparaison journalière</p>
+          <h3 className="text-[13px] font-semibold text-[#1A3636]">Revenus ce mois</h3>
+          <p className="text-[11px] text-[#6B7682] mt-0.5">Comparaison journalière</p>
         </div>
       </div>
       {loading ? (
         <div className="h-[220px] flex items-center justify-center">
-          <div className="animate-pulse text-[#8892aa] text-sm">Chargement…</div>
+          <div className="animate-pulse text-[#6B7682] text-sm">Chargement…</div>
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
             <defs>
               <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#4f6ef7" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#4f6ef7" stopOpacity={0} />
+                <stop offset="5%" stopColor="#6C5CE7" stopOpacity={0.28} />
+                <stop offset="95%" stopColor="#6C5CE7" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-            <XAxis dataKey="day" tick={{ fill: '#8892aa', fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: '#8892aa', fontSize: 10 }} axisLine={false} tickLine={false}
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(45,125,125,0.08)" />
+            <XAxis dataKey="day" tick={{ fill: '#9AA7AE', fontSize: 11 }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fill: '#9AA7AE', fontSize: 10 }} axisLine={false} tickLine={false}
               tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} width={35} />
-            <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.05)', strokeWidth: 1 }} />
-            <Area type="monotone" dataKey="revenue" stroke="#4f6ef7" strokeWidth={2} fill="url(#revenueGradient)" />
+            <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(45,125,125,0.15)', strokeWidth: 1 }} />
+            <Area type="monotone" dataKey="revenue" stroke="#6C5CE7" strokeWidth={2.5} fill="url(#revenueGradient)" />
           </AreaChart>
         </ResponsiveContainer>
       )}

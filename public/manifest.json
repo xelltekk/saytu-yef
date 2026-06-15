@@ -1,15 +1,19 @@
 {
   "name": "Saytu Yëf — Gestion Stock & Ventes",
   "short_name": "Saytu Yëf",
+  "id": "/",
   "description": "Application de gestion de stock et ventes pour le marché sénégalais. Wave, Orange Money intégrés.",
-  "start_url": "/dashboard",
+  "start_url": "/dashboard?source=pwa",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
-  "background_color": "#080b14",
-  "theme_color": "#080b14",
+  "background_color": "#EEF1FA",
+  "theme_color": "#2D7D7D",
   "lang": "fr",
+  "dir": "ltr",
   "categories": ["business", "finance", "productivity"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icons/icon-72x72.png",
@@ -60,28 +64,19 @@
       "purpose": "maskable any"
     }
   ],
-  "screenshots": [
-    {
-      "src": "/screenshots/dashboard.png",
-      "sizes": "390x844",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Tableau de bord"
-    }
-  ],
   "shortcuts": [
     {
       "name": "Nouvelle vente",
       "short_name": "Vente",
       "description": "Ouvrir la caisse",
-      "url": "/sales",
+      "url": "/sales?source=pwa-shortcut",
       "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
     },
     {
       "name": "Inventaire",
       "short_name": "Stock",
       "description": "Gérer le stock",
-      "url": "/inventory",
+      "url": "/inventory?source=pwa-shortcut",
       "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
     }
   ]

@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Zap, Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
+import { TrendingUp, Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient } from '@/lib/supabase/client'
@@ -51,23 +51,26 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen gradient-bg flex items-center justify-center p-4">
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-96 h-96 bg-[#4f6ef7]/15 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-[#6C5CE7]/10 rounded-full blur-[100px] pointer-events-none" />
 
       <div className="w-full max-w-md relative z-10">
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2.5 mb-6">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#4f6ef7] to-[#8b5cf6] flex items-center justify-center shadow-xl shadow-[rgba(79,110,247,0.4)]">
-              <Zap size={20} className="text-white" />
+          <Link href="/" className="inline-flex flex-col items-center gap-3 mb-4">
+            <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center shadow-[0_8px_24px_rgba(45,125,125,0.18)] border border-[#2D7D7D]/[0.08]">
+              <TrendingUp size={30} className="text-[#2D7D7D]" strokeWidth={2.5} />
             </div>
-            <span className="font-bold text-xl text-[#f0f2f8]">Saytu Yëf</span>
+            <div>
+              <span className="block font-bold text-2xl text-[#1A3636]">Saytu Yëf</span>
+              <span className="block text-sm text-[#2D7D7D] font-medium mt-0.5">Gestion intelligente</span>
+            </div>
           </Link>
-          <h1 className="text-2xl font-bold text-[#f0f2f8] mb-2">Bon retour !</h1>
-          <p className="text-sm text-[#8892aa]">Connectez-vous à votre compte</p>
+          <h1 className="text-xl font-bold text-[#1A3636] mb-1 mt-6">Bon retour !</h1>
+          <p className="text-sm text-[#6B7682]">Connectez-vous à votre compte</p>
         </div>
 
-        <div className="rounded-2xl border border-white/[0.08] bg-[#0d1120] p-6 shadow-2xl shadow-black/40">
+        <div className="rounded-3xl border border-[#2D7D7D]/[0.08] bg-white p-6 shadow-[0_12px_40px_rgba(26,54,54,0.08)]">
           {error && (
-            <div className="flex items-center gap-2 p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-400">
+            <div className="flex items-center gap-2 p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-600">
               <AlertCircle size={15} className="flex-shrink-0" />
               {error}
             </div>
@@ -84,23 +87,23 @@ export default function LoginPage() {
               required
             />
             <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-[#8892aa] uppercase tracking-wider">Mot de passe</label>
-                <Link href="/forgot-password" className="text-xs text-[#4f6ef7] hover:text-[#3d5ce5] transition-colors">
+              <div className="flex items-center justify-between ml-1">
+                <label className="text-[11px] font-semibold text-[#5C6B73] uppercase tracking-[0.06em]">Mot de passe</label>
+                <Link href="/forgot-password" className="text-xs text-[#6C5CE7] hover:text-[#5A4BD4] font-medium transition-colors">
                   Mot de passe oublié ?
                 </Link>
               </div>
               <div className="relative flex items-center">
-                <Lock size={14} className="absolute left-3 text-[#8892aa]" />
+                <Lock size={14} className="absolute left-4 text-[#6B7682] z-10" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   value={form.password}
                   onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                  className="w-full h-10 pl-9 pr-10 rounded-xl bg-white/[0.04] border border-white/[0.08] text-sm text-[#f0f2f8] placeholder:text-[#4a5568] focus:border-[#4f6ef7] transition-all"
+                  className="w-full h-12 pl-10 pr-11 rounded-full bg-white border border-[#2D7D7D]/[0.14] text-sm text-[#1A3636] placeholder:text-[#6B7682] focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)] hover:border-[#2D7D7D]/[0.24] transition-all"
                   required
                 />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 text-[#8892aa] hover:text-[#f0f2f8] transition-colors">
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 text-[#6B7682] hover:text-[#1A3636] transition-colors z-10">
                   {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
@@ -113,16 +116,16 @@ export default function LoginPage() {
 
           <div className="relative my-5">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-white/[0.06]" />
+              <div className="w-full border-t border-[#2D7D7D]/[0.08]" />
             </div>
             <div className="relative flex justify-center text-xs">
-              <span className="bg-[#0d1120] px-3 text-[#8892aa]">ou continuer avec</span>
+              <span className="bg-white px-3 text-[#6B7682]">ou continuer avec</span>
             </div>
           </div>
 
           <button
             onClick={handleGoogle}
-            className="flex items-center justify-center gap-2 w-full h-10 rounded-xl border border-white/[0.08] hover:border-white/[0.16] text-sm text-[#f0f2f8] hover:bg-white/[0.04] transition-all"
+            className="flex items-center justify-center gap-2 w-full h-12 rounded-full border border-[#2D7D7D]/[0.14] hover:border-[#2D7D7D]/[0.24] text-sm font-medium text-[#1A3636] hover:bg-[#2D7D7D]/[0.04] transition-all"
           >
             <svg width="16" height="16" viewBox="0 0 24 24">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -134,9 +137,9 @@ export default function LoginPage() {
           </button>
         </div>
 
-        <p className="text-center text-sm text-[#8892aa] mt-6">
+        <p className="text-center text-sm text-[#6B7682] mt-6">
           Pas encore de compte ?{' '}
-          <Link href="/signup" className="text-[#4f6ef7] hover:text-[#3d5ce5] font-medium transition-colors">
+          <Link href="/signup" className="text-[#6C5CE7] hover:text-[#5A4BD4] font-semibold transition-colors">
             Créer un compte gratuit
           </Link>
         </p>
