@@ -7,6 +7,11 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient } from '@/lib/supabase/client'
 
+type LoginResponse = {
+  error?: string
+  redirectTo?: string
+}
+
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -22,24 +27,29 @@ export default function LoginPage() {
     const redirectPath = nextPath?.startsWith('/') ? nextPath : '/dashboard'
 
     try {
-      const supabase = createClient()
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: form.email,
-        password: form.password,
+      const response = await fetch('/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: form.email,
+          password: form.password,
+          next: redirectPath,
+        }),
       })
 
-      if (signInError) {
+      const payload = (await response.json()) as LoginResponse
+
+      if (!response.ok) {
         setError(
-          signInError.message === 'Invalid login credentials'
-            ? 'Email ou mot de passe incorrect.'
-            : signInError.message === 'Email not confirmed'
-            ? 'Veuillez confirmer votre email avant de vous connecter.'
-            : 'Une erreur est survenue. Réessayez.'
+          payload.error ??
+            'Impossible de se connecter pour le moment. Vérifiez votre connexion et réessayez.'
         )
         return
       }
 
-      window.location.assign(redirectPath)
+      window.location.assign(payload.redirectTo ?? redirectPath)
     } catch {
       setError('Impossible de se connecter pour le moment. Vérifiez votre connexion et réessayez.')
     } finally {
@@ -88,14 +98,19 @@ export default function LoginPage() {
               type="email"
               placeholder="votre@email.com"
               value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              onChange={(e) => setForm((current) => ({ ...current, email: e.target.value }))}
               leftAddon={<Mail size={14} />}
               required
             />
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between ml-1">
-                <label className="text-[11px] font-semibold text-[#5C6B73] uppercase tracking-[0.06em]">Mot de passe</label>
-                <Link href="/forgot-password" className="text-xs text-[#6C5CE7] hover:text-[#5A4BD4] font-medium transition-colors">
+                <label className="text-[11px] font-semibold text-[#5C6B73] uppercase tracking-[0.06em]">
+                  Mot de passe
+                </label>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs text-[#6C5CE7] hover:text-[#5A4BD4] font-medium transition-colors"
+                >
                   Mot de passe oublié ?
                 </Link>
               </div>
@@ -105,11 +120,17 @@ export default function LoginPage() {
                   type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((current) => ({ ...current, password: e.target.value }))
+                  }
                   className="w-full h-12 pl-10 pr-11 rounded-full bg-white border border-[#2D7D7D]/[0.14] text-sm text-[#1A3636] placeholder:text-[#6B7682] focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)] hover:border-[#2D7D7D]/[0.24] transition-all"
                   required
                 />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 text-[#6B7682] hover:text-[#1A3636] transition-colors z-10">
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 text-[#6B7682] hover:text-[#1A3636] transition-colors z-10"
+                >
                   {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
