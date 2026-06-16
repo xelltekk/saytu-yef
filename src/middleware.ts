@@ -1,3 +1,4 @@
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 const PUBLIC_ROUTES = ['/', '/login', '/signup', '/forgot-password', '/auth/callback', '/auth/reset-password']
@@ -23,23 +24,50 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Supabase stocke la session dans un cookie nommé sb-<project-ref>-auth-token
-  const projectRef = process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]?.split('.')[0] ?? ''
-  const cookieName = `sb-${projectRef}-auth-token`
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  })
 
-  const hasSession =
-    request.cookies.has(cookieName) ||
-    request.cookies.has('sb-access-token') ||
-    // format alternatif selon la version de @supabase/ssr
-    [...request.cookies.getAll()].some((c) => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'))
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => {
+            request.cookies.set(name, value)
+          })
 
-  if (!hasSession) {
+          response = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          })
+
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options)
+          })
+        },
+      },
+    }
+  )
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
     const url = new URL('/login', getRequestOrigin(request))
     url.searchParams.set('next', pathname)
     return NextResponse.redirect(url)
   }
 
-  return NextResponse.next()
+  return response
 }
 
 export const config = {
