@@ -2,6 +2,15 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 const PUBLIC_ROUTES = ['/', '/login', '/signup', '/forgot-password', '/auth/callback', '/auth/reset-password']
 
+function getRequestOrigin(request: NextRequest): string {
+  const forwardedHost = request.headers.get('x-forwarded-host')
+  const forwardedProto = request.headers.get('x-forwarded-proto')
+  const host = forwardedHost ?? request.headers.get('host') ?? request.nextUrl.host
+  const proto = forwardedProto ?? request.nextUrl.protocol.replace(':', '')
+
+  return `${proto}://${host}`
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
@@ -25,7 +34,7 @@ export async function middleware(request: NextRequest) {
     [...request.cookies.getAll()].some((c) => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'))
 
   if (!hasSession) {
-    const url = new URL('/login', request.url)
+    const url = new URL('/login', getRequestOrigin(request))
     url.searchParams.set('next', pathname)
     return NextResponse.redirect(url)
   }
