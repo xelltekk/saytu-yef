@@ -59,6 +59,13 @@ export function ServiceWorkerRegister() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!waitingWorker) return
+    if (document.title !== 'Hors ligne - Saytu Yëf') return
+
+    waitingWorker.postMessage({ type: 'SKIP_WAITING' })
+  }, [waitingWorker])
+
   if (!waitingWorker) return null
 
   return (

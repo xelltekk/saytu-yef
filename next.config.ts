@@ -20,8 +20,6 @@ export default withPWA({
     clientsClaim: true,
     cleanupOutdatedCaches: true,
     maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-    navigateFallback: "/offline",
-    navigateFallbackDenylist: [/^\/api\//, /^\/auth\//],
     runtimeCaching: [
       {
         urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
