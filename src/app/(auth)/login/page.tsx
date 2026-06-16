@@ -7,11 +7,6 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient } from '@/lib/supabase/client'
 
-type LoginResponse = {
-  error?: string
-  redirectTo?: string
-}
-
 const GENERIC_LOGIN_ERROR =
   'Impossible de se connecter pour le moment. Verifiez votre connexion et reessayez.'
 
@@ -57,39 +52,9 @@ export default function LoginPage() {
     const redirectPath = nextPath?.startsWith('/') ? nextPath : '/dashboard'
 
     try {
-      const response = await fetch('/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: form.email,
-          password: form.password,
-          next: redirectPath,
-        }),
-      })
-
-      let payload: LoginResponse | null = null
-
-      try {
-        payload = (await response.json()) as LoginResponse
-      } catch {
-        payload = null
-      }
-
-      if (!response.ok) {
-        if (response.status >= 500) {
-          await signInInBrowser(redirectPath)
-          return
-        }
-
-        setError(payload?.error ?? GENERIC_LOGIN_ERROR)
-        return
-      }
-
-      window.location.assign(payload?.redirectTo ?? redirectPath)
-    } catch {
       await signInInBrowser(redirectPath)
+    } catch {
+      setError(GENERIC_LOGIN_ERROR)
     } finally {
       setIsLoading(false)
     }
