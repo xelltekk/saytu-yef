@@ -15,6 +15,7 @@ export function InstallPrompt() {
   const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [show, setShow] = useState(false)
   const [isIOS, setIsIOS] = useState(false)
+  const [isIOSSafari, setIsIOSSafari] = useState(false)
   const [showIOS, setShowIOS] = useState(false)
 
   useEffect(() => {
@@ -30,9 +31,14 @@ export function InstallPrompt() {
     const ios =
       /iphone|ipad|ipod/i.test(navigator.userAgent) &&
       !(window as { MSStream?: unknown }).MSStream
+    const iosSafari =
+      ios &&
+      /safari/i.test(navigator.userAgent) &&
+      !/crios|fxios|edgios|opios/i.test(navigator.userAgent)
 
     if (ios) {
       setIsIOS(true)
+      setIsIOSSafari(iosSafari)
       setTimeout(() => setShowIOS(true), 3000)
       return
     }
@@ -98,10 +104,20 @@ export function InstallPrompt() {
             </p>
             {isIOS ? (
               <p className="mt-1 text-xs leading-relaxed text-[#5C6B73]">
-                Appuyez sur <span className="font-medium text-[#1A3636]">Partager</span> puis{' '}
-                <span className="font-medium text-[#1A3636]">
-                  &quot;Sur l&apos;ecran d&apos;accueil&quot;
-                </span>
+                {isIOSSafari ? (
+                  <>
+                    Appuyez sur <span className="font-medium text-[#1A3636]">Partager</span> puis{' '}
+                    <span className="font-medium text-[#1A3636]">
+                      &quot;Sur l&apos;ecran d&apos;accueil&quot;
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Pour installer sur iPhone, ouvrez cette page dans{' '}
+                    <span className="font-medium text-[#1A3636]">Safari</span>, puis utilisez{' '}
+                    <span className="font-medium text-[#1A3636]">Partager</span>.
+                  </>
+                )}
               </p>
             ) : (
               <p className="mt-1 text-xs leading-relaxed text-[#5C6B73]">

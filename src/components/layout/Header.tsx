@@ -31,7 +31,10 @@ export function Header({ title, subtitle }: HeaderProps) {
   }, [showSearch])
 
   return (
-    <header className="sticky top-0 z-20 border-b border-[#2D7D7D]/[0.07] bg-white/85 backdrop-blur-2xl px-4 lg:px-6 h-14 flex items-center justify-between gap-4">
+    <header
+      className="sticky top-0 z-20 flex min-h-14 items-center justify-between gap-4 border-b border-[#2D7D7D]/[0.07] bg-white/85 px-4 py-2 backdrop-blur-2xl lg:px-6"
+      style={{ paddingTop: 'max(env(safe-area-inset-top), 0px)' }}
+    >
       {/* Title or Search */}
       {showSearch ? (
         <div className="flex-1 flex items-center gap-2">
