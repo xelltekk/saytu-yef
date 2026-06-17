@@ -14,6 +14,29 @@ export function ServiceWorkerRegister() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
 
+    const shouldRegisterWorker =
+      process.env.NODE_ENV === 'production' &&
+      (window.location.protocol === 'https:' || window.location.hostname === 'localhost')
+
+    const cleanupLegacyPwa = async () => {
+      const registrations = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(registrations.map((registration) => registration.unregister()))
+
+      if ('caches' in window) {
+        const cacheKeys = await caches.keys()
+        await Promise.all(cacheKeys.map((cacheKey) => caches.delete(cacheKey)))
+      }
+
+      if (navigator.serviceWorker.controller) {
+        window.location.reload()
+      }
+    }
+
+    if (!shouldRegisterWorker) {
+      cleanupLegacyPwa().catch(console.error)
+      return
+    }
+
     const onControllerChange = () => {
       if (refreshing.current) return
       refreshing.current = true
