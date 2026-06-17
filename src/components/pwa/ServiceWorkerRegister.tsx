@@ -1,4 +1,5 @@
 'use client'
+
 import { useEffect, useRef, useState } from 'react'
 
 type WorkboxWindow = Window & {
@@ -84,7 +85,7 @@ export function ServiceWorkerRegister() {
 
   useEffect(() => {
     if (!waitingWorker) return
-    if (document.title !== 'Hors ligne - Saytu Yëf') return
+    if (window.location.pathname !== '/offline') return
 
     waitingWorker.postMessage({ type: 'SKIP_WAITING' })
   }, [waitingWorker])
@@ -96,7 +97,7 @@ export function ServiceWorkerRegister() {
       <div className="rounded-2xl border border-[#2D7D7D]/[0.12] bg-white/95 p-4 shadow-[0_16px_48px_rgba(26,54,54,0.18)] backdrop-blur-xl">
         <p className="text-sm font-semibold text-[#1A3636]">Nouvelle version disponible</p>
         <p className="mt-1 text-xs leading-relaxed text-[#5C6B73]">
-          Mettez à jour Saytu Yëf quand vous avez terminé l&apos;action en cours.
+          Mettez a jour Saytu Yef quand vous avez termine l&apos;action en cours.
         </p>
         <div className="mt-3 flex gap-2">
           <button
@@ -104,7 +105,7 @@ export function ServiceWorkerRegister() {
             onClick={() => waitingWorker.postMessage({ type: 'SKIP_WAITING' })}
             className="h-9 flex-1 rounded-full bg-gradient-to-r from-[#2D7D7D] to-[#4FA3A3] px-4 text-xs font-semibold text-white shadow-[0_6px_18px_rgba(45,125,125,0.25)] transition-all active:scale-[0.98]"
           >
-            Mettre à jour
+            Mettre a jour
           </button>
           <button
             type="button"

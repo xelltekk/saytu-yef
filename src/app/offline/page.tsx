@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { Package, RefreshCw, WifiOff } from 'lucide-react'
 
 export const metadata = {
-  title: 'Hors ligne - Saytu Yëf',
+  title: 'Hors ligne - Saytu Yef',
 }
 
 export default function OfflinePage() {
@@ -15,7 +15,8 @@ export default function OfflinePage() {
 
         <h1 className="mt-5 text-xl font-bold text-[#1A3636]">Connexion indisponible</h1>
         <p className="mt-2 text-sm leading-relaxed text-[#5C6B73]">
-          Saytu Yëf reste installée sur votre téléphone. Dès que le réseau revient, vos pages et vos données Supabase seront rechargées.
+          Saytu Yef reste installee sur votre telephone. Des que le reseau revient,
+          vos pages et vos donnees Supabase seront rechargees.
         </p>
 
         <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -24,7 +25,7 @@ export default function OfflinePage() {
             className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#2D7D7D] to-[#4FA3A3] px-4 text-sm font-semibold text-white shadow-[0_6px_18px_rgba(45,125,125,0.25)] transition-all active:scale-[0.98]"
           >
             <RefreshCw size={16} />
-            Réessayer
+            Reessayer
           </Link>
           <Link
             href="/inventory"

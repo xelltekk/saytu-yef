@@ -1,8 +1,8 @@
 {
-  "name": "Saytu Yëf — Gestion Stock & Ventes",
-  "short_name": "Saytu Yëf",
+  "name": "Saytu Yef - Gestion Stock & Ventes",
+  "short_name": "Saytu Yef",
   "id": "/",
-  "description": "Application de gestion de stock et ventes pour le marché sénégalais. Wave, Orange Money intégrés.",
+  "description": "Application de gestion de stock et ventes pour le marche senegalais. Wave, Orange Money integres.",
   "start_url": "/dashboard?source=pwa",
   "scope": "/",
   "display": "standalone",
@@ -75,7 +75,7 @@
     {
       "name": "Inventaire",
       "short_name": "Stock",
-      "description": "Gérer le stock",
+      "description": "Gerer le stock",
       "url": "/inventory?source=pwa-shortcut",
       "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
     }

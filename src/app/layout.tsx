@@ -1,28 +1,24 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter } from 'next/font/google'
 import './globals.css'
 import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister'
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
-
 export const metadata: Metadata = {
-  title: 'Saytu Yëf — Gestion de Stock & Ventes au Sénégal',
+  applicationName: 'Saytu Yef',
+  title: 'Saytu Yef - Gestion de Stock & Ventes au Senegal',
   description:
-    'Application SaaS de gestion de stock et de ventes pour les entreprises sénégalaises. Wave, Orange Money intégrés. Entrée hors ligne depuis l\'étranger.',
-  keywords: ['gestion stock', 'ventes', 'Sénégal', 'Wave', 'Orange Money', 'inventaire', 'POS'],
-  authors: [{ name: 'Saytu Yëf' }],
+    "Application SaaS de gestion de stock et de ventes pour les entreprises senegalaises. Wave, Orange Money integres. Saisie hors ligne depuis l'etranger.",
+  keywords: ['gestion stock', 'ventes', 'Senegal', 'Wave', 'Orange Money', 'inventaire', 'POS'],
+  authors: [{ name: 'Saytu Yef' }],
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Saytu Yëf',
-    startupImage: [
-      { url: '/icons/icon-512x512.png' },
-    ],
+    title: 'Saytu Yef',
+    startupImage: [{ url: '/icons/icon-512x512.png' }],
   },
   openGraph: {
-    title: 'Saytu Yëf — Stock & Ventes Simplifiés',
-    description: 'Gérez votre stock et vos ventes facilement, où que vous soyez.',
+    title: 'Saytu Yef - Stock & Ventes simplifies',
+    description: 'Gerez votre stock et vos ventes facilement, ou que vous soyez.',
     type: 'website',
     locale: 'fr_SN',
   },
@@ -51,12 +47,12 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fr" className={`${inter.variable} h-full`} suppressHydrationWarning>
+    <html lang="fr" className="h-full" suppressHydrationWarning>
       <head>
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Saytu Yëf" />
+        <meta name="apple-mobile-web-app-title" content="Saytu Yef" />
         <meta name="format-detection" content="telephone=no" />
         <meta name="google" content="notranslate" />
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
