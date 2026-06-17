@@ -120,6 +120,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
   const total = getTotal()
   const subtotal = getSubtotal()
   const method = PAYMENT_METHODS.find((m) => m.id === paymentMethod) || PAYMENT_METHODS[2]
+  const requiresPhone = paymentMethod === 'wave' || paymentMethod === 'orange_money'
 
   useEffect(() => {
     if (!isOpen) return
@@ -135,6 +136,12 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
       return
     }
 
+    if (requiresPhone && !phone.trim()) {
+      setStep('method')
+      setError('Le numero du client est requis pour ce mode de paiement')
+      return
+    }
+
     const invalidItem = cart.find((item) => item.quantity > item.max_quantity)
     if (invalidItem) {
       setError(`Stock insuffisant pour ${invalidItem.product_name}`)
@@ -146,7 +153,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
     try {
       await createSale({
         customer_name: customerName || undefined,
-        customer_phone: phone || undefined,
+        customer_phone: phone.trim() || undefined,
         items: cart.map((item) => ({
           product_id: item.product_id,
           product_name: item.product_name,
@@ -165,7 +172,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
         businessName: businessName || 'Saytu Yëf',
         date: new Date().toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }),
         customerName: customerName || undefined,
-        phone: phone || undefined,
+        phone: phone.trim() || undefined,
         methodLabel: method.label,
         items: cart.map((item) => ({
           name: item.product_name,
@@ -194,6 +201,16 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
     onClose()
   }
 
+  const handleConfirmStep = () => {
+    if (requiresPhone && !phone.trim()) {
+      setError('Le numero du client est requis pour ce mode de paiement')
+      return
+    }
+
+    setError('')
+    setStep('confirm')
+  }
+
   return (
     <Modal
       isOpen={isOpen}
@@ -203,6 +220,13 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
     >
       {step === 'method' && (
         <div className="space-y-4">
+          {error && (
+            <div className="flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
+              <AlertCircle size={14} />
+              {error}
+            </div>
+          )}
+
           <div className="p-4 rounded-xl bg-[#F4F7FB] border border-[#2D7D7D]/[0.08] text-center">
             <p className="text-xs text-[#6B7682] mb-1">Total à payer</p>
             <p className="text-3xl font-bold text-[#1A3636]">{formatCurrency(total)}</p>
@@ -214,7 +238,10 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
             {PAYMENT_METHODS.map((m) => (
               <button
                 key={m.id}
-                onClick={() => setPaymentMethod(m.id as 'wave' | 'orange_money' | 'cash' | 'card')}
+                onClick={() => {
+                  setPaymentMethod(m.id as 'wave' | 'orange_money' | 'cash' | 'card')
+                  setError('')
+                }}
                 className={`flex flex-col items-center gap-2 p-4 rounded-2xl border transition-all ${paymentMethod === m.id ? 'border-[#6C5CE7] bg-[#6C5CE7]/10' : 'border-[#2D7D7D]/[0.1] bg-[#F4F7FB] hover:border-[#2D7D7D]/[0.2]'}`}
               >
                 <span className="text-2xl">{m.icon}</span>
@@ -224,20 +251,24 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
             ))}
           </div>
 
-          {(paymentMethod === 'wave' || paymentMethod === 'orange_money') && (
+          {requiresPhone && (
             <Input
               label="Numéro de téléphone"
               type="tel"
               placeholder="77 xxx xx xx"
               value={phone}
-              onChange={(e) => { setPhone(e.target.value); setCustomer(customerName, e.target.value) }}
+              onChange={(e) => {
+                setPhone(e.target.value)
+                setCustomer(customerName, e.target.value)
+                setError('')
+              }}
               leftAddon={<Smartphone size={14} />}
             />
           )}
 
           <div className="flex gap-3 pt-2">
             <Button variant="ghost" fullWidth onClick={handleClose}>Annuler</Button>
-            <Button variant="primary" fullWidth onClick={() => setStep('confirm')}>
+            <Button variant="primary" fullWidth onClick={handleConfirmStep}>
               Confirmer
             </Button>
           </div>

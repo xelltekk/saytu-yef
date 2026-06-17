@@ -55,7 +55,6 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
         customer_name: form.customer_name || undefined,
         customer_phone: form.customer_phone || undefined,
         payment_method: form.payment_method as Sale['payment_method'],
-        payment_status: form.payment_status as Sale['payment_status'],
         notes: form.notes || undefined,
       })
       onSaved?.()
@@ -113,12 +112,14 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                   value={form.payment_method}
                   onChange={(e) => setForm((f) => ({ ...f, payment_method: e.target.value }))}
                 />
-                <Select
-                  label="Statut"
-                  options={STATUS_OPTIONS}
-                  value={form.payment_status}
-                  onChange={(e) => setForm((f) => ({ ...f, payment_status: e.target.value }))}
-                />
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">
+                    Statut
+                  </p>
+                  <div className="flex h-11 items-center rounded-full border border-[#2D7D7D]/[0.14] bg-[#F4F7FB] px-4 text-sm text-[#1A3636]">
+                    {STATUS_OPTIONS.find((status) => status.value === sale.payment_status)?.label}
+                  </div>
+                </div>
               </div>
               <Input
                 label="Notes"

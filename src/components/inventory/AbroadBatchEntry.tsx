@@ -1,6 +1,17 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { Globe, Plus, Wifi, WifiOff, Trash2, CheckCircle, ArrowRight, Upload, Pencil } from 'lucide-react'
+
+import { useEffect, useState } from 'react'
+import {
+  ArrowRight,
+  CheckCircle,
+  Globe,
+  Pencil,
+  Plus,
+  Trash2,
+  Upload,
+  Wifi,
+  WifiOff,
+} from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -8,7 +19,14 @@ import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
 import { useInventoryStore } from '@/store/inventoryStore'
 import { formatCurrency, generateSKU } from '@/lib/utils'
-import { addProduct, getCategories } from '@/lib/supabase/queries'
+import {
+  activateAbroadProduct as activateAbroadProductRecord,
+  deleteAbroadProduct as deleteAbroadProductRecord,
+  getAbroadProducts,
+  getCategories,
+  saveAbroadProduct,
+  updateAbroadProductRecord,
+} from '@/lib/supabase/queries'
 import type { AbroadProduct, Category, Product } from '@/types'
 
 const CURRENCIES = [
@@ -22,9 +40,9 @@ const CURRENCIES = [
 ]
 
 const COUNTRIES = [
-  { value: 'SN', label: 'Sénégal' },
+  { value: 'SN', label: 'Senegal' },
   { value: 'CN', label: 'Chine' },
-  { value: 'AE', label: 'Émirats Arabes Unis' },
+  { value: 'AE', label: 'Emirats Arabes Unis' },
   { value: 'TR', label: 'Turquie' },
   { value: 'FR', label: 'France' },
   { value: 'SA', label: 'Arabie Saoudite' },
@@ -45,26 +63,96 @@ interface AbroadBatchEntryProps {
   onTransferred?: (product: Product) => void
 }
 
+function mergeRemoteWithLocal(
+  remoteProducts: AbroadProduct[],
+  localProducts: AbroadProduct[]
+) {
+  const remoteLocalIds = new Set(
+    remoteProducts.map((product) => product.local_id).filter(Boolean)
+  )
+
+  const localPending = localProducts.filter((product) => {
+    if (product.synced) return false
+    return !remoteLocalIds.has(product.local_id ?? product.id)
+  })
+
+  return [...localPending, ...remoteProducts].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  )
+}
+
 export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
-  const { abroadProducts, addAbroadProduct, deleteAbroadProduct, updateAbroadProduct } = useInventoryStore()
+  const {
+    abroadProducts,
+    addAbroadProduct,
+    deleteAbroadProduct,
+    setAbroadProducts,
+    updateAbroadProduct,
+  } = useInventoryStore()
+
   const [categories, setCategories] = useState<Category[]>([])
   const [transferring, setTransferring] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [isOnline, setIsOnline] = useState(() =>
     typeof window !== 'undefined' ? window.navigator.onLine : true
   )
   const [showForm, setShowForm] = useState(false)
   const [activateModal, setActivateModal] = useState<ActivateModalState>({
-    open: false, product: null, sellingPrice: '', buyingPrice: '', categoryId: '', sellingCurrency: 'XOF'
+    open: false,
+    product: null,
+    sellingPrice: '',
+    buyingPrice: '',
+    categoryId: '',
+    sellingCurrency: 'XOF',
   })
   const [form, setForm] = useState({
-    name: '', purchase_price: '', currency: 'XOF', quantity: '1',
-    source_country: 'SN', notes: ''
+    name: '',
+    purchase_price: '',
+    currency: 'XOF',
+    quantity: '1',
+    source_country: 'SN',
+    notes: '',
   })
   const [editId, setEditId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({
-    name: '', purchase_price: '', currency: 'CNY', quantity: '1',
-    source_country: 'CN', notes: ''
+    name: '',
+    purchase_price: '',
+    currency: 'CNY',
+    quantity: '1',
+    source_country: 'CN',
+    notes: '',
   })
+
+  const notActivated = abroadProducts.filter((product) => !product.activated)
+  const pendingSync = abroadProducts.filter((product) => !product.synced)
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  useEffect(() => {
+    getCategories().then(setCategories).catch(console.error)
+  }, [])
+
+  useEffect(() => {
+    if (!isOnline) return
+
+    getAbroadProducts()
+      .then((remoteProducts) => {
+        setAbroadProducts(
+          mergeRemoteWithLocal(remoteProducts, useInventoryStore.getState().abroadProducts)
+        )
+      })
+      .catch(console.error)
+  }, [isOnline, setAbroadProducts])
 
   const openEdit = (product: AbroadProduct) => {
     setEditId(product.id)
@@ -78,38 +166,76 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
     })
   }
 
-  const handleSaveEdit = () => {
+  const pushLocalProduct = async (product: AbroadProduct) => {
+    const localId = product.local_id ?? product.id
+    const savedProduct = await saveAbroadProduct({
+      name: product.name,
+      purchase_price: product.purchase_price,
+      currency: product.currency,
+      quantity: product.quantity,
+      notes: product.notes,
+      source_country: product.source_country,
+      synced: true,
+      activated: product.activated,
+      local_id: localId,
+    })
+
+    deleteAbroadProduct(product.id)
+    addAbroadProduct(savedProduct)
+    return savedProduct
+  }
+
+  const handleSaveEdit = async () => {
     if (!editId || !editForm.name || !editForm.purchase_price) return
-    updateAbroadProduct(editId, {
+
+    const updates = {
       name: editForm.name,
       purchase_price: Number(editForm.purchase_price),
       currency: editForm.currency,
       quantity: Number(editForm.quantity),
       source_country: editForm.source_country,
       notes: editForm.notes,
-    })
+    }
+
+    updateAbroadProduct(editId, updates)
+
+    const editedProduct = abroadProducts.find((product) => product.id === editId)
+    if (isOnline && editedProduct?.synced) {
+      updateAbroadProductRecord(editId, updates).catch((error) => {
+        console.error(error)
+        alert("La modification a ete gardee localement mais n'a pas pu etre synchronisee.")
+      })
+    }
+
     setEditId(null)
   }
 
-  const allProducts = abroadProducts
+  const handleSyncPending = async () => {
+    if (!isOnline || pendingSync.length === 0) return
 
-  useEffect(() => {
-    const on = () => setIsOnline(true)
-    const off = () => setIsOnline(false)
-    // initialise once after mount (outside effect to avoid cascading render lint rule)
-    window.addEventListener('online', on)
-    window.addEventListener('offline', off)
-    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off) }
-  }, [])
+    setSyncing(true)
+    try {
+      for (const product of pendingSync) {
+        await pushLocalProduct(product)
+      }
+    } catch (error) {
+      console.error(error)
+      alert("Erreur lors de la synchronisation des saisies etrangeres")
+    } finally {
+      setSyncing(false)
+    }
+  }
 
-  useEffect(() => {
-    getCategories().then(setCategories).catch(console.error)
-  }, [])
-
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!form.name || !form.purchase_price) return
-    const product: AbroadProduct = {
-      id: Date.now().toString(),
+
+    const localId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : Date.now().toString()
+
+    const localProduct: AbroadProduct = {
+      id: `local-${localId}`,
       user_id: 'u1',
       name: form.name,
       purchase_price: Number(form.purchase_price),
@@ -120,260 +246,392 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
       synced: false,
       activated: false,
       created_at: new Date().toISOString(),
+      local_id: localId,
     }
-    addAbroadProduct(product)
-    setForm({ name: '', purchase_price: '', currency: 'XOF', quantity: '1', source_country: 'SN', notes: '' })
+
+    try {
+      if (isOnline) {
+        const savedProduct = await saveAbroadProduct({
+          name: localProduct.name,
+          purchase_price: localProduct.purchase_price,
+          currency: localProduct.currency,
+          quantity: localProduct.quantity,
+          notes: localProduct.notes,
+          source_country: localProduct.source_country,
+          synced: true,
+          activated: false,
+          local_id: localId,
+        })
+        addAbroadProduct(savedProduct)
+      } else {
+        addAbroadProduct(localProduct)
+      }
+    } catch (error) {
+      console.error(error)
+      addAbroadProduct(localProduct)
+    }
+
+    setForm({
+      name: '',
+      purchase_price: '',
+      currency: 'XOF',
+      quantity: '1',
+      source_country: 'SN',
+      notes: '',
+    })
     setShowForm(false)
   }
 
   const handleActivate = async () => {
-    const p = activateModal.product
-    if (!p || !activateModal.sellingPrice) return
+    const product = activateModal.product
+    if (!product || !activateModal.sellingPrice) return
+
+    if (!isOnline) {
+      alert("La connexion est requise pour transferer cet article vers le stock principal.")
+      return
+    }
+
     setTransferring(true)
     try {
-      // Crée réellement le produit dans le stock principal (Supabase)
-      const createdProduct = await addProduct({
-        name: p.name,
-        sku: generateSKU(p.name),
-        category_id: activateModal.categoryId || undefined,
-        supplier_id: undefined,
-        description: p.notes || undefined,
-        buying_price: Number(activateModal.buyingPrice) || p.purchase_price,
-        selling_price: Number(activateModal.sellingPrice) || 0,
-        quantity: p.quantity,
-        min_quantity: 5,
-        currency: 'XOF',
-        status: 'active',
-      } as Parameters<typeof addProduct>[0])
+      const productToActivate = product.synced ? product : await pushLocalProduct(product)
 
-      // Marque l'article étranger comme transféré
-      updateAbroadProduct(p.id, { activated: true, synced: true })
-      setActivateModal({ open: false, product: null, sellingPrice: '', buyingPrice: '', categoryId: '', sellingCurrency: 'XOF' })
+      const createdProduct = await activateAbroadProductRecord(
+        productToActivate.id,
+        {
+          name: product.name,
+          sku: generateSKU(product.name),
+          category_id: activateModal.categoryId || undefined,
+          supplier_id: undefined,
+          description: product.notes || undefined,
+          buying_price: Number(activateModal.buyingPrice) || product.purchase_price,
+          selling_price: Number(activateModal.sellingPrice) || 0,
+          quantity: product.quantity,
+          min_quantity: 5,
+          currency: 'XOF',
+          status: 'active',
+        } as Parameters<typeof activateAbroadProductRecord>[1]
+      )
+
+      updateAbroadProduct(productToActivate.id, { activated: true, synced: true })
+      setActivateModal({
+        open: false,
+        product: null,
+        sellingPrice: '',
+        buyingPrice: '',
+        categoryId: '',
+        sellingCurrency: 'XOF',
+      })
       onTransferred?.(createdProduct)
-    } catch (err) {
-      console.error(err)
+    } catch (error) {
+      console.error(error)
       alert('Erreur lors du transfert vers le stock principal')
     } finally {
       setTransferring(false)
     }
   }
 
-  const notActivated = allProducts.filter((p) => !p.activated)
-  const pendingSync = allProducts.filter((p) => !p.synced)
+  const handleDeleteItem = async (product: AbroadProduct) => {
+    const previousProducts = abroadProducts
+    deleteAbroadProduct(product.id)
+
+    if (!isOnline || !product.synced) return
+
+    try {
+      await deleteAbroadProductRecord(product.id)
+    } catch (error) {
+      console.error(error)
+      setAbroadProducts(previousProducts)
+      alert("Suppression impossible pour le moment. L'article a ete restaure.")
+    }
+  }
 
   return (
     <div className="space-y-6">
-      {/* Status banner */}
-      <div className={`flex items-center gap-3 p-4 rounded-2xl border ${isOnline ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-amber-500/5 border-amber-500/20'}`}>
+      <div
+        className={`flex items-center gap-3 rounded-2xl border p-4 ${
+          isOnline
+            ? 'border-emerald-500/20 bg-emerald-500/5'
+            : 'border-amber-500/20 bg-amber-500/5'
+        }`}
+      >
         {isOnline ? (
-          <><Wifi size={18} className="text-emerald-600 flex-shrink-0" />
+          <>
+            <Wifi size={18} className="flex-shrink-0 text-emerald-600" />
             <div className="flex-1">
-              <p className="text-sm font-medium text-emerald-600">Connecté — Synchronisation active</p>
-              <p className="text-xs text-[#6B7682]">{pendingSync.length} article(s) en attente de sync</p>
+              <p className="text-sm font-medium text-emerald-600">
+                Connecte - synchronisation active
+              </p>
+              <p className="text-xs text-[#6B7682]">
+                {pendingSync.length} article(s) en attente de sync
+              </p>
             </div>
             {pendingSync.length > 0 && (
-              <Button variant="ghost" size="sm" leftIcon={<Upload size={14} />} className="text-emerald-600">
+              <Button
+                variant="ghost"
+                size="sm"
+                leftIcon={<Upload size={14} />}
+                className="text-emerald-600"
+                onClick={handleSyncPending}
+                isLoading={syncing}
+              >
                 Synchroniser
               </Button>
             )}
           </>
         ) : (
-          <><WifiOff size={18} className="text-amber-600 flex-shrink-0" />
+          <>
+            <WifiOff size={18} className="flex-shrink-0 text-amber-600" />
             <div>
               <p className="text-sm font-medium text-amber-600">Mode hors ligne</p>
-              <p className="text-xs text-[#6B7682]">Vos saisies sont sauvegardées localement</p>
+              <p className="text-xs text-[#6B7682]">
+                Vos saisies sont gardees localement jusqu&apos;au retour du reseau.
+              </p>
             </div>
           </>
         )}
       </div>
 
-      {/* Add form toggle */}
       <Card>
-        <div className="flex items-center justify-between mb-4">
+        <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-[#6C5CE7]/10">
+            <div className="rounded-xl bg-[#6C5CE7]/10 p-2">
               <Globe size={16} className="text-[#6C5CE7]" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-[#1A3636]">Saisie depuis l&apos;étranger</h3>
-              <p className="text-xs text-[#6B7682]">Enregistrez vos achats en déplacement</p>
+              <h3 className="text-sm font-semibold text-[#1A3636]">
+                Saisie depuis l&apos;etranger
+              </h3>
+              <p className="text-xs text-[#6B7682]">
+                Enregistrez vos achats en deplacement
+              </p>
             </div>
           </div>
           <Button
             variant={showForm ? 'ghost' : 'primary'}
             size="sm"
             leftIcon={<Plus size={15} />}
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => setShowForm((current) => !current)}
           >
             {showForm ? 'Annuler' : 'Ajouter'}
           </Button>
         </div>
 
         {showForm && (
-          <div className="border-t border-[#2D7D7D]/[0.08] pt-4 space-y-4 fade-in">
+          <div className="fade-in space-y-4 border-t border-[#2D7D7D]/[0.08] pt-4">
             <Input
               label="Nom du produit"
-              placeholder="ex: Téléphone Xiaomi 14 Pro"
+              placeholder="ex: Telephone Xiaomi 14 Pro"
               value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
             />
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Select
                 label="Pays source"
                 options={COUNTRIES}
                 value={form.source_country}
-                onChange={(e) => setForm((f) => ({ ...f, source_country: e.target.value }))}
+                onChange={(e) =>
+                  setForm((current) => ({ ...current, source_country: e.target.value }))
+                }
               />
               <Select
                 label="Devise"
                 options={CURRENCIES}
                 value={form.currency}
-                onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+                onChange={(e) => setForm((current) => ({ ...current, currency: e.target.value }))}
               />
               <Input
                 label="Prix d'achat"
                 type="number"
                 placeholder="0"
                 value={form.purchase_price}
-                onChange={(e) => setForm((f) => ({ ...f, purchase_price: e.target.value }))}
+                onChange={(e) =>
+                  setForm((current) => ({ ...current, purchase_price: e.target.value }))
+                }
               />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Input
-                label="Quantité"
+                label="Quantite"
                 type="number"
                 placeholder="1"
                 value={form.quantity}
-                onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
+                onChange={(e) => setForm((current) => ({ ...current, quantity: e.target.value }))}
               />
               <Textarea
-                label="Notes (marché, remarques...)"
+                label="Notes (marche, remarques...)"
                 placeholder="ex: Guangzhou Electronics Market"
                 value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                onChange={(e) => setForm((current) => ({ ...current, notes: e.target.value }))}
                 rows={1}
               />
             </div>
             <Button variant="primary" fullWidth onClick={handleAdd}>
-              Enregistrer localement
+              {isOnline ? 'Enregistrer et synchroniser' : 'Enregistrer localement'}
             </Button>
           </div>
         )}
       </Card>
 
-      {/* Products list */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-[#1A3636]">
-            Articles enregistrés ({notActivated.length} à activer)
+            Articles enregistres ({notActivated.length} a activer)
           </h3>
         </div>
 
-        {allProducts.length === 0 ? (
+        {notActivated.length === 0 ? (
           <Card>
             <div className="py-8 text-center">
               <Globe size={28} className="mx-auto mb-3 text-[#6B7682] opacity-50" />
-              <p className="text-sm font-medium text-[#1A3636]">Aucune saisie étrangère</p>
-              <p className="mt-1 text-xs text-[#6B7682]">Ajoutez vos achats, puis transférez-les vers le stock principal.</p>
+              <p className="text-sm font-medium text-[#1A3636]">Aucun article a activer</p>
+              <p className="mt-1 text-xs text-[#6B7682]">
+                Les articles deja transferes restent enregistres mais ne s&apos;affichent plus ici.
+              </p>
             </div>
           </Card>
-        ) : allProducts.map((product) => (
-          <Card key={product.id} className="relative">
-            <div className="flex items-start gap-3">
-              <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${product.activated ? 'bg-emerald-500' : product.synced ? 'bg-[#6C5CE7]' : 'bg-amber-500'}`} />
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-[#1A3636] break-words">{product.name}</p>
-                    <p className="text-xs text-[#6B7682] mt-0.5">
-                      {COUNTRIES.find((c) => c.value === product.source_country)?.label} ·{' '}
-                      {formatCurrency(product.purchase_price, product.currency)} · Qté: {product.quantity}
-                    </p>
-                    {product.notes && (
-                      <p className="text-xs text-[#6B7682] mt-0.5 italic">{product.notes}</p>
-                    )}
-                  </div>
-                  <div className="flex flex-row sm:flex-col items-center sm:items-end gap-2 flex-shrink-0">
-                    <div className="flex gap-1.5">
-                      {product.activated ? (
-                        <Badge variant="success"><CheckCircle size={10} className="mr-1" />Activé</Badge>
-                      ) : product.synced ? (
-                        <Badge variant="info">Synchronisé</Badge>
-                      ) : (
-                        <Badge variant="warning">Local</Badge>
+        ) : (
+          notActivated.map((product) => (
+            <Card key={product.id} className="relative">
+              <div className="flex items-start gap-3">
+                <div
+                  className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${
+                    product.activated
+                      ? 'bg-emerald-500'
+                      : product.synced
+                        ? 'bg-[#6C5CE7]'
+                        : 'bg-amber-500'
+                  }`}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="break-words text-sm font-medium text-[#1A3636]">
+                        {product.name}
+                      </p>
+                      <p className="mt-0.5 text-xs text-[#6B7682]">
+                        {
+                          COUNTRIES.find((country) => country.value === product.source_country)
+                            ?.label
+                        }{' '}
+                        · {formatCurrency(product.purchase_price, product.currency)} · Qte:{' '}
+                        {product.quantity}
+                      </p>
+                      {product.notes && (
+                        <p className="mt-0.5 text-xs italic text-[#6B7682]">{product.notes}</p>
                       )}
                     </div>
-                    {!product.activated && (
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        rightIcon={<ArrowRight size={13} />}
-                        onClick={() => setActivateModal({ open: true, product, sellingPrice: '', buyingPrice: '', categoryId: '', sellingCurrency: 'XOF' })}
-                      >
-                        Transférer
-                      </Button>
-                    )}
+                    <div className="flex flex-row items-center gap-2 sm:flex-col sm:items-end">
+                      <div className="flex gap-1.5">
+                        {product.activated ? (
+                          <Badge variant="success">
+                            <CheckCircle size={10} className="mr-1" />
+                            Active
+                          </Badge>
+                        ) : product.synced ? (
+                          <Badge variant="info">Synchronise</Badge>
+                        ) : (
+                          <Badge variant="warning">Local</Badge>
+                        )}
+                      </div>
+                      {!product.activated && (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          rightIcon={<ArrowRight size={13} />}
+                          onClick={() =>
+                            setActivateModal({
+                              open: true,
+                              product,
+                              sellingPrice: '',
+                              buyingPrice: '',
+                              categoryId: '',
+                              sellingCurrency: 'XOF',
+                            })
+                          }
+                        >
+                          Transferer
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="flex flex-col gap-1 flex-shrink-0">
-                {!product.activated && (
+                <div className="flex flex-shrink-0 flex-col gap-1">
+                  {!product.activated && (
+                    <button
+                      onClick={() => openEdit(product)}
+                      title="Modifier"
+                      aria-label="Modifier l'article"
+                      className="rounded-lg p-1.5 text-[#6B7682] transition-colors hover:bg-[#6C5CE7]/[0.1] hover:text-[#6C5CE7]"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                  )}
                   <button
-                    onClick={() => openEdit(product)}
-                    title="Modifier"
-                    aria-label="Modifier l'article"
-                    className="p-1.5 rounded-lg text-[#6B7682] hover:text-[#6C5CE7] hover:bg-[#6C5CE7]/[0.1] transition-colors"
+                    onClick={() => handleDeleteItem(product)}
+                    title="Supprimer"
+                    aria-label="Supprimer l'article"
+                    className="rounded-lg p-1.5 text-[#6B7682] transition-colors hover:bg-red-500/5 hover:text-red-600"
                   >
-                    <Pencil size={14} />
+                    <Trash2 size={14} />
                   </button>
-                )}
-                <button
-                  onClick={() => deleteAbroadProduct(product.id)}
-                  title="Supprimer"
-                  aria-label="Supprimer l'article"
-                  className="p-1.5 rounded-lg text-[#6B7682] hover:text-red-600 hover:bg-red-500/5 transition-colors"
-                >
-                  <Trash2 size={14} />
-                </button>
+                </div>
               </div>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          ))
+        )}
       </div>
 
-      {/* Activate / Transfer modal */}
       <Modal
         isOpen={activateModal.open}
-        onClose={() => setActivateModal((s) => ({ ...s, open: false }))}
-        title="Transférer vers le stock principal"
+        onClose={() => setActivateModal((current) => ({ ...current, open: false }))}
+        title="Transferer vers le stock principal"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setActivateModal((s) => ({ ...s, open: false }))}>Annuler</Button>
-            <Button variant="primary" onClick={handleActivate} isLoading={transferring} disabled={!activateModal.sellingPrice}>
-              Transférer
+            <Button
+              variant="ghost"
+              onClick={() => setActivateModal((current) => ({ ...current, open: false }))}
+            >
+              Annuler
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleActivate}
+              isLoading={transferring}
+              disabled={!activateModal.sellingPrice}
+            >
+              Transferer
             </Button>
           </>
         }
       >
         {activateModal.product && (
           <div className="space-y-4">
-            <div className="p-3 rounded-xl bg-[#F4F7FB] border border-[#2D7D7D]/[0.08]">
-              <p className="text-sm font-medium text-[#1A3636]">{activateModal.product.name}</p>
-              <p className="text-xs text-[#6B7682] mt-1">
-                Prix achat: {formatCurrency(activateModal.product.purchase_price, activateModal.product.currency)} · Qté: {activateModal.product.quantity}
+            <div className="rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+              <p className="text-sm font-medium text-[#1A3636]">
+                {activateModal.product.name}
+              </p>
+              <p className="mt-1 text-xs text-[#6B7682]">
+                Prix achat:{' '}
+                {formatCurrency(
+                  activateModal.product.purchase_price,
+                  activateModal.product.currency
+                )}{' '}
+                · Qte: {activateModal.product.quantity}
               </p>
             </div>
             <p className="text-xs text-[#6B7682]">
-              Ce produit sera ajouté à votre inventaire principal avec la quantité saisie.
+              Ce produit sera ajoute a votre inventaire principal avec la quantite saisie.
             </p>
             <Select
-              label="Catégorie (optionnel)"
+              label="Categorie (optionnel)"
               options={[
-                { value: '', label: 'Sans catégorie' },
-                ...categories.map((c) => ({ value: c.id, label: c.name })),
+                { value: '', label: 'Sans categorie' },
+                ...categories.map((category) => ({ value: category.id, label: category.name })),
               ]}
               value={activateModal.categoryId}
-              onChange={(e) => setActivateModal((s) => ({ ...s, categoryId: e.target.value }))}
+              onChange={(e) =>
+                setActivateModal((current) => ({ ...current, categoryId: e.target.value }))
+              }
             />
             <div className="grid grid-cols-2 gap-3">
               <Input
@@ -381,72 +639,83 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                 type="number"
                 placeholder={String(activateModal.product.purchase_price)}
                 value={activateModal.buyingPrice}
-                onChange={(e) => setActivateModal((s) => ({ ...s, buyingPrice: e.target.value }))}
+                onChange={(e) =>
+                  setActivateModal((current) => ({ ...current, buyingPrice: e.target.value }))
+                }
               />
               <Input
                 label="Prix de vente (FCFA)"
                 type="number"
                 placeholder="ex: 150000"
                 value={activateModal.sellingPrice}
-                onChange={(e) => setActivateModal((s) => ({ ...s, sellingPrice: e.target.value }))}
+                onChange={(e) =>
+                  setActivateModal((current) => ({ ...current, sellingPrice: e.target.value }))
+                }
               />
             </div>
           </div>
         )}
       </Modal>
 
-      {/* Edit modal */}
       <Modal
         isOpen={editId !== null}
         onClose={() => setEditId(null)}
         title="Modifier l'article"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setEditId(null)}>Annuler</Button>
-            <Button variant="primary" onClick={handleSaveEdit}>Enregistrer</Button>
+            <Button variant="ghost" onClick={() => setEditId(null)}>
+              Annuler
+            </Button>
+            <Button variant="primary" onClick={handleSaveEdit}>
+              Enregistrer
+            </Button>
           </>
         }
       >
         <div className="space-y-4">
           <Input
             label="Nom du produit"
-            placeholder="ex: Téléphone Xiaomi 14 Pro"
+            placeholder="ex: Telephone Xiaomi 14 Pro"
             value={editForm.name}
-            onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+            onChange={(e) => setEditForm((current) => ({ ...current, name: e.target.value }))}
           />
           <div className="grid grid-cols-3 gap-3">
             <Select
               label="Pays source"
               options={COUNTRIES}
               value={editForm.source_country}
-              onChange={(e) => setEditForm((f) => ({ ...f, source_country: e.target.value }))}
+              onChange={(e) =>
+                setEditForm((current) => ({ ...current, source_country: e.target.value }))
+              }
             />
             <Select
               label="Devise"
               options={CURRENCIES}
               value={editForm.currency}
-              onChange={(e) => setEditForm((f) => ({ ...f, currency: e.target.value }))}
+              onChange={(e) => setEditForm((current) => ({ ...current, currency: e.target.value }))}
             />
             <Input
               label="Prix d'achat"
               type="number"
               placeholder="0"
               value={editForm.purchase_price}
-              onChange={(e) => setEditForm((f) => ({ ...f, purchase_price: e.target.value }))}
+              onChange={(e) =>
+                setEditForm((current) => ({ ...current, purchase_price: e.target.value }))
+              }
             />
           </div>
           <Input
-            label="Quantité"
+            label="Quantite"
             type="number"
             placeholder="1"
             value={editForm.quantity}
-            onChange={(e) => setEditForm((f) => ({ ...f, quantity: e.target.value }))}
+            onChange={(e) => setEditForm((current) => ({ ...current, quantity: e.target.value }))}
           />
           <Textarea
-            label="Notes (marché, remarques...)"
+            label="Notes (marche, remarques...)"
             placeholder="ex: Guangzhou Electronics Market"
             value={editForm.notes}
-            onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
+            onChange={(e) => setEditForm((current) => ({ ...current, notes: e.target.value }))}
             rows={2}
           />
         </div>

@@ -308,6 +308,15 @@ export async function saveAbroadProduct(product: Omit<AbroadProduct, 'id' | 'use
   return data as AbroadProduct
 }
 
+export async function updateAbroadProductRecord(
+  id: string,
+  updates: Partial<Omit<AbroadProduct, 'id' | 'user_id' | 'created_at'>>
+): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('abroad_products').update(updates).eq('id', id)
+  if (error) throw error
+}
+
 export async function activateAbroadProduct(
   abroadId: string,
   productPayload: Omit<Product, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'category' | 'supplier'>
