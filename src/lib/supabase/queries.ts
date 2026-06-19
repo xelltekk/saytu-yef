@@ -356,10 +356,7 @@ export async function getDashboardMetrics() {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-  const startOfWeek = new Date(today)
-  startOfWeek.setDate(today.getDate() - today.getDay())
-
-  const [salesToday, salesMonth, products, , recentSales] = await Promise.all([
+  const [salesToday, salesMonth, products, recentSales] = await Promise.all([
     supabase
       .from('sales')
       .select('total')
@@ -372,27 +369,27 @@ export async function getDashboardMetrics() {
       .gte('created_at', startOfMonth.toISOString())
       .eq('payment_status', 'completed'),
 
-    supabase.from('products').select('id, quantity, min_quantity, buying_price, selling_price'),
-
     supabase
       .from('products')
-      .select('id, name, quantity, min_quantity')
-      .filter('quantity', 'lte', 'min_quantity'),
+      .select('id, quantity, min_quantity, buying_price, selling_price, status'),
 
     supabase
       .from('sales')
       .select('*, items:sale_items(*)')
+      .eq('payment_status', 'completed')
       .order('created_at', { ascending: false })
       .limit(5),
   ])
 
   const revenueToday = (salesToday.data ?? []).reduce((s, r) => s + Number(r.total), 0)
   const revenueMonth = (salesMonth.data ?? []).reduce((s, r) => s + Number(r.total), 0)
-  const totalProducts = products.data?.length ?? 0
-  const lowStockCount = (products.data ?? []).filter(p => p.quantity <= p.min_quantity).length
+  const inventoryProducts = ((products.data ?? []) as unknown as Array<Pick<Product, 'quantity' | 'min_quantity' | 'buying_price' | 'selling_price' | 'status'>>)
+  const activeProducts = inventoryProducts.filter((product) => product.status === 'active')
+  const totalProducts = activeProducts.length
+  const lowStockCount = activeProducts.filter((product) => product.quantity <= product.min_quantity).length
 
   // Calcul marge moyenne
-  const validProducts = (products.data ?? []).filter(p => p.selling_price > 0)
+  const validProducts = activeProducts.filter((product) => product.selling_price > 0)
   const avgMargin = validProducts.length
     ? validProducts.reduce((s, p) => s + ((p.selling_price - p.buying_price) / p.selling_price) * 100, 0) / validProducts.length
     : 0

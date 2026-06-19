@@ -18,18 +18,38 @@ export function LowStockAlert() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const supabase = createClient()
-    supabase
-      .from('products')
-      .select('id, name, quantity, min_quantity, category:categories(name)')
-      .lte('quantity', 5)
-      .eq('status', 'active')
-      .order('quantity')
-      .limit(5)
-      .then(({ data }) => {
-        setItems((data ?? []) as unknown as LowStockItem[])
+    let active = true
+
+    const loadLowStockItems = async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('products')
+        .select('id, name, quantity, min_quantity, category:categories(name)')
+        .eq('status', 'active')
+        .order('quantity')
+
+      if (!active) return
+
+      if (error) {
+        console.error(error)
+        setItems([])
         setLoading(false)
-      })
+        return
+      }
+
+      const lowStockItems = ((data ?? []) as unknown as LowStockItem[])
+        .filter((item) => item.quantity <= item.min_quantity)
+        .slice(0, 5)
+
+      setItems(lowStockItems)
+      setLoading(false)
+    }
+
+    void loadLowStockItems()
+
+    return () => {
+      active = false
+    }
   }, [])
 
   return (

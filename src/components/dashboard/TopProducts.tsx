@@ -11,30 +11,64 @@ interface TopProduct {
   revenue: number
 }
 
+interface SaleItemSummary {
+  product_name: string
+  quantity: number
+  total: number
+}
+
+interface SaleWithItems {
+  items: SaleItemSummary[] | null
+}
+
 export function TopProducts() {
   const [products, setProducts] = useState<TopProduct[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const supabase = createClient()
-    const start = new Date()
-    start.setMonth(start.getMonth() - 1)
+    let active = true
 
-    supabase
-      .from('sale_items')
-      .select('product_name, quantity, total, sale:sales!inner(created_at, payment_status)')
-      .gte('sale.created_at', start.toISOString())
-      .then(({ data }) => {
+    const loadTopProducts = async () => {
+      const supabase = createClient()
+      const start = new Date()
+      start.setMonth(start.getMonth() - 1)
+
+      const { data, error } = await supabase
+        .from('sales')
+        .select('items:sale_items(product_name, quantity, total)')
+        .gte('created_at', start.toISOString())
+        .eq('payment_status', 'completed')
+
+      if (!active) return
+
+      if (error) {
+        console.error(error)
+        setProducts([])
+        setLoading(false)
+        return
+      }
+
         const map: Record<string, TopProduct> = {}
-        ;(data ?? []).forEach((item: { product_name: string; quantity: number; total: number }) => {
-          if (!map[item.product_name]) map[item.product_name] = { product_name: item.product_name, sold: 0, revenue: 0 }
-          map[item.product_name].sold += item.quantity
-          map[item.product_name].revenue += Number(item.total)
+        ;((data ?? []) as SaleWithItems[]).forEach((sale) => {
+          sale.items?.forEach((item) => {
+            if (!map[item.product_name]) {
+              map[item.product_name] = { product_name: item.product_name, sold: 0, revenue: 0 }
+            }
+            map[item.product_name].sold += item.quantity
+            map[item.product_name].revenue += Number(item.total)
+          })
         })
+
         const sorted = Object.values(map).sort((a, b) => b.revenue - a.revenue).slice(0, 5)
         setProducts(sorted)
         setLoading(false)
-      })
+    }
+
+    void loadTopProducts()
+
+    return () => {
+      active = false
+    }
   }, [])
 
   return (
