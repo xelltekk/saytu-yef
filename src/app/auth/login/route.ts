@@ -10,6 +10,11 @@ type LoginBody = {
   next?: string
 }
 
+type LoginSessionPayload = {
+  access_token: string
+  refresh_token: string
+}
+
 function getRedirectPath(nextPath?: string) {
   return nextPath?.startsWith('/') ? nextPath : '/dashboard'
 }
@@ -58,7 +63,7 @@ export async function POST(request: Request) {
     }
   )
 
-  const { error } = await supabase.auth.signInWithPassword({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email: body.email,
     password: body.password,
   })
@@ -70,8 +75,19 @@ export async function POST(request: Request) {
     )
   }
 
+  const sessionPayload =
+    data.session?.access_token && data.session?.refresh_token
+      ? {
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        }
+      : null
+
   return NextResponse.json(
-    { redirectTo: getRedirectPath(body.next) },
+    {
+      redirectTo: getRedirectPath(body.next),
+      session: sessionPayload satisfies LoginSessionPayload | null,
+    },
     { headers: { 'Cache-Control': 'no-store, max-age=0' } }
   )
 }

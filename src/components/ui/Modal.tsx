@@ -48,13 +48,13 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', footer }:
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 sm:p-6"
+      className="fixed inset-0 z-50 flex items-end justify-center p-2 sm:items-center sm:p-6"
       onClick={(e) => { if (e.target === overlayRef.current) onClose() }}
     >
       <div className="absolute inset-0 bg-[#1A3636]/40 backdrop-blur-sm" onClick={onClose} />
       <div
         className={cn(
-          'relative w-full rounded-2xl border border-[#2D7D7D]/[0.1] bg-white shadow-[0_20px_60px_rgba(26,54,54,0.25)] fade-in',
+          'relative w-full max-h-[calc(100dvh-0.5rem)] rounded-[28px] sm:rounded-2xl border border-[#2D7D7D]/[0.1] bg-white shadow-[0_20px_60px_rgba(26,54,54,0.25)] fade-in',
           sizes[size]
         )}
       >
@@ -70,9 +70,9 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', footer }:
             </button>
           </div>
         )}
-        <div className="p-5 max-h-[70vh] overflow-y-auto">{children}</div>
+        <div className="max-h-[calc(100dvh-9rem)] overflow-y-auto p-5 sm:max-h-[70vh]">{children}</div>
         {footer && (
-          <div className="flex items-center justify-end gap-3 p-5 border-t border-[#2D7D7D]/[0.07]">
+          <div className="flex items-center justify-end gap-3 border-t border-[#2D7D7D]/[0.07] p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
             {footer}
           </div>
         )}

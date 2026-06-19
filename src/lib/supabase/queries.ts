@@ -125,9 +125,20 @@ export async function getSales(limit = 50): Promise<Sale[]> {
   const supabase = createClient()
   const { data, error } = await supabase
     .from('sales')
-    .select('*, items:sale_items(*)')
+    .select('*, items:sale_items(*), payments:sale_payments(*)')
     .order('created_at', { ascending: false })
     .limit(limit)
+
+  if (error && isMissingSchemaObject(error, 'sale_payments')) {
+    const fallback = await supabase
+      .from('sales')
+      .select('*, items:sale_items(*)')
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (fallback.error) throw fallback.error
+    return (fallback.data ?? []) as Sale[]
+  }
 
   if (error) throw error
   return (data ?? []) as Sale[]
@@ -141,8 +152,15 @@ type CreateSaleInput = {
   discount: number
   tax: number
   total: number
+  amount_paid?: number
   payment_method: 'cash' | 'wave' | 'orange_money' | 'card'
   notes?: string
+}
+
+type RecordSalePaymentInput = {
+  amount: number
+  payment_method: 'cash' | 'wave' | 'orange_money' | 'card'
+  note?: string
 }
 
 type SupabaseLikeError = {
@@ -163,7 +181,7 @@ function getSupabaseErrorMessage(error: unknown, fallback: string): string {
   return fallback
 }
 
-function isMissingCreateSaleRpc(error: unknown): boolean {
+function isMissingRpc(error: unknown, rpcName: string): boolean {
   if (!error || typeof error !== 'object') return false
   const err = error as SupabaseLikeError
   const code = err.code ?? ''
@@ -173,10 +191,36 @@ function isMissingCreateSaleRpc(error: unknown): boolean {
     code === 'PGRST202' ||
     code === '42883' ||
     (
-      text.includes('create_sale_with_items') &&
+      text.includes(rpcName.toLowerCase()) &&
       (text.includes('could not find') || text.includes('does not exist') || text.includes('schema cache'))
     )
   )
+}
+
+function isMissingSchemaObject(error: unknown, objectName: string): boolean {
+  if (!error || typeof error !== 'object') return false
+  const err = error as SupabaseLikeError
+  const code = err.code ?? ''
+  const text = `${err.message ?? ''} ${err.details ?? ''} ${err.hint ?? ''}`.toLowerCase()
+
+  return (
+    code === 'PGRST200' ||
+    code === '42P01' ||
+    code === '42703' ||
+    (
+      text.includes(objectName.toLowerCase()) &&
+      (text.includes('could not find') || text.includes('does not exist') || text.includes('relationship'))
+    )
+  )
+}
+
+function normalizeAmountPaid(total: number, amountPaid?: number): number {
+  if (typeof amountPaid !== 'number' || Number.isNaN(amountPaid)) return total
+  return Math.max(0, Math.min(amountPaid, total))
+}
+
+function getPartialPaymentSetupMessage(): string {
+  return 'Les paiements partiels demandent la mise a jour SQL Supabase du module dettes clients.'
 }
 
 function throwSupabaseError(error: unknown, fallback: string): never {
@@ -184,6 +228,11 @@ function throwSupabaseError(error: unknown, fallback: string): never {
 }
 
 async function createSaleLegacy(sale: CreateSaleInput, userId: string): Promise<Sale> {
+  const amountPaid = normalizeAmountPaid(sale.total, sale.amount_paid)
+  if (Math.abs(amountPaid - sale.total) > 0.001) {
+    throw new Error(getPartialPaymentSetupMessage())
+  }
+
   const supabase = createClient()
   const productIds = sale.items.map((item) => item.product_id)
   const { data: products, error: productsError } = await supabase
@@ -246,8 +295,11 @@ export async function createSale(sale: CreateSaleInput): Promise<Sale> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Non connecté')
 
+  const amountPaid = normalizeAmountPaid(sale.total, sale.amount_paid)
+  const isPartialPayment = Math.abs(amountPaid - sale.total) > 0.001
+
   const { data, error } = await supabase
-    .rpc('create_sale_with_items', {
+    .rpc('create_sale_with_items_v2', {
       p_customer_name: sale.customer_name ?? null,
       p_customer_phone: sale.customer_phone ?? null,
       p_items: sale.items,
@@ -255,15 +307,45 @@ export async function createSale(sale: CreateSaleInput): Promise<Sale> {
       p_discount: sale.discount,
       p_tax: sale.tax,
       p_total: sale.total,
+      p_amount_paid: amountPaid,
       p_payment_method: sale.payment_method,
       p_notes: sale.notes ?? null,
     })
 
   if (error) {
-    if (isMissingCreateSaleRpc(error)) {
-      return createSaleLegacy(sale, user.id)
+    if (isMissingRpc(error, 'create_sale_with_items_v2')) {
+      if (isPartialPayment) {
+        throw new Error(getPartialPaymentSetupMessage())
+      }
+
+      const { data: legacyData, error: legacyError } = await supabase
+        .rpc('create_sale_with_items', {
+          p_customer_name: sale.customer_name ?? null,
+          p_customer_phone: sale.customer_phone ?? null,
+          p_items: sale.items,
+          p_subtotal: sale.subtotal,
+          p_discount: sale.discount,
+          p_tax: sale.tax,
+          p_total: sale.total,
+          p_payment_method: sale.payment_method,
+          p_notes: sale.notes ?? null,
+        })
+
+      if (legacyError) {
+        if (isMissingRpc(legacyError, 'create_sale_with_items')) {
+          return createSaleLegacy(sale, user.id)
+        }
+
+        throwSupabaseError(legacyError, 'Erreur lors du paiement')
+      }
+
+      return { ...(legacyData as Omit<Sale, 'items'>), items: sale.items } as Sale
     }
-    throwSupabaseError(error, 'Erreur lors du paiement')
+
+    throwSupabaseError(
+      error,
+      isPartialPayment ? "Erreur lors de l'enregistrement du paiement partiel" : 'Erreur lors du paiement'
+    )
   }
 
   return { ...(data as Omit<Sale, 'items'>), items: sale.items } as Sale
@@ -273,12 +355,32 @@ export async function updateSale(id: string, updates: {
   customer_name?: string
   customer_phone?: string
   payment_method?: 'cash' | 'wave' | 'orange_money' | 'card'
-  payment_status?: 'completed' | 'pending' | 'cancelled' | 'refunded'
+  payment_status?: 'completed' | 'partial' | 'pending' | 'cancelled' | 'refunded'
   notes?: string
 }): Promise<void> {
   const supabase = createClient()
   const { error } = await supabase.from('sales').update(updates).eq('id', id)
   if (error) throw error
+}
+
+export async function recordSalePayment(id: string, payment: RecordSalePaymentInput): Promise<Sale> {
+  const supabase = createClient()
+  const { data, error } = await supabase.rpc('record_sale_payment', {
+    p_sale_id: id,
+    p_amount: payment.amount,
+    p_payment_method: payment.payment_method,
+    p_note: payment.note ?? null,
+  })
+
+  if (error) {
+    if (isMissingRpc(error, 'record_sale_payment')) {
+      throw new Error(getPartialPaymentSetupMessage())
+    }
+
+    throwSupabaseError(error, "Erreur lors de l'enregistrement du versement")
+  }
+
+  return data as Sale
 }
 
 // ─── PRODUITS ÉTRANGER ────────────────────────────────────────────────────────

@@ -18,7 +18,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   const [search, setSearch] = useState('')
   const [products, setProducts] = useState<Product[]>([])
   const [loadingProducts, setLoadingProducts] = useState(true)
-  const { cart, addToCart, removeFromCart, updateCartQuantity, discount, setDiscount, getSubtotal, getTotal, customerName, setCustomer } = useSalesStore()
+  const { cart, addToCart, removeFromCart, updateCartQuantity, discount, setDiscount, getSubtotal, getTotal, customerName, customerPhone, setCustomer } = useSalesStore()
 
   useEffect(() => {
     setLoadingProducts(true)
@@ -130,7 +130,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         <Input
           placeholder="Nom du client (optionnel)"
           value={customerName}
-          onChange={(e) => setCustomer(e.target.value, '')}
+          onChange={(e) => setCustomer(e.target.value, customerPhone)}
           leftAddon={<User size={14} />}
         />
 

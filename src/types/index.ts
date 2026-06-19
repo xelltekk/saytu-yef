@@ -75,10 +75,13 @@ export interface Sale {
   discount: number
   tax: number
   total: number
+  amount_paid?: number
+  amount_due?: number
   payment_method: 'cash' | 'wave' | 'orange_money' | 'card'
-  payment_status: 'completed' | 'pending' | 'cancelled' | 'refunded'
+  payment_status: 'completed' | 'partial' | 'pending' | 'cancelled' | 'refunded'
   notes?: string
   created_at: string
+  payments?: SalePayment[]
 }
 
 export interface SaleItem {
@@ -92,6 +95,16 @@ export interface SaleItem {
 export interface CartItem extends SaleItem {
   image_url?: string
   max_quantity: number
+}
+
+export interface SalePayment {
+  id: string
+  sale_id: string
+  user_id: string
+  amount: number
+  payment_method: 'cash' | 'wave' | 'orange_money' | 'card'
+  note?: string
+  created_at: string
 }
 
 export interface DashboardMetrics {

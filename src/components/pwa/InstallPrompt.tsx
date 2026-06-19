@@ -84,7 +84,10 @@ export function InstallPrompt() {
   if (!show && !showIOS) return null
 
   return (
-    <div className="animate-in slide-in-from-bottom-4 fixed bottom-20 left-4 right-4 z-50 duration-300 lg:left-auto lg:right-6 lg:w-80">
+    <div
+      className="animate-in slide-in-from-bottom-4 fixed left-4 right-4 z-50 duration-300 lg:left-auto lg:right-6 lg:w-80"
+      style={{ bottom: 'calc(env(safe-area-inset-bottom) + 5rem)' }}
+    >
       <div className="rounded-2xl border border-[#2D7D7D]/[0.1] bg-white/95 p-4 shadow-[0_16px_48px_rgba(26,54,54,0.18)] backdrop-blur-xl">
         <button
           onClick={dismiss}

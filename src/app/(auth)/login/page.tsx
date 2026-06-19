@@ -28,21 +28,6 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [form, setForm] = useState({ email: '', password: '' })
 
-  const signInInBrowser = async (redirectPath: string) => {
-    const supabase = createClient()
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: form.email,
-      password: form.password,
-    })
-
-    if (signInError) {
-      setError(getFriendlyError(signInError.message))
-      return
-    }
-
-    window.location.assign(redirectPath)
-  }
-
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setIsLoading(true)
@@ -52,7 +37,46 @@ export default function LoginPage() {
     const redirectPath = nextPath?.startsWith('/') ? nextPath : '/dashboard'
 
     try {
-      await signInInBrowser(redirectPath)
+      const supabase = createClient()
+      const response = await fetch('/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: form.email,
+          password: form.password,
+          next: redirectPath,
+        }),
+      })
+
+      const payload = (await response.json()) as {
+        error?: string
+        redirectTo?: string
+        session?: {
+          access_token: string
+          refresh_token: string
+        } | null
+      }
+
+      if (!response.ok) {
+        setError(payload.error ?? GENERIC_LOGIN_ERROR)
+        return
+      }
+
+      if (payload.session?.access_token && payload.session?.refresh_token) {
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: payload.session.access_token,
+          refresh_token: payload.session.refresh_token,
+        })
+
+        if (sessionError) {
+          setError(GENERIC_LOGIN_ERROR)
+          return
+        }
+      }
+
+      window.location.assign(payload.redirectTo ?? redirectPath)
     } catch {
       setError(GENERIC_LOGIN_ERROR)
     } finally {
