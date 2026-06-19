@@ -136,6 +136,18 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
   const amountDue = Math.max(0, total - paidNow)
   const hasOutstandingDebt = amountDue > 0.001
   const requiresPhone = (paymentMethod === 'wave' || paymentMethod === 'orange_money') && paidNow > 0
+  const quickAmounts = useMemo(() => {
+    const presets = [
+      { label: 'Total', value: Math.round(total) },
+      { label: '50%', value: Math.round(total / 2) },
+      { label: '0', value: 0 },
+    ]
+
+    return presets.filter((preset, index, list) => (
+      total > 0 &&
+      list.findIndex((candidate) => candidate.value === preset.value) === index
+    ))
+  }, [total])
 
   useEffect(() => {
     if (!isOpen) return
@@ -355,8 +367,28 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
             hint="Laissez le total pour un paiement complet."
           />
 
+          <div className="flex flex-wrap gap-2">
+            {quickAmounts.map((preset) => (
+              <button
+                key={`${preset.label}-${preset.value}`}
+                type="button"
+                onClick={() => {
+                  setAmountPaid(String(preset.value))
+                  setError('')
+                }}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+                  paidNow === preset.value
+                    ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7]'
+                    : 'border-[#2D7D7D]/[0.14] bg-white text-[#5C6B73] hover:border-[#6C5CE7]/35 hover:text-[#1A3636]'
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
           <p className="text-xs font-medium text-[#6B7682] uppercase tracking-wider">Mode de paiement</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
             {PAYMENT_METHODS.map((m) => (
               <button
                 key={m.id}
@@ -365,7 +397,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
                   setPaymentMethod(m.id as 'wave' | 'orange_money' | 'cash' | 'card')
                   setError('')
                 }}
-                className={`flex flex-col items-center gap-2 rounded-2xl border p-4 transition-all ${paymentMethod === m.id ? 'border-[#6C5CE7] bg-[#6C5CE7]/10' : 'border-[#2D7D7D]/[0.1] bg-[#F4F7FB] hover:border-[#2D7D7D]/[0.2]'}`}
+                className={`flex flex-col items-center gap-2 rounded-2xl border p-3 text-center transition-all sm:p-4 ${paymentMethod === m.id ? 'border-[#6C5CE7] bg-[#6C5CE7]/10' : 'border-[#2D7D7D]/[0.1] bg-[#F4F7FB] hover:border-[#2D7D7D]/[0.2]'}`}
               >
                 <span
                   className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white"
@@ -374,7 +406,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
                   {m.icon}
                 </span>
                 <span className="text-sm font-medium text-[#1A3636]">{m.label}</span>
-                <span className="text-[10px] text-center text-[#6B7682]">{m.description}</span>
+                <span className="hidden text-[10px] text-[#6B7682] sm:block">{m.description}</span>
               </button>
             ))}
           </div>
@@ -385,7 +417,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
             </div>
           )}
 
-          <div className="flex gap-3 pt-2">
+          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row">
             <Button variant="ghost" fullWidth onClick={handleClose}>Annuler</Button>
             <Button variant="primary" fullWidth onClick={handleConfirmStep}>
               Confirmer
@@ -456,7 +488,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
             </div>
           )}
 
-          <div className="flex gap-3">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row">
             <Button variant="ghost" fullWidth onClick={() => setStep('method')}>Retour</Button>
             <Button variant="primary" fullWidth isLoading={isProcessing} onClick={handlePayment}>
               {isProcessing ? 'Enregistrement...' : actionLabel}
@@ -480,7 +512,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
                 : `${formatCurrency(total)} encaisses via ${method.label}.`}
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <Button
               variant="outline"
               fullWidth

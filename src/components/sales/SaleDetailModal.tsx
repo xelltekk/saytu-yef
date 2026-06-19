@@ -129,13 +129,13 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
       footer={
         editing ? (
           <>
-            <Button variant="ghost" onClick={() => setEditing(false)}>Annuler</Button>
-            <Button variant="primary" onClick={handleSave} isLoading={saving}>Enregistrer</Button>
+            <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setEditing(false)}>Annuler</Button>
+            <Button variant="primary" className="w-full sm:w-auto" onClick={handleSave} isLoading={saving}>Enregistrer</Button>
           </>
         ) : (
           <>
-            <Button variant="ghost" onClick={onClose}>Fermer</Button>
-            <Button variant="primary" onClick={() => setEditing(true)}>Modifier</Button>
+            <Button variant="ghost" className="w-full sm:w-auto" onClick={onClose}>Fermer</Button>
+            <Button variant="primary" className="w-full sm:w-auto" onClick={() => setEditing(true)}>Modifier</Button>
           </>
         )
       }
@@ -203,7 +203,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-3 gap-2">
+                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <div className="rounded-xl bg-white px-3 py-3 text-center">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Total</p>
                     <p className="mt-1 text-xs font-semibold text-[#1A3636]">{formatCurrency(sale.total)}</p>
@@ -289,7 +289,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                       onChange={(e) => setPaymentForm((current) => ({ ...current, note: e.target.value }))}
                       placeholder="Ex: acompte complementaire"
                     />
-                    <div className="flex gap-3">
+                    <div className="flex flex-col-reverse gap-3 sm:flex-row">
                       <Button variant="ghost" fullWidth onClick={() => setShowPaymentForm(false)}>
                         Annuler
                       </Button>

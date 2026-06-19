@@ -54,16 +54,16 @@ export default function SalesPage() {
     <div className="min-h-screen flex flex-col">
       <Header title="Ventes" subtitle="Point de vente & historique" />
       <div className="flex-1 p-4 lg:p-6 space-y-4">
-        <div className="flex gap-1 rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-1 w-fit">
+        <div className="grid w-full max-w-md grid-cols-2 gap-1 rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-1">
           <button
             onClick={() => setTab('pos')}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${tab === 'pos' ? 'bg-[#6C5CE7] text-white' : 'text-[#6B7682] hover:text-[#1A3636]'}`}
+            className={`flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${tab === 'pos' ? 'bg-[#6C5CE7] text-white' : 'text-[#6B7682] hover:text-[#1A3636]'}`}
           >
             <ShoppingCart size={15} /> Caisse
           </button>
           <button
             onClick={() => setTab('history')}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${tab === 'history' ? 'bg-[#6C5CE7] text-white' : 'text-[#6B7682] hover:text-[#1A3636]'}`}
+            className={`flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${tab === 'history' ? 'bg-[#6C5CE7] text-white' : 'text-[#6B7682] hover:text-[#1A3636]'}`}
           >
             <Clock size={15} /> Historique
           </button>
@@ -107,61 +107,111 @@ export default function SalesPage() {
                   ))}
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[420px]">
-                    <thead>
-                      <tr className="border-b border-[#2D7D7D]/[0.08] bg-[#F4F7FB]">
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682]">Client</th>
-                        <th className="hidden px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682] sm:table-cell">Date</th>
-                        <th className="hidden px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682] md:table-cell">Paiement</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-[#6B7682]">Montant</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682]">Statut</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/[0.04]">
-                      {sales.map((sale) => {
-                        const computedStatus = getSaleComputedStatus(sale)
-                        const amountDue = getSaleAmountDue(sale)
-                        const amountPaid = getSaleAmountPaid(sale)
+                <>
+                  <div className="sm:hidden">
+                    {sales.map((sale) => {
+                      const computedStatus = getSaleComputedStatus(sale)
+                      const amountDue = getSaleAmountDue(sale)
+                      const amountPaid = getSaleAmountPaid(sale)
 
-                        return (
-                          <tr
-                            key={sale.id}
-                            onClick={() => setSelectedSale(sale)}
-                            className="cursor-pointer transition-colors hover:bg-[#F4F7FB]"
-                          >
-                            <td className="px-4 py-3">
-                              <p className="text-sm font-medium text-[#1A3636]">{sale.customer_name || 'Client'}</p>
-                              <p className="text-xs text-[#6B7682]">{sale.items?.length ?? 0} article(s)</p>
-                              {amountDue > 0 && (
-                                <p className="mt-0.5 text-[11px] font-medium text-amber-700">
-                                  Reste: {formatCurrency(amountDue)}
-                                </p>
-                              )}
-                            </td>
-                            <td className="hidden px-4 py-3 text-xs text-[#6B7682] sm:table-cell">{formatDate(sale.created_at)}</td>
-                            <td className="hidden px-4 py-3 md:table-cell">
-                              <Badge variant={SALE_METHOD_VARIANTS[sale.payment_method]}>
-                                {SALE_METHOD_LABELS[sale.payment_method]}
-                              </Badge>
-                            </td>
-                            <td className="px-4 py-3 text-right text-sm font-semibold text-[#1A3636]">
-                              <div>{formatCurrency(sale.total)}</div>
-                              <p className="text-[11px] font-medium text-emerald-600">
+                      return (
+                        <button
+                          key={sale.id}
+                          type="button"
+                          onClick={() => setSelectedSale(sale)}
+                          className="w-full border-b border-[#2D7D7D]/[0.08] px-4 py-4 text-left transition-colors last:border-b-0 hover:bg-[#F4F7FB]"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-[#1A3636]">{sale.customer_name || 'Client'}</p>
+                              <p className="mt-1 text-xs text-[#6B7682]">{formatDate(sale.created_at)}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-semibold text-[#1A3636]">{formatCurrency(sale.total)}</p>
+                              <p className="mt-1 text-[11px] font-medium text-emerald-600">
                                 Verse: {formatCurrency(amountPaid)}
                               </p>
-                            </td>
-                            <td className="px-4 py-3">
-                              <Badge variant={SALE_STATUS_VARIANTS[computedStatus]}>
-                                {SALE_STATUS_LABELS[computedStatus]}
-                              </Badge>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Badge variant={SALE_STATUS_VARIANTS[computedStatus]}>
+                              {SALE_STATUS_LABELS[computedStatus]}
+                            </Badge>
+                            <Badge variant={SALE_METHOD_VARIANTS[sale.payment_method]}>
+                              {SALE_METHOD_LABELS[sale.payment_method]}
+                            </Badge>
+                          </div>
+
+                          <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+                            <span className="text-[#6B7682]">{sale.items?.length ?? 0} article(s)</span>
+                            {amountDue > 0 ? (
+                              <span className="font-medium text-amber-700">Reste: {formatCurrency(amountDue)}</span>
+                            ) : (
+                              <span className="font-medium text-emerald-600">Solde regle</span>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="hidden overflow-x-auto sm:block">
+                    <table className="w-full min-w-[420px]">
+                      <thead>
+                        <tr className="border-b border-[#2D7D7D]/[0.08] bg-[#F4F7FB]">
+                          <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682]">Client</th>
+                          <th className="hidden px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682] sm:table-cell">Date</th>
+                          <th className="hidden px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682] md:table-cell">Paiement</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-[#6B7682]">Montant</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682]">Statut</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/[0.04]">
+                        {sales.map((sale) => {
+                          const computedStatus = getSaleComputedStatus(sale)
+                          const amountDue = getSaleAmountDue(sale)
+                          const amountPaid = getSaleAmountPaid(sale)
+
+                          return (
+                            <tr
+                              key={sale.id}
+                              onClick={() => setSelectedSale(sale)}
+                              className="cursor-pointer transition-colors hover:bg-[#F4F7FB]"
+                            >
+                              <td className="px-4 py-3">
+                                <p className="text-sm font-medium text-[#1A3636]">{sale.customer_name || 'Client'}</p>
+                                <p className="text-xs text-[#6B7682]">{sale.items?.length ?? 0} article(s)</p>
+                                {amountDue > 0 && (
+                                  <p className="mt-0.5 text-[11px] font-medium text-amber-700">
+                                    Reste: {formatCurrency(amountDue)}
+                                  </p>
+                                )}
+                              </td>
+                              <td className="hidden px-4 py-3 text-xs text-[#6B7682] sm:table-cell">{formatDate(sale.created_at)}</td>
+                              <td className="hidden px-4 py-3 md:table-cell">
+                                <Badge variant={SALE_METHOD_VARIANTS[sale.payment_method]}>
+                                  {SALE_METHOD_LABELS[sale.payment_method]}
+                                </Badge>
+                              </td>
+                              <td className="px-4 py-3 text-right text-sm font-semibold text-[#1A3636]">
+                                <div>{formatCurrency(sale.total)}</div>
+                                <p className="text-[11px] font-medium text-emerald-600">
+                                  Verse: {formatCurrency(amountPaid)}
+                                </p>
+                              </td>
+                              <td className="px-4 py-3">
+                                <Badge variant={SALE_STATUS_VARIANTS[computedStatus]}>
+                                  {SALE_STATUS_LABELS[computedStatus]}
+                                </Badge>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
 
               {!loadingSales && sales.length === 0 && (
