@@ -4,6 +4,8 @@ import {
   ArrowRight, Check, Star, ChevronRight
 } from 'lucide-react'
 
+export const dynamic = 'force-dynamic'
+
 const FEATURES = [
   { icon: <Package size={22} />, title: 'Gestion de Stock', desc: 'Suivez chaque produit en temps réel. Alertes automatiques quand votre stock est faible.', color: '#6C5CE7' },
   { icon: <Globe size={22} />, title: "Saisie depuis l'Étranger", desc: "Enregistrez vos achats en Chine, Dubaï ou ailleurs, même sans connexion. Tout se synchronise à votre retour.", color: '#8B7DF0' },
@@ -30,8 +32,8 @@ export default function LandingPage() {
     <div className="min-h-screen gradient-bg">
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-[#2D7D7D]/[0.08] bg-[#EEF1FA]/80 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-3 sm:px-4">
+          <div className="flex items-center gap-2.5 text-[15px] sm:text-base">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#6C5CE7] to-[#8B7DF0] flex items-center justify-center shadow-lg shadow-[rgba(108,92,231,0.4)]">
               <Zap size={16} className="text-white" />
             </div>
@@ -42,9 +44,14 @@ export default function LandingPage() {
               <a key={item} href={`#${item.toLowerCase()}`} className="text-sm text-[#6B7682] hover:text-[#1A3636] transition-colors">{item}</a>
             ))}
           </div>
-          <div className="flex items-center gap-2">
-            <Link href="/login" className="text-sm text-[#6B7682] hover:text-[#1A3636] px-3 py-1.5 transition-colors hidden sm:block">Connexion</Link>
-            <Link href="/signup" className="text-sm font-medium bg-[#6C5CE7] hover:bg-[#5A4BD4] text-white px-4 py-1.5 rounded-xl transition-all shadow-lg shadow-[rgba(108,92,231,0.3)]">
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              href="/login"
+              className="inline-flex items-center justify-center rounded-xl border border-[#2D7D7D]/[0.12] bg-white/70 px-2.5 py-1.5 text-xs font-medium text-[#1A3636] transition-colors hover:border-[#2D7D7D]/[0.24] hover:bg-white sm:px-3 sm:text-sm"
+            >
+              Connexion
+            </Link>
+            <Link href="/signup" className="inline-flex items-center justify-center rounded-xl bg-[#6C5CE7] px-3 py-1.5 text-xs font-medium text-white transition-all shadow-lg shadow-[rgba(108,92,231,0.3)] hover:bg-[#5A4BD4] sm:px-4 sm:text-sm">
               Essai gratuit
             </Link>
           </div>

@@ -56,7 +56,7 @@ export function MetricCard({
   const isDown = changeType === 'down'
 
   const className = cn(
-    'group relative block overflow-hidden rounded-2xl bg-white border border-[#2D7D7D]/[0.08] p-5 shadow-[0_6px_20px_rgba(26,54,54,0.06)] transition-all duration-200 hover:border-[#2D7D7D]/[0.16] hover:-translate-y-0.5',
+    'group relative block overflow-hidden rounded-2xl bg-white border border-[#2D7D7D]/[0.08] p-4 sm:p-5 shadow-[0_6px_20px_rgba(26,54,54,0.06)] transition-all duration-200 hover:border-[#2D7D7D]/[0.16] hover:-translate-y-0.5',
     href && 'cursor-pointer hover:shadow-[0_10px_28px_rgba(26,54,54,0.12)]'
   )
 
@@ -74,19 +74,19 @@ export function MetricCard({
         style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }}
       />
 
-      <div className="relative flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
+      <div className="relative flex items-start justify-between gap-2 sm:gap-3">
+        <div className="min-w-0 flex-1 pr-1">
           <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[#5C6B73] mb-2">
             {title}
           </p>
-          <p className="font-display text-[22px] font-bold text-[#1A3636] leading-none tracking-tight truncate">
+          <p className="font-display text-[19px] sm:text-[22px] font-bold text-[#1A3636] leading-tight whitespace-normal break-words">
             {value}
           </p>
           {change && (
-            <div className="flex items-center gap-1.5 mt-2">
+            <div className="mt-2 flex items-center gap-1.5">
               <span
                 className={cn(
-                  'inline-flex items-center gap-0.5 text-[11px] font-semibold px-1.5 py-0.5 rounded-md',
+                  'inline-flex max-w-full items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold whitespace-normal break-words',
                   isUp   && 'stat-up',
                   isDown && 'stat-down',
                   !isUp && !isDown && 'text-[#5C6B73] bg-[#2D7D7D]/[0.07]'
@@ -99,7 +99,7 @@ export function MetricCard({
         </div>
 
         <div
-          className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center"
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10"
           style={{ background: grad, color }}
         >
           {icon}
