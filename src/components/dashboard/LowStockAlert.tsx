@@ -13,7 +13,7 @@ interface LowStockItem {
   category: { name: string } | null
 }
 
-export function LowStockAlert() {
+export function LowStockAlert({ refreshKey = 0 }: { refreshKey?: number }) {
   const [items, setItems] = useState<LowStockItem[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -50,7 +50,7 @@ export function LowStockAlert() {
     return () => {
       active = false
     }
-  }, [])
+  }, [refreshKey])
 
   return (
     <Card>

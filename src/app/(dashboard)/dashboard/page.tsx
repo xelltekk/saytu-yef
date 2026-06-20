@@ -1,12 +1,12 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Header } from '@/components/layout/Header'
 import { MetricCard } from '@/components/ui/Card'
 import { SalesChart } from '@/components/dashboard/SalesChart'
 import { TopProducts } from '@/components/dashboard/TopProducts'
 import { RecentActivity } from '@/components/dashboard/RecentActivity'
 import { LowStockAlert } from '@/components/dashboard/LowStockAlert'
-import { TrendingUp, Package, ShoppingCart, AlertTriangle } from 'lucide-react'
+import { TrendingUp, Package, ShoppingCart, AlertTriangle, RefreshCw } from 'lucide-react'
 import { getDashboardMetrics } from '@/lib/supabase/queries'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
 
@@ -25,13 +25,41 @@ interface Metrics {
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [error, setError] = useState('')
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+
+  const loadMetrics = useCallback(async (showRefreshState = false) => {
+    if (showRefreshState) setRefreshing(true)
+    setError('')
+    try {
+      setMetrics(await getDashboardMetrics())
+      setLastUpdated(new Date())
+    } catch (err: unknown) {
+      console.error(err)
+      setError(err instanceof Error ? err.message : 'Impossible de charger le tableau de bord')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [])
+
+  const refreshDashboard = useCallback(() => {
+    setRefreshKey((current) => current + 1)
+    void loadMetrics(true)
+  }, [loadMetrics])
 
   useEffect(() => {
-    getDashboardMetrics()
-      .then(setMetrics)
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [])
+    void loadMetrics()
+
+    const handleFocus = () => {
+      setRefreshKey((current) => current + 1)
+      void loadMetrics()
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [loadMetrics])
 
   const renderResponsiveCurrency = (amount: number) => (
     <>
@@ -43,10 +71,33 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen">
       <Header title="Tableau de bord" subtitle="Aperçu de votre activité" />
-      <div className="p-4 lg:p-6 space-y-6">
+      <div className="space-y-4 p-3 sm:p-4 lg:space-y-6 lg:p-6">
+
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] text-[#6B7682]">
+            {lastUpdated
+              ? `Mis à jour à ${lastUpdated.toLocaleTimeString('fr-SN', { hour: '2-digit', minute: '2-digit' })}`
+              : 'Chargement des données…'}
+          </p>
+          <button
+            type="button"
+            onClick={refreshDashboard}
+            disabled={refreshing}
+            className="flex min-h-10 items-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+            Actualiser
+          </button>
+        </div>
+
+        {error && (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
+            {error}
+          </div>
+        )}
 
         {/* Métriques */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
           <MetricCard
             title="Ventes aujourd'hui"
             value={loading ? '…' : renderResponsiveCurrency(metrics?.revenueToday ?? 0)}
@@ -98,13 +149,13 @@ export default function DashboardPage() {
         {/* Graphiques */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <SalesChart data={metrics?.salesChartData} loading={loading} />
-          <TopProducts />
+          <TopProducts refreshKey={refreshKey} />
         </div>
 
         {/* Activité */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <RecentActivity sales={metrics?.recentSales} loading={loading} />
-          <LowStockAlert />
+          <LowStockAlert refreshKey={refreshKey} />
         </div>
 
       </div>

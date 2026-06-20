@@ -5,12 +5,14 @@ import {
   Download,
   Edit,
   Filter,
+  History,
   Layers,
   MoreVertical,
   Package,
   Plus,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   Tags,
   Trash2,
   XCircle,
@@ -18,6 +20,8 @@ import {
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { CategoryManager } from './CategoryManager'
+import { StockAdjustmentModal } from './StockAdjustmentModal'
+import { StockMovementHistoryModal } from './StockMovementHistoryModal'
 import { formatCurrency, getStockStatus } from '@/lib/utils'
 import { getProducts, deleteProduct } from '@/lib/supabase/queries'
 import type { Product } from '@/types'
@@ -46,6 +50,9 @@ export function ProductTable({
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [showCategories, setShowCategories] = useState(false)
+  const [showMobileFilters, setShowMobileFilters] = useState(false)
+  const [adjustmentProduct, setAdjustmentProduct] = useState<Product | null>(null)
+  const [historyProduct, setHistoryProduct] = useState<Product | null>(null)
 
   const mergeActivatedProduct = useCallback((list: Product[]) => {
     if (!activatedProduct || list.some((product) => product.id === activatedProduct.id)) {
@@ -142,12 +149,30 @@ export function ProductTable({
     })
 
   const hasFilters = search || categoryFilter !== 'all' || stockFilter !== 'all' || sortBy !== 'recent'
+  const activeFilterCount = [categoryFilter !== 'all', stockFilter !== 'all', sortBy !== 'recent']
+    .filter(Boolean).length
 
   const resetFilters = () => {
     setSearch('')
     setCategoryFilter('all')
     setStockFilter('all')
     setSortBy('recent')
+  }
+
+  const openStockAdjustment = (product: Product) => {
+    setAdjustmentProduct(product)
+    setActiveMenu(null)
+  }
+
+  const openStockHistory = (product: Product) => {
+    setHistoryProduct(product)
+    setActiveMenu(null)
+  }
+
+  const handleStockAdjusted = (productId: string, quantity: number) => {
+    setProducts((current) => current.map((product) => (
+      product.id === productId ? { ...product, quantity } : product
+    )))
   }
 
   const exportCsv = () => {
@@ -194,42 +219,42 @@ export function ProductTable({
     <div className="space-y-4">
       {/* Résumé stock */}
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3">
+        <div className="min-w-0 rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3">
           <div className="flex items-center gap-2 text-[#5C6B73]">
             <Package size={15} />
             <span className="text-[11px] font-semibold uppercase tracking-[0.06em]">Produits</span>
           </div>
-          <p className="mt-2 text-xl font-bold text-[#1A3636]">{summary.total}</p>
-          <p className="text-xs text-[#5C6B73]">{summary.units} unité(s)</p>
+          <p className="mt-2 truncate text-lg font-bold text-[#1A3636] sm:text-xl">{summary.total}</p>
+          <p className="truncate text-[11px] text-[#5C6B73] sm:text-xs">{summary.units} unité(s)</p>
         </div>
-        <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3">
+        <div className="min-w-0 rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3">
           <div className="flex items-center gap-2 text-[#5C6B73]">
             <Layers size={15} />
             <span className="text-[11px] font-semibold uppercase tracking-[0.06em]">Valeur achat</span>
           </div>
-          <p className="mt-2 text-xl font-bold text-[#1A3636]">{formatCurrency(summary.buyingValue)}</p>
-          <p className="text-xs text-[#5C6B73]">capital immobilisé</p>
+          <p className="mt-2 truncate text-base font-bold text-[#1A3636] sm:text-xl" title={formatCurrency(summary.buyingValue)}>{formatCurrency(summary.buyingValue)}</p>
+          <p className="truncate text-[11px] text-[#5C6B73] sm:text-xs">capital immobilisé</p>
         </div>
-        <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3">
+        <div className="min-w-0 rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3">
           <div className="flex items-center gap-2 text-[#5C6B73]">
             <Layers size={15} />
             <span className="text-[11px] font-semibold uppercase tracking-[0.06em]">Valeur vente</span>
           </div>
-          <p className="mt-2 text-xl font-bold text-[#1A3636]">{formatCurrency(summary.sellingValue)}</p>
-          <p className="text-xs text-[#5C6B73]">potentiel brut</p>
+          <p className="mt-2 truncate text-base font-bold text-[#1A3636] sm:text-xl" title={formatCurrency(summary.sellingValue)}>{formatCurrency(summary.sellingValue)}</p>
+          <p className="truncate text-[11px] text-[#5C6B73] sm:text-xs">potentiel brut</p>
         </div>
-        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
+        <div className="min-w-0 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
           <div className="flex items-center gap-2 text-amber-700">
             <AlertTriangle size={15} />
             <span className="text-[11px] font-semibold uppercase tracking-[0.06em]">Alertes</span>
           </div>
-          <p className="mt-2 text-xl font-bold text-[#1A3636]">{summary.low + summary.out}</p>
-          <p className="text-xs text-[#5C6B73]">{summary.low} faible · {summary.out} rupture</p>
+          <p className="mt-2 truncate text-lg font-bold text-[#1A3636] sm:text-xl">{summary.low + summary.out}</p>
+          <p className="truncate text-[11px] text-[#5C6B73] sm:text-xs">{summary.low} faible · {summary.out} rupture</p>
         </div>
       </div>
 
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6B7682]" />
           <input
@@ -240,24 +265,33 @@ export function ProductTable({
             className="w-full h-10 pl-9 pr-4 rounded-xl bg-[#F4F7FB] border border-[#2D7D7D]/[0.1] text-sm text-[#1A3636] placeholder:text-[#6B7682] focus:border-[#6C5CE7] focus:bg-[#2D7D7D]/[0.08] transition-all"
           />
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="md" leftIcon={<Download size={15} />} onClick={exportCsv} disabled={filtered.length === 0}>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2 sm:flex">
+          <Button variant="outline" size="md" leftIcon={<Download size={15} />} onClick={exportCsv} disabled={filtered.length === 0} aria-label="Exporter l'inventaire" title="Exporter" className="w-11 gap-0 px-0 sm:w-auto sm:gap-2 sm:px-6">
             <span className="hidden sm:inline">Exporter</span>
           </Button>
-          <Button variant="outline" size="md" leftIcon={<Tags size={15} />} onClick={() => setShowCategories(true)}>
+          <Button variant="outline" size="md" leftIcon={<Tags size={15} />} onClick={() => setShowCategories(true)} aria-label="Gérer les catégories" title="Catégories" className="w-11 gap-0 px-0 sm:w-auto sm:gap-2 sm:px-6">
             <span className="hidden sm:inline">Catégories</span>
           </Button>
-          <Button variant="outline" size="md" leftIcon={<RefreshCw size={15} />} onClick={load}>
+          <Button variant="outline" size="md" leftIcon={<RefreshCw size={15} />} onClick={load} aria-label="Actualiser la liste" title="Actualiser" className="w-11 gap-0 px-0 sm:w-auto sm:gap-2 sm:px-6">
             <span className="hidden sm:inline">Actualiser</span>
           </Button>
-          <Button variant="primary" size="md" leftIcon={<Plus size={15} />} onClick={onAddProduct}>
+          <Button variant="primary" size="md" leftIcon={<Plus size={15} />} onClick={onAddProduct} className="order-first w-full sm:order-last sm:w-auto">
             Ajouter
           </Button>
         </div>
       </div>
 
       {/* Filtres */}
-      <div className="grid grid-cols-1 gap-2 rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3 sm:grid-cols-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
+      <button
+        type="button"
+        onClick={() => setShowMobileFilters((current) => !current)}
+        className="flex min-h-11 w-full items-center justify-between rounded-xl border border-[#2D7D7D]/[0.1] bg-white px-4 text-sm font-semibold text-[#2D7D7D] sm:hidden"
+        aria-expanded={showMobileFilters}
+      >
+        <span className="flex items-center gap-2"><SlidersHorizontal size={16} /> Filtres et tri</span>
+        <span className="text-xs text-[#6B7682]">{activeFilterCount > 0 ? `${activeFilterCount} actif(s)` : showMobileFilters ? 'Masquer' : 'Afficher'}</span>
+      </button>
+      <div className={`${showMobileFilters ? 'grid' : 'hidden'} grid-cols-1 gap-2 rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3 sm:grid sm:grid-cols-3 lg:grid-cols-[1fr_1fr_1fr_auto]`}>
         <label className="space-y-1">
           <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">
             <Filter size={12} /> Catégorie
@@ -308,6 +342,15 @@ export function ProductTable({
       </div>
 
       <CategoryManager isOpen={showCategories} onClose={() => setShowCategories(false)} onChanged={load} />
+      <StockAdjustmentModal
+        product={adjustmentProduct}
+        onClose={() => setAdjustmentProduct(null)}
+        onAdjusted={handleStockAdjusted}
+      />
+      <StockMovementHistoryModal
+        product={historyProduct}
+        onClose={() => setHistoryProduct(null)}
+      />
 
       {/* Liste */}
       {loading ? (
@@ -348,108 +391,191 @@ export function ProductTable({
               ? ((product.selling_price - product.buying_price) / product.selling_price * 100).toFixed(0)
               : '0'
             return (
-              <div
-                key={product.id}
-                className="group relative flex items-center gap-3 w-full px-3 sm:px-4 h-14 rounded-xl bg-white border border-[#2D7D7D]/[0.08] hover:border-[#6C5CE7]/30 hover:shadow-[0_4px_14px_rgba(26,54,54,0.06)] transition-all"
-              >
-                {/* Photo / icône + nom */}
-                <div className="w-9 h-9 rounded-lg bg-[#F4F7FB] border border-[#2D7D7D]/[0.08] flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  {product.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <Package size={15} className="text-[#6B7682]" />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-[#1A3636] truncate leading-tight">{product.name}</p>
-                  <p className="text-[11px] font-mono text-[#6B7682] truncate leading-tight">{product.sku || 'Sans SKU'}</p>
-                  <div className="mt-1 flex items-center gap-1.5 sm:hidden">
-                    <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${stock.bg} ${stock.color}`}>
+              <div key={product.id}>
+                {/* Carte tactile mobile */}
+                <article className="relative rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3 shadow-[0_3px_12px_rgba(26,54,54,0.04)] sm:hidden">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB]">
+                      {product.image_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <Package size={18} className="text-[#6B7682]" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1 pt-0.5">
+                      <p className="truncate text-sm font-semibold leading-tight text-[#1A3636]">{product.name}</p>
+                      <p className="mt-1 truncate font-mono text-[11px] leading-tight text-[#6B7682]">{product.sku || 'Sans SKU'}</p>
+                    </div>
+                    <div className="relative -mr-1 -mt-1">
+                      <button
+                        type="button"
+                        onClick={() => setActiveMenu(activeMenu === product.id ? null : product.id)}
+                        className="flex h-11 w-11 items-center justify-center rounded-xl text-[#6B7682] transition-all active:bg-[#2D7D7D]/[0.08]"
+                        aria-label={`Actions pour ${product.name}`}
+                      >
+                        <MoreVertical size={18} />
+                      </button>
+                      {activeMenu === product.id && (
+                        <div className="absolute right-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-xl border border-[#2D7D7D]/[0.1] bg-white py-1 shadow-[0_12px_30px_rgba(26,54,54,0.16)]">
+                          <button
+                            type="button"
+                            onClick={() => openStockAdjustment(product)}
+                            className="flex min-h-11 w-full items-center gap-2 px-3 text-sm text-[#1A3636] transition-colors hover:bg-[#F4F7FB]"
+                          >
+                            <SlidersHorizontal size={15} /> Ajuster le stock
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openStockHistory(product)}
+                            className="flex min-h-11 w-full items-center gap-2 px-3 text-sm text-[#1A3636] transition-colors hover:bg-[#F4F7FB]"
+                          >
+                            <History size={15} /> Historique
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { onEditProduct(product); setActiveMenu(null) }}
+                            className="flex min-h-11 w-full items-center gap-2 px-3 text-sm text-[#1A3636] transition-colors hover:bg-[#F4F7FB]"
+                          >
+                            <Edit size={15} /> Modifier
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(product)}
+                            disabled={deleting === product.id}
+                            className="flex min-h-11 w-full items-center gap-2 px-3 text-sm text-red-600 transition-colors hover:bg-red-500/5 disabled:opacity-50"
+                          >
+                            <Trash2 size={15} /> {deleting === product.id ? '…' : 'Supprimer'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex min-w-0 items-center gap-1.5 overflow-hidden">
+                    <span className={`flex-shrink-0 rounded-md px-2 py-1 text-[10px] font-semibold ${stock.bg} ${stock.color}`}>
                       {product.quantity} · {stock.label}
                     </span>
                     {product.category && (
                       <span
-                        className="max-w-[96px] truncate rounded-md px-1.5 py-0.5 text-[10px] font-semibold"
+                        className="truncate rounded-md px-2 py-1 text-[10px] font-semibold"
                         style={{ background: `${product.category.color}15`, color: product.category.color }}
                       >
                         {product.category.name}
                       </span>
                     )}
                   </div>
-                </div>
 
-                {/* Catégorie */}
-                <div className="hidden md:block w-28 flex-shrink-0">
-                  {product.category ? (
-                    <span
-                      className="text-[11px] px-2 py-0.5 rounded-md font-medium inline-block truncate max-w-full"
-                      style={{ background: `${product.category.color}15`, color: product.category.color }}
-                    >
-                      {product.category.name}
-                    </span>
-                  ) : <span className="text-xs text-[#6B7682]">—</span>}
-                </div>
-
-                {/* Quantité */}
-                <div className="hidden sm:block w-16 text-center flex-shrink-0">
-                  <p className={`text-sm font-semibold ${stock.color} leading-tight`}>{product.quantity}</p>
-                  <p className="text-[10px] text-[#6B7682] leading-tight">en stock</p>
-                </div>
-
-                {/* Prix vente */}
-                <div className="w-24 text-right flex-shrink-0">
-                  <p className="text-sm font-semibold text-[#1A3636] leading-tight">{formatCurrency(product.selling_price)}</p>
-                  <p className="text-[10px] text-emerald-600 leading-tight">+{margin}%</p>
-                </div>
-
-                {/* Statut */}
-                <div className="hidden lg:flex w-24 justify-center flex-shrink-0">
-                  <Badge
-                    variant={
-                      product.quantity === 0 ? 'danger' :
-                      product.quantity <= product.min_quantity ? 'warning' :
-                      'success'
-                    }
-                  >
-                    {stock.label}
-                  </Badge>
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-0.5 flex-shrink-0">
-                  <button
-                    onClick={() => onEditProduct(product)}
-                    title="Modifier"
-                    aria-label="Modifier le produit"
-                    className="p-1.5 rounded-lg text-[#6B7682] hover:text-[#6C5CE7] hover:bg-[#6C5CE7]/[0.1] transition-all"
-                  >
-                    <Edit size={15} />
-                  </button>
-                  <div className="relative">
-                  <button
-                    onClick={() => setActiveMenu(activeMenu === product.id ? null : product.id)}
-                    className="p-1.5 rounded-lg text-[#6B7682] hover:text-[#1A3636] hover:bg-[#2D7D7D]/[0.08] transition-all"
-                  >
-                    <MoreVertical size={15} />
-                  </button>
-                  {activeMenu === product.id && (
-                    <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-xl border border-[#2D7D7D]/[0.1] bg-white shadow-[0_8px_24px_rgba(26,54,54,0.12)] py-1">
-                      <button
-                        onClick={() => { onEditProduct(product); setActiveMenu(null) }}
-                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-[#1A3636] hover:bg-[#F4F7FB] transition-colors"
-                      >
-                        <Edit size={13} /> Modifier
-                      </button>
-                      <button
-                        onClick={() => handleDelete(product)}
-                        disabled={deleting === product.id}
-                        className="flex items-center gap-2 w-full px-3 py-2 text-xs text-red-600 hover:bg-red-500/5 transition-colors disabled:opacity-50"
-                      >
-                        <Trash2 size={13} /> {deleting === product.id ? '…' : 'Supprimer'}
-                      </button>
+                  <div className="mt-3 flex items-center justify-between gap-3 border-t border-[#2D7D7D]/[0.07] pt-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-[#1A3636]">{formatCurrency(product.selling_price)}</p>
+                      <p className="text-[10px] font-medium text-emerald-600">Marge +{margin}%</p>
                     </div>
-                  )}
+                    <button
+                      type="button"
+                      onClick={() => openStockAdjustment(product)}
+                      className="flex min-h-10 flex-shrink-0 items-center gap-2 rounded-xl bg-[#6C5CE7]/[0.1] px-3 text-xs font-semibold text-[#5A4BD4] transition-colors active:bg-[#6C5CE7]/[0.18]"
+                    >
+                      <SlidersHorizontal size={14} /> Ajuster
+                    </button>
+                  </div>
+                </article>
+
+                {/* Ligne compacte tablette et bureau */}
+                <div className="group relative hidden h-14 w-full items-center gap-3 rounded-xl border border-[#2D7D7D]/[0.08] bg-white px-4 transition-all hover:border-[#6C5CE7]/30 hover:shadow-[0_4px_14px_rgba(26,54,54,0.06)] sm:flex">
+                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#2D7D7D]/[0.08] bg-[#F4F7FB]">
+                    {product.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <Package size={15} className="text-[#6B7682]" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium leading-tight text-[#1A3636]">{product.name}</p>
+                    <p className="truncate font-mono text-[11px] leading-tight text-[#6B7682]">{product.sku || 'Sans SKU'}</p>
+                  </div>
+
+                  <div className="hidden w-28 flex-shrink-0 md:block">
+                    {product.category ? (
+                      <span
+                        className="inline-block max-w-full truncate rounded-md px-2 py-0.5 text-[11px] font-medium"
+                        style={{ background: `${product.category.color}15`, color: product.category.color }}
+                      >
+                        {product.category.name}
+                      </span>
+                    ) : <span className="text-xs text-[#6B7682]">—</span>}
+                  </div>
+
+                  <div className="w-16 flex-shrink-0 text-center">
+                    <p className={`text-sm font-semibold leading-tight ${stock.color}`}>{product.quantity}</p>
+                    <p className="text-[10px] leading-tight text-[#6B7682]">en stock</p>
+                  </div>
+
+                  <div className="w-24 flex-shrink-0 text-right">
+                    <p className="text-sm font-semibold leading-tight text-[#1A3636]">{formatCurrency(product.selling_price)}</p>
+                    <p className="text-[10px] leading-tight text-emerald-600">+{margin}%</p>
+                  </div>
+
+                  <div className="hidden w-24 flex-shrink-0 justify-center lg:flex">
+                    <Badge variant={product.quantity === 0 ? 'danger' : product.quantity <= product.min_quantity ? 'warning' : 'success'}>
+                      {stock.label}
+                    </Badge>
+                  </div>
+
+                  <div className="flex flex-shrink-0 items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => onEditProduct(product)}
+                      title="Modifier"
+                      aria-label="Modifier le produit"
+                      className="rounded-lg p-1.5 text-[#6B7682] transition-all hover:bg-[#6C5CE7]/[0.1] hover:text-[#6C5CE7]"
+                    >
+                      <Edit size={15} />
+                    </button>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setActiveMenu(activeMenu === product.id ? null : product.id)}
+                        className="rounded-lg p-1.5 text-[#6B7682] transition-all hover:bg-[#2D7D7D]/[0.08] hover:text-[#1A3636]"
+                        aria-label={`Actions pour ${product.name}`}
+                      >
+                        <MoreVertical size={15} />
+                      </button>
+                      {activeMenu === product.id && (
+                        <div className="absolute right-0 top-full z-10 mt-1 w-40 rounded-xl border border-[#2D7D7D]/[0.1] bg-white py-1 shadow-[0_8px_24px_rgba(26,54,54,0.12)]">
+                          <button
+                            type="button"
+                            onClick={() => openStockAdjustment(product)}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-[#1A3636] transition-colors hover:bg-[#F4F7FB]"
+                          >
+                            <SlidersHorizontal size={13} /> Ajuster le stock
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openStockHistory(product)}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-[#1A3636] transition-colors hover:bg-[#F4F7FB]"
+                          >
+                            <History size={13} /> Historique
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { onEditProduct(product); setActiveMenu(null) }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-[#1A3636] transition-colors hover:bg-[#F4F7FB]"
+                          >
+                            <Edit size={13} /> Modifier
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(product)}
+                            disabled={deleting === product.id}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-xs text-red-600 transition-colors hover:bg-red-500/5 disabled:opacity-50"
+                          >
+                            <Trash2 size={13} /> {deleting === product.id ? '…' : 'Supprimer'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

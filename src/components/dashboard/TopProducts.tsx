@@ -21,7 +21,7 @@ interface SaleWithItems {
   items: SaleItemSummary[] | null
 }
 
-export function TopProducts() {
+export function TopProducts({ refreshKey = 0 }: { refreshKey?: number }) {
   const [products, setProducts] = useState<TopProduct[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -69,7 +69,7 @@ export function TopProducts() {
     return () => {
       active = false
     }
-  }, [])
+  }, [refreshKey])
 
   return (
     <Card>

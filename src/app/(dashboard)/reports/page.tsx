@@ -1,39 +1,52 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Header } from '@/components/layout/Header'
 import { Card, MetricCard } from '@/components/ui/Card'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
-import { TrendingUp, Package, DollarSign, BarChart3 } from 'lucide-react'
+import { TrendingUp, Package, DollarSign, BarChart3, RefreshCw } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts'
 import { getReportsData } from '@/lib/supabase/queries'
 
-const COLORS = ['#6C5CE7', '#8b5cf6', '#f97316', '#10b981', '#6b7280']
+const COLORS = ['#6C5CE7', '#8b5cf6', '#f97316', '#10b981', '#0ea5e9', '#94a3b8']
 
 interface ReportsData {
   monthlyData: { month: string; revenue: number; profit: number }[]
   topProducts: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number }[]
+  totalSold: number
+  avgMargin: number
 }
 
 export default function ReportsPage() {
   const [data, setData] = useState<ReportsData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState('')
+
+  const loadReports = useCallback(async (showRefreshState = false) => {
+    if (showRefreshState) setRefreshing(true)
+    setError('')
+    try {
+      setData(await getReportsData(6) as ReportsData)
+    } catch (err: unknown) {
+      console.error(err)
+      setError(err instanceof Error ? err.message : 'Impossible de charger les rapports')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [])
 
   useEffect(() => {
-    getReportsData(6)
-      .then((d) => setData(d as ReportsData))
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [])
+    void loadReports()
+  }, [loadReports])
 
   const totalRevenue = data?.monthlyData.reduce((s, m) => s + m.revenue, 0) ?? 0
   const totalProfit = data?.monthlyData.reduce((s, m) => s + m.profit, 0) ?? 0
-  const totalSold = data?.topProducts.reduce((s, p) => s + p.sold, 0) ?? 0
-  const avgMargin = data?.topProducts.length
-    ? data.topProducts.reduce((s, p) => s + p.margin, 0) / data.topProducts.length
-    : 0
+  const totalSold = data?.totalSold ?? 0
+  const avgMargin = data?.avgMargin ?? 0
 
   const renderResponsiveCurrency = (amount: number) => (
     <>
@@ -42,19 +55,49 @@ export default function ReportsPage() {
     </>
   )
 
-  // Catégorie par ventes (basé sur top produits agrégés)
-  const categoryData = data?.topProducts.slice(0, 5).map((p, i) => ({
-    name: p.name.slice(0, 12),
-    value: Math.round((p.revenue / (totalRevenue || 1)) * 100),
-    color: COLORS[i % COLORS.length],
-  })) ?? []
+  const leadingProducts = data?.topProducts.slice(0, 5) ?? []
+  const leadingRevenue = leadingProducts.reduce((sum, product) => sum + product.revenue, 0)
+  const categoryData = leadingProducts.map((product, index) => ({
+    id: product.id,
+    name: product.name,
+    value: product.revenue,
+    percentage: Math.round((product.revenue / (totalRevenue || 1)) * 100),
+    color: COLORS[index],
+  }))
+  if (totalRevenue - leadingRevenue > 0.01) {
+    categoryData.push({
+      id: 'other',
+      name: 'Autres produits',
+      value: totalRevenue - leadingRevenue,
+      percentage: Math.max(0, 100 - categoryData.reduce((sum, item) => sum + item.percentage, 0)),
+      color: COLORS[5],
+    })
+  }
 
   return (
     <div className="min-h-screen">
       <Header title="Rapports & Analyses" subtitle="Performances de votre activité" />
-      <div className="p-4 lg:p-6 space-y-6">
+      <div className="space-y-4 p-3 sm:p-4 lg:space-y-6 lg:p-6">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] text-[#6B7682]">Données des 6 derniers mois</p>
+          <button
+            type="button"
+            onClick={() => void loadReports(true)}
+            disabled={refreshing}
+            className="flex min-h-10 items-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Actualiser
+          </button>
+        </div>
+
+        {error && (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
+            {error}
+          </div>
+        )}
+
         {/* Metrics */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
           <MetricCard
             title="Revenus totaux"
             value={loading ? '…' : renderResponsiveCurrency(totalRevenue)}
@@ -91,18 +134,18 @@ export default function ReportsPage() {
 
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Card className="lg:col-span-2">
+          <Card className="p-4 sm:p-5 lg:col-span-2">
             <h3 className="text-sm font-semibold text-[#1A3636] mb-6">Revenus & Bénéfices (6 derniers mois)</h3>
             {loading ? (
               <div className="h-[250px] flex items-center justify-center">
                 <div className="animate-pulse text-[#6B7682] text-sm">Chargement…</div>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={250}>
+              <ResponsiveContainer width="100%" height={230}>
                 <BarChart data={data?.monthlyData ?? []} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                   <XAxis dataKey="month" tick={{ fill: '#9AA7AE', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: '#9AA7AE', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${(v/1000000).toFixed(1)}M`} width={40} />
+                  <YAxis tick={{ fill: '#9AA7AE', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(value) => formatCurrencyCompact(Number(value)).replace(' FCFA', '')} width={48} />
                   <Tooltip
                     contentStyle={{ background: '#F4F7FB', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', fontSize: '12px' }}
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,7 +158,7 @@ export default function ReportsPage() {
             )}
           </Card>
 
-          <Card>
+          <Card className="p-4 sm:p-5">
             <h3 className="text-sm font-semibold text-[#1A3636] mb-4">Top produits</h3>
             {!loading && categoryData.length > 0 ? (
               <>
@@ -137,18 +180,18 @@ export default function ReportsPage() {
                     <Tooltip
                       contentStyle={{ background: '#F4F7FB', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', fontSize: '12px' }}
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      formatter={(value: any) => [`${value}%`, '']}
+                      formatter={(value: any) => [formatCurrency(Number(value)), '']}
                     />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="space-y-2 mt-2">
                   {categoryData.map((cat) => (
-                    <div key={cat.name} className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
+                    <div key={cat.id} className="flex items-center justify-between gap-3 text-xs">
+                      <div className="flex min-w-0 items-center gap-2">
                         <div className="w-2 h-2 rounded-full" style={{ background: cat.color }} />
-                        <span className="text-[#6B7682] truncate max-w-[100px]">{cat.name}</span>
+                        <span className="truncate text-[#6B7682]">{cat.name}</span>
                       </div>
-                      <span className="text-[#1A3636] font-medium">{cat.value}%</span>
+                      <span className="flex-shrink-0 font-medium text-[#1A3636]">{cat.percentage}%</span>
                     </div>
                   ))}
                 </div>
@@ -162,7 +205,7 @@ export default function ReportsPage() {
         </div>
 
         {/* Top products table */}
-        <Card>
+        <Card className="p-4 sm:p-5">
           <h3 className="text-sm font-semibold text-[#1A3636] mb-4">Top produits — 6 derniers mois</h3>
           {loading ? (
             <div className="space-y-3">
@@ -175,9 +218,41 @@ export default function ReportsPage() {
                 </div>
               ))}
             </div>
+          ) : (data?.topProducts ?? []).length === 0 ? (
+            <div className="py-10 text-center text-sm text-[#6B7682]">Aucune donnée de ventes</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <>
+              <div className="space-y-2 sm:hidden">
+                {(data?.topProducts ?? []).map((row, index) => (
+                  <article key={row.id} className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-[#6C5CE7]/[0.1] text-xs font-bold text-[#6C5CE7]">
+                        {index + 1}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-[#1A3636]">{row.name}</p>
+                        <p className="mt-0.5 text-xs text-[#6B7682]">{row.sold} unité(s) vendue(s)</p>
+                      </div>
+                      <span className={`flex-shrink-0 text-xs font-semibold ${row.margin > 40 ? 'text-emerald-600' : row.margin > 25 ? 'text-[#6C5CE7]' : 'text-amber-600'}`}>
+                        {row.margin.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[#2D7D7D]/[0.07] pt-3">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-[#6B7682]">Revenus</p>
+                        <p className="mt-0.5 text-sm font-semibold text-[#1A3636]">{formatCurrencyCompact(row.revenue)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] uppercase tracking-wide text-[#6B7682]">Bénéfice</p>
+                        <p className="mt-0.5 text-sm font-semibold text-emerald-600">{formatCurrencyCompact(row.profit)}</p>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto sm:block">
+                <table className="w-full">
                 <thead>
                   <tr className="border-b border-[#2D7D7D]/[0.08]">
                     <th className="text-left pb-3 text-xs font-medium text-[#6B7682] uppercase tracking-wider">Produit</th>
@@ -201,14 +276,10 @@ export default function ReportsPage() {
                       </td>
                     </tr>
                   ))}
-                  {(data?.topProducts ?? []).length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="py-10 text-center text-sm text-[#6B7682]">Aucune donnée de ventes</td>
-                    </tr>
-                  )}
                 </tbody>
-              </table>
-            </div>
+                </table>
+              </div>
+            </>
           )}
         </Card>
       </div>

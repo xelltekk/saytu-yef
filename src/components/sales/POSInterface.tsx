@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
 import { useSalesStore } from '@/store/salesStore'
 import { getProducts } from '@/lib/supabase/queries'
 import type { CartItem, Product } from '@/types'
@@ -20,11 +20,14 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   const [showMobileCart, setShowMobileCart] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
   const [loadingProducts, setLoadingProducts] = useState(true)
+  const [productsError, setProductsError] = useState('')
+  const [stockNotice, setStockNotice] = useState('')
   const {
     cart,
     addToCart,
     removeFromCart,
     updateCartQuantity,
+    syncCartStock,
     discount,
     setDiscount,
     getSubtotal,
@@ -36,11 +39,34 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
 
   useEffect(() => {
     setLoadingProducts(true)
+    setProductsError('')
     getProducts()
-      .then((data) => setProducts(data.filter((product) => product.status === 'active' && product.quantity > 0)))
-      .catch(console.error)
+      .then((data) => {
+        const availableProducts = data.filter((product) => product.status === 'active' && product.quantity > 0)
+        const currentCart = useSalesStore.getState().cart
+        const productMap = new Map(availableProducts.map((product) => [product.id, product]))
+        const removedCount = currentCart.filter((item) => !productMap.has(item.product_id)).length
+        const reducedCount = currentCart.filter((item) => {
+          const product = productMap.get(item.product_id)
+          return product && item.quantity > product.quantity
+        }).length
+
+        setProducts(availableProducts)
+        syncCartStock(availableProducts)
+        setStockNotice(
+          removedCount > 0
+            ? `${removedCount} article(s) indisponible(s) retiré(s) du panier.`
+            : reducedCount > 0
+              ? `${reducedCount} quantité(s) ajustée(s) au stock disponible.`
+              : ''
+        )
+      })
+      .catch((error: unknown) => {
+        console.error(error)
+        setProductsError(error instanceof Error ? error.message : 'Impossible de charger les produits')
+      })
       .finally(() => setLoadingProducts(false))
-  }, [refreshKey])
+  }, [refreshKey, syncCartStock])
 
   useEffect(() => {
     if (cart.length === 0) {
@@ -78,11 +104,13 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
 
   const renderCartContent = (mode: 'desktop' | 'mobile') => (
     <>
-      <div className="flex items-center gap-2">
-        <ShoppingCart size={16} className="text-[#6C5CE7]" />
-        <h3 className="text-sm font-semibold text-[#1A3636]">Panier</h3>
-        <Badge variant="purple">{cart.length} article(s)</Badge>
-      </div>
+      {mode === 'desktop' && (
+        <div className="flex items-center gap-2">
+          <ShoppingCart size={16} className="text-[#6C5CE7]" />
+          <h3 className="text-sm font-semibold text-[#1A3636]">Panier</h3>
+          <Badge variant="purple">{cart.length} article(s)</Badge>
+        </div>
+      )}
 
       <Input
         placeholder="Nom du client (optionnel)"
@@ -98,7 +126,55 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
             <p className="text-xs">Selectionnez des produits</p>
           </div>
         ) : (
-          cart.map((item) => (
+          cart.map((item) => mode === 'mobile' ? (
+            <article key={item.product_id} className="rounded-xl bg-[#F4F7FB] p-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-white">
+                  {item.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={item.image_url} alt={item.product_name} className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-base">📦</span>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-[#1A3636]">{item.product_name}</p>
+                  <p className="text-xs text-[#6B7682]">{formatCurrency(item.unit_price)} / unité</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeFromCart(item.product_id)}
+                  className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-[#6B7682] transition-colors active:bg-red-500/10 active:text-red-500"
+                  aria-label={`Retirer ${item.product_name}`}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-[#2D7D7D]/[0.07] pt-3">
+                <p className="text-sm font-semibold text-[#1A3636]">{formatCurrency(item.total)}</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => item.quantity > 1 ? updateCartQuantity(item.product_id, item.quantity - 1) : removeFromCart(item.product_id)}
+                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-[#1A3636] shadow-sm"
+                    aria-label={`Diminuer ${item.product_name}`}
+                  >
+                    <Minus size={15} />
+                  </button>
+                  <span className="w-6 text-center text-sm font-semibold text-[#1A3636]">{item.quantity}</span>
+                  <button
+                    type="button"
+                    onClick={() => updateCartQuantity(item.product_id, item.quantity + 1)}
+                    className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-[#1A3636] shadow-sm disabled:opacity-35"
+                    disabled={item.quantity >= item.max_quantity}
+                    aria-label={`Augmenter ${item.product_name}`}
+                  >
+                    <Plus size={15} />
+                  </button>
+                </div>
+              </div>
+            </article>
+          ) : (
             <div key={item.product_id} className="flex items-center gap-2 rounded-xl bg-[#F4F7FB] p-2">
               <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#2D7D7D]/[0.08] bg-white">
                 {item.image_url ? (
@@ -196,6 +272,18 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
             />
           </div>
 
+          {productsError && (
+            <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
+              {productsError}
+            </div>
+          )}
+          {stockNotice && (
+            <div className="flex items-start justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700">
+              <span>{stockNotice}</span>
+              <button type="button" onClick={() => setStockNotice('')} className="font-semibold">Fermer</button>
+            </div>
+          )}
+
           {loadingProducts ? (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((index) => (
@@ -233,7 +321,10 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
                       )}
                     </div>
                     <p className="line-clamp-2 text-[11px] font-medium leading-tight text-[#1A3636]">{product.name}</p>
-                    <p className="mt-0.5 text-xs font-bold text-[#6C5CE7]">{formatCurrency(product.selling_price)}</p>
+                    <p className="mt-0.5 text-xs font-bold text-[#6C5CE7]">
+                      <span className="sm:hidden">{formatCurrencyCompact(product.selling_price)}</span>
+                      <span className="hidden sm:inline">{formatCurrency(product.selling_price)}</span>
+                    </p>
                     <p className={`text-[9px] ${remaining === 0 ? 'text-red-600' : 'text-[#6B7682]'}`}>
                       {remaining === 0 ? 'Stock epuise' : `Reste: ${remaining}`}
                     </p>

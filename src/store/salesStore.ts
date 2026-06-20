@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { CartItem, Sale } from '@/types'
+import type { CartItem, Product, Sale } from '@/types'
 
 interface SalesState {
   cart: CartItem[]
@@ -12,6 +12,7 @@ interface SalesState {
   addToCart: (item: CartItem) => void
   removeFromCart: (productId: string) => void
   updateCartQuantity: (productId: string, quantity: number) => void
+  syncCartStock: (products: Product[]) => void
   clearCart: () => void
   setDiscount: (discount: number) => void
   setCustomer: (name: string, phone: string) => void
@@ -57,6 +58,27 @@ export const useSalesStore = create<SalesState>()((set, get) => ({
         })() : c
       ),
     })),
+  syncCartStock: (products) =>
+    set((state) => {
+      const productMap = new Map(products.map((product) => [product.id, product]))
+      return {
+        cart: state.cart.flatMap((item) => {
+          const product = productMap.get(item.product_id)
+          if (!product || product.status !== 'active' || product.quantity <= 0) return []
+
+          const quantity = Math.min(item.quantity, product.quantity)
+          return [{
+            ...item,
+            product_name: product.name,
+            unit_price: product.selling_price,
+            quantity,
+            total: quantity * product.selling_price,
+            max_quantity: product.quantity,
+            image_url: product.image_url,
+          }]
+        }),
+      }
+    }),
   clearCart: () => set({ cart: [], discount: 0, customerName: '', customerPhone: '' }),
   setDiscount: (discount) => set({ discount: Math.max(0, Math.min(discount, 100)) }),
   setCustomer: (customerName, customerPhone) => set({ customerName, customerPhone }),

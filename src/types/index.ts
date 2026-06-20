@@ -30,6 +30,18 @@ export interface Product {
   supplier?: Supplier
 }
 
+export interface StockMovement {
+  id: string
+  user_id: string
+  product_id: string
+  movement_type: 'in' | 'out' | 'adjustment'
+  quantity: number
+  previous_quantity: number
+  new_quantity: number
+  reason?: string
+  created_at: string
+}
+
 export interface AbroadProduct {
   id: string
   user_id: string
