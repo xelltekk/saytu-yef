@@ -69,8 +69,9 @@ export function InstallPrompt() {
 
     await prompt.prompt()
     const { outcome } = await prompt.userChoice
-    if (outcome === 'accepted') {
-      setShow(false)
+    setShow(false)
+    if (outcome === 'dismissed') {
+      localStorage.setItem(DISMISS_KEY, String(Date.now()))
     }
     setPrompt(null)
   }

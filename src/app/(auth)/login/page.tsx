@@ -1,26 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { TrendingUp, Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient } from '@/lib/supabase/client'
+import { getSafeRedirectPath } from '@/lib/authRedirect'
 
 const GENERIC_LOGIN_ERROR =
   'Impossible de se connecter pour le moment. Verifiez votre connexion et reessayez.'
-
-function getFriendlyError(message?: string) {
-  if (message === 'Invalid login credentials') {
-    return 'Email ou mot de passe incorrect.'
-  }
-
-  if (message === 'Email not confirmed') {
-    return 'Veuillez confirmer votre email avant de vous connecter.'
-  }
-
-  return GENERIC_LOGIN_ERROR
-}
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
@@ -28,13 +17,19 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [form, setForm] = useState({ email: '', password: '' })
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('error') === 'oauth') {
+      setError('La connexion Google a échoué. Réessayez.')
+    }
+  }, [])
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setIsLoading(true)
     setError('')
 
     const nextPath = new URLSearchParams(window.location.search).get('next')
-    const redirectPath = nextPath?.startsWith('/') ? nextPath : '/dashboard'
+    const redirectPath = getSafeRedirectPath(nextPath)
 
     try {
       const supabase = createClient()
@@ -44,7 +39,7 @@ export default function LoginPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          email: form.email,
+          email: form.email.trim().toLowerCase(),
           password: form.password,
           next: redirectPath,
         }),
@@ -85,11 +80,13 @@ export default function LoginPage() {
   }
 
   const handleGoogle = async () => {
+    setError('')
     const supabase = createClient()
-    await supabase.auth.signInWithOAuth({
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${window.location.origin}/auth/callback` },
     })
+    if (oauthError) setError('La connexion Google a échoué. Réessayez.')
   }
 
   return (
@@ -125,6 +122,7 @@ export default function LoginPage() {
             <Input
               label="Email"
               type="email"
+              autoComplete="email"
               placeholder="votre@email.com"
               value={form.email}
               onChange={(e) => setForm((current) => ({ ...current, email: e.target.value }))}
@@ -147,6 +145,7 @@ export default function LoginPage() {
                 <Lock size={14} className="absolute left-4 text-[#6B7682] z-10" />
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
                   placeholder="Saisissez votre mot de passe"
                   value={form.password}
                   onChange={(e) =>
@@ -159,6 +158,7 @@ export default function LoginPage() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-4 text-[#6B7682] hover:text-[#1A3636] transition-colors z-10"
+                  aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
                 >
                   {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { getSafeRedirectPath } from '@/lib/authRedirect'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,10 +14,6 @@ type LoginBody = {
 type LoginSessionPayload = {
   access_token: string
   refresh_token: string
-}
-
-function getRedirectPath(nextPath?: string) {
-  return nextPath?.startsWith('/') ? nextPath : '/dashboard'
 }
 
 function getFriendlyError(message: string) {
@@ -85,7 +82,7 @@ export async function POST(request: Request) {
 
   return NextResponse.json(
     {
-      redirectTo: getRedirectPath(body.next),
+      redirectTo: getSafeRedirectPath(body.next),
       session: sessionPayload satisfies LoginSessionPayload | null,
     },
     { headers: { 'Cache-Control': 'no-store, max-age=0' } }

@@ -99,7 +99,7 @@ export default function ReportsPage() {
         {/* Metrics */}
         <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
           <MetricCard
-            title="Revenus totaux"
+            title="Revenus hors taxe"
             value={loading ? '…' : renderResponsiveCurrency(totalRevenue)}
             change={<><span className="sm:hidden">6 mois</span><span className="hidden sm:inline">6 derniers mois</span></>}
             changeType="up"
@@ -135,7 +135,7 @@ export default function ReportsPage() {
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Card className="p-4 sm:p-5 lg:col-span-2">
-            <h3 className="text-sm font-semibold text-[#1A3636] mb-6">Revenus & Bénéfices (6 derniers mois)</h3>
+            <h3 className="text-sm font-semibold text-[#1A3636] mb-6">Revenus HT & Bénéfices (6 derniers mois)</h3>
             {loading ? (
               <div className="h-[250px] flex items-center justify-center">
                 <div className="animate-pulse text-[#6B7682] text-sm">Chargement…</div>

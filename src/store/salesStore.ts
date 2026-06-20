@@ -5,6 +5,7 @@ interface SalesState {
   cart: CartItem[]
   sales: Sale[]
   discount: number
+  taxRate: number
   customerName: string
   customerPhone: string
   paymentMethod: 'cash' | 'wave' | 'orange_money' | 'card'
@@ -15,6 +16,7 @@ interface SalesState {
   syncCartStock: (products: Product[]) => void
   clearCart: () => void
   setDiscount: (discount: number) => void
+  setTaxRate: (taxRate: number) => void
   setCustomer: (name: string, phone: string) => void
   setPaymentMethod: (method: 'cash' | 'wave' | 'orange_money' | 'card') => void
   setSales: (sales: Sale[]) => void
@@ -28,6 +30,7 @@ export const useSalesStore = create<SalesState>()((set, get) => ({
   cart: [],
   sales: [],
   discount: 0,
+  taxRate: 0,
   customerName: '',
   customerPhone: '',
   paymentMethod: 'cash',
@@ -81,6 +84,7 @@ export const useSalesStore = create<SalesState>()((set, get) => ({
     }),
   clearCart: () => set({ cart: [], discount: 0, customerName: '', customerPhone: '' }),
   setDiscount: (discount) => set({ discount: Math.max(0, Math.min(discount, 100)) }),
+  setTaxRate: (taxRate) => set({ taxRate: Math.max(0, Math.min(taxRate, 100)) }),
   setCustomer: (customerName, customerPhone) => set({ customerName, customerPhone }),
   setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
   setSales: (sales) => set({ sales }),
@@ -90,6 +94,7 @@ export const useSalesStore = create<SalesState>()((set, get) => ({
   getTotal: () => {
     const subtotal = get().getSubtotal()
     const discount = get().discount
-    return subtotal - (subtotal * discount) / 100
+    const discountedSubtotal = subtotal - (subtotal * discount) / 100
+    return discountedSubtotal + (discountedSubtotal * get().taxRate) / 100
   },
 }))

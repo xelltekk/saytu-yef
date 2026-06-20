@@ -624,7 +624,7 @@ export async function getReportsData(months = 6) {
   const [salesResult, productsResult] = await Promise.all([
     supabase
       .from('sales')
-      .select('total, created_at, items:sale_items(product_id, product_name, quantity, unit_price, total)')
+      .select('total, tax, created_at, items:sale_items(product_id, product_name, quantity, unit_price, total)')
       .gte('created_at', start.toISOString())
       .eq('payment_status', 'completed')
       .order('created_at'),
@@ -660,11 +660,12 @@ export async function getReportsData(months = 6) {
     const monthKey = `${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`
     const month = monthlyMap[monthKey]
     if (!month) return
-    month.revenue += Number(sale.total)
+    const netSaleRevenue = Math.max(0, Number(sale.total) - Number(sale.tax ?? 0))
+    month.revenue += netSaleRevenue
 
     const saleItems = (sale.items ?? []) as { product_id: string | null; product_name: string; quantity: number; unit_price: number; total: number }[]
     const grossItemsTotal = saleItems.reduce((sum, item) => sum + Number(item.total), 0)
-    const revenueFactor = grossItemsTotal > 0 ? Number(sale.total) / grossItemsTotal : 1
+    const revenueFactor = grossItemsTotal > 0 ? netSaleRevenue / grossItemsTotal : 1
 
     saleItems.forEach((item) => {
       const prod = productMap[item.product_id ?? '']

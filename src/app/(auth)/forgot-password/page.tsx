@@ -19,7 +19,7 @@ export default function ForgotPasswordPage() {
     setError('')
 
     const supabase = createClient()
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
       redirectTo: `${window.location.origin}/auth/reset-password`,
     })
 
@@ -85,6 +85,7 @@ export default function ForgotPasswordPage() {
                 <Input
                   label="Adresse email"
                   type="email"
+                  autoComplete="email"
                   placeholder="votre@email.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}

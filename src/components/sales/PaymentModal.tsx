@@ -19,6 +19,7 @@ interface ReceiptData {
   items: { name: string; qty: number; unitPrice: number; total: number }[]
   subtotal: number
   discountAmount: number
+  taxAmount: number
   total: number
   amountPaid: number
   amountDue: number
@@ -64,6 +65,7 @@ function buildReceiptHTML(r: ReceiptData): string {
     <table>
       <tr><td class="l">Sous-total</td><td class="r">${money(r.subtotal)}</td></tr>
       ${r.discountAmount > 0 ? `<tr><td class="l">Remise</td><td class="r">-${money(r.discountAmount)}</td></tr>` : ''}
+      ${r.taxAmount > 0 ? `<tr><td class="l">TVA</td><td class="r">${money(r.taxAmount)}</td></tr>` : ''}
       <tr class="tot"><td class="l">TOTAL</td><td class="r">${money(r.total)}</td></tr>
       <tr><td class="l small">Verse maintenant</td><td class="r small">${money(r.amountPaid)}</td></tr>
       ${r.amountDue > 0 ? `<tr><td class="l small">Reste du</td><td class="r small">${money(r.amountDue)}</td></tr>` : ''}
@@ -115,7 +117,7 @@ interface PaymentModalProps {
 }
 
 export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
-  const { paymentMethod, setPaymentMethod, getTotal, getSubtotal, cart, discount, clearCart, customerPhone, setCustomer, customerName } = useSalesStore()
+  const { paymentMethod, setPaymentMethod, getTotal, getSubtotal, cart, discount, taxRate, clearCart, customerPhone, setCustomer, customerName } = useSalesStore()
   const { businessName } = useUser()
   const [step, setStep] = useState<'method' | 'confirm' | 'success'>('method')
   const [localCustomerName, setLocalCustomerName] = useState(customerName)
@@ -127,6 +129,8 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
 
   const total = getTotal()
   const subtotal = getSubtotal()
+  const discountAmount = subtotal * discount / 100
+  const taxAmount = (subtotal - discountAmount) * taxRate / 100
   const method = PAYMENT_METHODS.find((m) => m.id === paymentMethod) || PAYMENT_METHODS[2]
   const paidNow = useMemo(() => {
     const parsed = Number(amountPaid)
@@ -210,8 +214,8 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
           total: item.unit_price * item.quantity,
         })),
         subtotal,
-        discount: subtotal * discount / 100,
-        tax: 0,
+        discount: discountAmount,
+        tax: taxAmount,
         total,
         amount_paid: paidNow,
         payment_method: paymentMethod as 'cash' | 'wave' | 'orange_money' | 'card',
@@ -233,7 +237,8 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
           total: item.unit_price * item.quantity,
         })),
         subtotal,
-        discountAmount: subtotal * discount / 100,
+        discountAmount,
+        taxAmount,
         total,
         amountPaid: paidNow,
         amountDue,
@@ -458,6 +463,12 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
               <div className="flex justify-between text-sm text-emerald-600">
                 <span>Remise ({discount}%)</span>
                 <span>-{formatCurrency(subtotal * discount / 100)}</span>
+              </div>
+            )}
+            {taxAmount > 0 && (
+              <div className="flex justify-between text-sm text-[#5C6B73]">
+                <span>TVA ({taxRate}%)</span>
+                <span>+{formatCurrency(taxAmount)}</span>
               </div>
             )}
             <div className="flex justify-between border-t border-[#2D7D7D]/[0.08] pt-2 text-sm">

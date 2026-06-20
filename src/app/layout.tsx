@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import { ServiceWorkerRegister } from '@/components/pwa/ServiceWorkerRegister'
+import { NetworkStatus } from '@/components/pwa/NetworkStatus'
 
 export const metadata: Metadata = {
   applicationName: 'Saytu Yef',
@@ -59,6 +60,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-full gradient-bg" suppressHydrationWarning>
         {children}
+        <NetworkStatus />
         <ServiceWorkerRegister />
       </body>
     </html>

@@ -16,11 +16,16 @@ export default function ResetPasswordPage() {
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    // Supabase injecte la session via le hash de l'URL au chargement
     const supabase = createClient()
-    supabase.auth.onAuthStateChange((event) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') setReady(true)
     })
+
+    void supabase.auth.getSession().then(({ data }) => {
+      if (data.session) setReady(true)
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -105,13 +110,19 @@ export default function ResetPasswordPage() {
                     <Lock size={14} className="absolute left-4 text-[#6B7682] z-10" />
                     <input
                       type={showPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
                       placeholder="Min. 8 caractères"
                       value={form.password}
                       onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                       className="w-full h-12 pl-10 pr-11 rounded-full bg-white border border-[#2D7D7D]/[0.14] text-sm text-[#1A3636] placeholder:text-[#6B7682] focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)] hover:border-[#2D7D7D]/[0.24] transition-all"
                       required
                     />
-                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 text-[#6B7682] hover:text-[#1A3636] transition-colors z-10">
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-4 text-[#6B7682] hover:text-[#1A3636] transition-colors z-10"
+                      aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                    >
                       {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                     </button>
                   </div>
@@ -136,6 +147,7 @@ export default function ResetPasswordPage() {
                     <Lock size={14} className="absolute left-4 text-[#6B7682] z-10" />
                     <input
                       type={showPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
                       placeholder="Répétez le mot de passe"
                       value={form.confirm}
                       onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))}

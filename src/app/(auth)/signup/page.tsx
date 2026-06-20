@@ -1,14 +1,12 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { TrendingUp, Mail, Lock, User, Building, Eye, EyeOff, ArrowRight, Check, AlertCircle, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { createClient } from '@/lib/supabase/client'
 
 const PERKS = [
-  "14 jours d'essai gratuit",
+  'Compte gratuit pour commencer',
   'Sans carte bancaire',
   'Wave & Orange Money inclus',
   'Saisie hors ligne depuis l\'étranger',
@@ -16,7 +14,6 @@ const PERKS = [
 ]
 
 export default function SignupPage() {
-  const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
@@ -28,36 +25,34 @@ export default function SignupPage() {
     setIsLoading(true)
     setError('')
 
-    const supabase = createClient()
+    try {
+      const response = await fetch('/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      const payload = await response.json() as {
+        error?: string
+        requiresEmailConfirmation?: boolean
+        redirectTo?: string
+      }
 
-    const { error } = await supabase.auth.signUp({
-      email: form.email,
-      password: form.password,
-      options: {
-        data: {
-          full_name: form.fullName,
-          business_name: form.businessName,
-        },
-      },
-    })
+      if (!response.ok) {
+        setError(payload.error ?? 'Une erreur est survenue. Réessayez.')
+        return
+      }
 
-    if (error) {
-      setError(
-        error.message === 'User already registered'
-          ? 'Cet email est déjà utilisé. Connectez-vous.'
-          : error.message.includes('Password')
-          ? 'Le mot de passe doit contenir au moins 6 caractères.'
-          : 'Une erreur est survenue. Réessayez.'
-      )
+      if (payload.requiresEmailConfirmation) {
+        setSuccess(true)
+        return
+      }
+
+      window.location.assign(payload.redirectTo ?? '/dashboard')
+    } catch {
+      setError('Impossible de créer le compte pour le moment. Réessayez.')
+    } finally {
       setIsLoading(false)
-      return
     }
-
-    setSuccess(true)
-    setIsLoading(false)
-
-    // Si confirmation email désactivée dans Supabase, rediriger directement
-    setTimeout(() => router.push('/dashboard'), 2000)
   }
 
   if (success) {
@@ -123,7 +118,7 @@ export default function SignupPage() {
 
           <div className="rounded-3xl border border-[#2D7D7D]/[0.08] bg-white p-6 shadow-[0_12px_40px_rgba(26,54,54,0.08)]">
             <h1 className="text-xl font-bold text-[#1A3636] mb-1">Créer un compte gratuit</h1>
-            <p className="text-sm text-[#6B7682] mb-6">14 jours d&apos;essai gratuit, sans carte bancaire</p>
+            <p className="text-sm text-[#6B7682] mb-6">Commencez gratuitement, sans carte bancaire</p>
 
             {error && (
               <div className="flex items-center gap-2 p-3 mb-4 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-600">
@@ -133,7 +128,7 @@ export default function SignupPage() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Input
                   label="Prénom & Nom"
                   placeholder="Moussa Diallo"
@@ -154,6 +149,7 @@ export default function SignupPage() {
               <Input
                 label="Email"
                 type="email"
+                autoComplete="email"
                 placeholder="votre@email.com"
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
@@ -167,23 +163,26 @@ export default function SignupPage() {
                   <Lock size={14} className="absolute left-4 text-[#6B7682] z-10" />
                   <input
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="Minimum 6 caractères"
+                    autoComplete="new-password"
+                    placeholder="Minimum 8 caractères"
                     value={form.password}
                     onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                     className="w-full h-12 pl-10 pr-11 rounded-full bg-white border border-[#2D7D7D]/[0.14] text-sm text-[#1A3636] placeholder:text-[#6B7682] focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)] hover:border-[#2D7D7D]/[0.24] transition-all"
                     required
-                    minLength={6}
+                    minLength={8}
                   />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 text-[#6B7682] hover:text-[#1A3636] transition-colors z-10">
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 text-[#6B7682] hover:text-[#1A3636] transition-colors z-10"
+                    aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                  >
                     {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
               </div>
 
-              <p className="text-xs text-[#6B7682]">
-                En créant un compte, vous acceptez nos{' '}
-                <a href="#" className="text-[#6C5CE7] hover:underline">Conditions d&apos;utilisation</a>.
-              </p>
+              <p className="text-xs text-[#6B7682]">En créant un compte, vous confirmez que les informations saisies sont exactes.</p>
 
               <Button variant="primary" fullWidth size="lg" isLoading={isLoading} type="submit">
                 Créer mon compte <ArrowRight size={16} />

@@ -6,7 +6,7 @@ import { PaymentModal } from '@/components/sales/PaymentModal'
 import { SaleDetailModal } from '@/components/sales/SaleDetailModal'
 import { Badge } from '@/components/ui/Badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { ShoppingCart, Clock, RefreshCw } from 'lucide-react'
+import { AlertCircle, ShoppingCart, Clock, RefreshCw } from 'lucide-react'
 import { getSales } from '@/lib/supabase/queries'
 import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, SALE_METHOD_LABELS, SALE_METHOD_VARIANTS, SALE_STATUS_LABELS, SALE_STATUS_VARIANTS } from '@/lib/sales'
 import type { Sale } from '@/types'
@@ -18,19 +18,30 @@ export default function SalesPage() {
   const [showPayment, setShowPayment] = useState(false)
   const [sales, setSales] = useState<Sale[]>([])
   const [loadingSales, setLoadingSales] = useState(false)
+  const [salesError, setSalesError] = useState('')
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
   const [posRefreshKey, setPosRefreshKey] = useState(0)
 
-  const loadSales = useCallback(() => {
+  const loadSales = useCallback(async () => {
     setLoadingSales(true)
-    getSales(50)
-      .then(setSales)
-      .catch(console.error)
-      .finally(() => setLoadingSales(false))
+    setSalesError('')
+
+    try {
+      setSales(await getSales(50))
+    } catch (error: unknown) {
+      console.error(error)
+      setSalesError(
+        error instanceof Error
+          ? error.message
+          : "Impossible de charger l'historique des ventes."
+      )
+    } finally {
+      setLoadingSales(false)
+    }
   }, [])
 
   useEffect(() => {
-    if (tab === 'history') loadSales()
+    if (tab === 'history') void loadSales()
   }, [tab, loadSales])
 
   const debtCount = useMemo(
@@ -86,15 +97,43 @@ export default function SalesPage() {
               </div>
 
               <button
-                onClick={loadSales}
-                className="flex items-center gap-1.5 text-xs text-[#6B7682] transition-colors hover:text-[#1A3636]"
+                type="button"
+                onClick={() => void loadSales()}
+                disabled={loadingSales}
+                className="flex min-h-10 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-[#6B7682] transition-colors hover:bg-white hover:text-[#1A3636] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <RefreshCw size={13} /> Actualiser
+                <RefreshCw size={13} className={loadingSales ? 'animate-spin' : ''} /> Actualiser
               </button>
             </div>
 
-            <div className="overflow-hidden rounded-2xl border border-[#2D7D7D]/[0.08]">
-              {loadingSales ? (
+            {salesError && (
+              <div
+                role="alert"
+                className="flex flex-col gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-semibold">Historique indisponible</p>
+                    <p className="mt-0.5 text-xs text-red-600">{salesError}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadSales()}
+                  disabled={loadingSales}
+                  className="min-h-10 shrink-0 rounded-xl border border-red-500/25 bg-white px-4 text-xs font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
+                >
+                  Réessayer
+                </button>
+              </div>
+            )}
+
+            <div
+              className="overflow-hidden rounded-2xl border border-[#2D7D7D]/[0.08] bg-white"
+              aria-busy={loadingSales}
+            >
+              {loadingSales && sales.length === 0 ? (
                 <div className="divide-y divide-white/[0.04]">
                   {[1, 2, 3].map((index) => (
                     <div key={index} className="flex items-center gap-4 px-4 py-3 animate-pulse">
@@ -214,7 +253,7 @@ export default function SalesPage() {
                 </>
               )}
 
-              {!loadingSales && sales.length === 0 && (
+              {!loadingSales && !salesError && sales.length === 0 && (
                 <div className="py-12 text-center">
                   <ShoppingCart size={32} className="mx-auto mb-3 text-[#6B7682] opacity-30" />
                   <p className="text-sm text-[#6B7682]">Aucune vente enregistree</p>
@@ -230,14 +269,14 @@ export default function SalesPage() {
         onClose={() => {
           setShowPayment(false)
           setPosRefreshKey((key) => key + 1)
-          if (tab === 'history') loadSales()
+          if (tab === 'history') void loadSales()
         }}
       />
 
       <SaleDetailModal
         sale={selectedSale}
         onClose={() => setSelectedSale(null)}
-        onSaved={loadSales}
+        onSaved={() => void loadSales()}
       />
     </div>
   )

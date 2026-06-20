@@ -42,7 +42,8 @@ function Feedback({ state }: { state: { type: 'success' | 'error'; msg: string }
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
-  const [currentPlan] = useState('starter')
+  const [currentPlan, setCurrentPlan] = useState('free')
+  const [loadingPlan, setLoadingPlan] = useState(true)
   const { user, loading } = useUser()
 
   // ── Profil ──────────────────────────────────────────────
@@ -86,6 +87,49 @@ export default function SettingsPage() {
       tva: Boolean(meta.tva_enabled),
     })
     if (meta.notifications) setNotifs((n) => ({ ...n, ...(meta.notifications as typeof n) }))
+
+    let active = true
+    const loadProfileRecord = async () => {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('full_name,business_name,subscription_plan,currency,business_address,phone,tax_enabled')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (!active) return
+      if (error) {
+        console.error(error)
+        setLoadingPlan(false)
+        return
+      }
+
+      if (data?.full_name) {
+        const [storedFirstName, ...storedRest] = data.full_name.split(' ')
+        setProfile((current) => ({
+          ...current,
+          firstName: storedFirstName || current.firstName,
+          lastName: storedRest.join(' ') || current.lastName,
+        }))
+      }
+      if (data?.phone) {
+        setProfile((current) => ({ ...current, phone: data.phone }))
+      }
+      if (data?.business_name) {
+        setBusiness((current) => ({ ...current, name: data.business_name }))
+      }
+      setBusiness((current) => ({
+        ...current,
+        address: data?.business_address || current.address,
+        currency: data?.currency || current.currency,
+        tva: data?.tax_enabled ?? current.tva,
+      }))
+      setCurrentPlan(data?.subscription_plan || 'free')
+      setLoadingPlan(false)
+    }
+
+    void loadProfileRecord()
+    return () => { active = false }
   }, [user])
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
@@ -97,6 +141,10 @@ export default function SettingsPage() {
   ]
 
   const saveProfile = async () => {
+    if (!user) {
+      setProfileMsg({ type: 'error', msg: 'Session utilisateur introuvable.' })
+      return
+    }
     setSavingProfile(true)
     setProfileMsg(null)
     try {
@@ -106,6 +154,11 @@ export default function SettingsPage() {
         data: { full_name, phone: profile.phone, language: profile.language },
       })
       if (error) throw error
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({ full_name, phone: profile.phone.trim() || null, updated_at: new Date().toISOString() })
+        .eq('id', user.id)
+      if (profileError) throw profileError
       setProfileMsg({ type: 'success', msg: 'Profil enregistré.' })
     } catch (e) {
       setProfileMsg({ type: 'error', msg: e instanceof Error ? e.message : 'Erreur d\'enregistrement.' })
@@ -115,6 +168,10 @@ export default function SettingsPage() {
   }
 
   const saveBusiness = async () => {
+    if (!user) {
+      setBusinessMsg({ type: 'error', msg: 'Session utilisateur introuvable.' })
+      return
+    }
     setSavingBusiness(true)
     setBusinessMsg(null)
     try {
@@ -126,6 +183,18 @@ export default function SettingsPage() {
         },
       })
       if (error) throw error
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          business_name: business.name.trim() || null,
+          business_address: business.address.trim() || null,
+          currency: business.currency,
+          tax_enabled: business.tva,
+          tax_rate: 18,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id)
+      if (profileError) throw profileError
       setBusinessMsg({ type: 'success', msg: 'Informations entreprise enregistrées.' })
     } catch (e) {
       setBusinessMsg({ type: 'error', msg: e instanceof Error ? e.message : 'Erreur d\'enregistrement.' })
@@ -170,15 +239,15 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen">
       <Header title="Paramètres" subtitle="Configurez votre compte et votre activité" />
-      <div className="p-4 lg:p-6">
-        <div className="flex flex-col lg:flex-row gap-6">
+      <div className="p-3 sm:p-4 lg:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
           {/* Side tabs */}
-          <div className="lg:w-48 flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible">
+          <div className="flex snap-x gap-1 overflow-x-auto pb-1 lg:w-48 lg:flex-col lg:overflow-visible lg:pb-0">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all ${activeTab === tab.id ? 'bg-[#6C5CE7]/10 text-[#6C5CE7] border border-[#6C5CE7]/20' : 'text-[#6B7682] hover:text-[#1A3636] hover:bg-[#F4F7FB]'}`}
+                className={`flex min-h-11 snap-start items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${activeTab === tab.id ? 'bg-[#6C5CE7]/10 text-[#6C5CE7] border border-[#6C5CE7]/20' : 'text-[#6B7682] hover:text-[#1A3636] hover:bg-[#F4F7FB]'}`}
               >
                 {tab.icon} {tab.label}
               </button>
@@ -188,7 +257,7 @@ export default function SettingsPage() {
           {/* Content */}
           <div className="flex-1 space-y-4">
             {activeTab === 'profile' && (
-              <Card>
+              <Card className="p-4 sm:p-5">
                 <h3 className="text-sm font-semibold text-[#1A3636] mb-5">Informations personnelles</h3>
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -205,14 +274,14 @@ export default function SettingsPage() {
                   />
                   <Feedback state={profileMsg} />
                   <div className="flex justify-end pt-1">
-                    <Button variant="primary" onClick={saveProfile} isLoading={savingProfile} disabled={loading}>Sauvegarder</Button>
+                    <Button variant="primary" onClick={saveProfile} isLoading={savingProfile} disabled={loading} className="w-full sm:w-auto">Sauvegarder</Button>
                   </div>
                 </div>
               </Card>
             )}
 
             {activeTab === 'business' && (
-              <Card>
+              <Card className="p-4 sm:p-5">
                 <h3 className="text-sm font-semibold text-[#1A3636] mb-5">Informations entreprise</h3>
                 <div className="space-y-4">
                   <Input label="Nom de l'entreprise" value={business.name} onChange={(e) => setBusiness((b) => ({ ...b, name: e.target.value }))} />
@@ -231,8 +300,8 @@ export default function SettingsPage() {
                       ]}
                     />
                   </div>
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-[#F4F7FB] border border-[#2D7D7D]/[0.08]">
-                    <div>
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+                    <div className="min-w-0">
                       <p className="text-sm font-medium text-[#1A3636]">TVA activée</p>
                       <p className="text-xs text-[#6B7682]">Appliquer la TVA (18%) sur les ventes</p>
                     </div>
@@ -240,7 +309,7 @@ export default function SettingsPage() {
                   </div>
                   <Feedback state={businessMsg} />
                   <div className="flex justify-end">
-                    <Button variant="primary" onClick={saveBusiness} isLoading={savingBusiness} disabled={loading}>Sauvegarder</Button>
+                    <Button variant="primary" onClick={saveBusiness} isLoading={savingBusiness} disabled={loading} className="w-full sm:w-auto">Sauvegarder</Button>
                   </div>
                 </div>
               </Card>
@@ -248,8 +317,11 @@ export default function SettingsPage() {
 
             {activeTab === 'billing' && (
               <div className="space-y-4">
-                <Card>
+                <Card className="p-4 sm:p-5">
                   <h3 className="text-sm font-semibold text-[#1A3636] mb-5">Choisir un plan</h3>
+                  <div className="mb-5 rounded-xl border border-[#2D7D7D]/[0.1] bg-[#F4F7FB] px-3 py-2.5 text-xs text-[#5C6B73]">
+                    Les changements de plan et la facturation en ligne seront activés prochainement. Aucun prélèvement ne peut être lancé depuis cet écran.
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {PLANS.map((plan) => (
                       <div
@@ -279,9 +351,9 @@ export default function SettingsPage() {
                           fullWidth
                           size="sm"
                           className="mt-4"
-                          disabled={currentPlan === plan.id}
+                          disabled
                         >
-                          {currentPlan === plan.id ? 'Plan actuel' : 'Choisir'}
+                          {loadingPlan ? 'Chargement…' : currentPlan === plan.id ? 'Plan actuel' : 'Bientôt disponible'}
                         </Button>
                       </div>
                     ))}
@@ -291,7 +363,7 @@ export default function SettingsPage() {
             )}
 
             {activeTab === 'notifications' && (
-              <Card>
+              <Card className="p-4 sm:p-5">
                 <h3 className="text-sm font-semibold text-[#1A3636] mb-5">Préférences de notifications</h3>
                 <div className="space-y-3">
                   {([
@@ -311,24 +383,24 @@ export default function SettingsPage() {
                   ))}
                   <Feedback state={notifMsg} />
                   <div className="flex justify-end">
-                    <Button variant="primary" onClick={saveNotifs} isLoading={savingNotifs} disabled={loading}>Sauvegarder</Button>
+                    <Button variant="primary" onClick={saveNotifs} isLoading={savingNotifs} disabled={loading} className="w-full sm:w-auto">Sauvegarder</Button>
                   </div>
                 </div>
               </Card>
             )}
 
             {activeTab === 'security' && (
-              <Card>
+              <Card className="p-4 sm:p-5">
                 <h3 className="text-sm font-semibold text-[#1A3636] mb-5">Sécurité du compte</h3>
                 <div className="space-y-4">
-                  <Input label="Nouveau mot de passe" type="password" value={pwd.next} onChange={(e) => setPwd((p) => ({ ...p, next: e.target.value }))} placeholder="Min. 8 caractères" />
-                  <Input label="Confirmer le mot de passe" type="password" value={pwd.confirm} onChange={(e) => setPwd((p) => ({ ...p, confirm: e.target.value }))} placeholder="••••••••" />
+                  <Input label="Nouveau mot de passe" type="password" autoComplete="new-password" value={pwd.next} onChange={(e) => setPwd((p) => ({ ...p, next: e.target.value }))} placeholder="Min. 8 caractères" />
+                  <Input label="Confirmer le mot de passe" type="password" autoComplete="new-password" value={pwd.confirm} onChange={(e) => setPwd((p) => ({ ...p, confirm: e.target.value }))} placeholder="••••••••" />
                   <Feedback state={pwdMsg} />
                   <div className="flex justify-end">
-                    <Button variant="primary" onClick={changePassword} isLoading={savingPwd}>Modifier le mot de passe</Button>
+                    <Button variant="primary" onClick={changePassword} isLoading={savingPwd} className="w-full sm:w-auto">Modifier le mot de passe</Button>
                   </div>
                   <div className="border-t border-[#2D7D7D]/[0.08] pt-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="text-sm font-medium text-[#1A3636]">Authentification à deux facteurs</p>
                         <p className="text-xs text-[#6B7682]">Sécurisez votre compte avec 2FA</p>

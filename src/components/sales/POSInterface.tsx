@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
 import { useSalesStore } from '@/store/salesStore'
 import { getProducts } from '@/lib/supabase/queries'
+import { useUser } from '@/hooks/useUser'
 import type { CartItem, Product } from '@/types'
 
 interface POSInterfaceProps {
@@ -16,6 +17,7 @@ interface POSInterfaceProps {
 }
 
 export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
+  const { user } = useUser()
   const [search, setSearch] = useState('')
   const [showMobileCart, setShowMobileCart] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
@@ -30,12 +32,18 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
     syncCartStock,
     discount,
     setDiscount,
+    taxRate,
+    setTaxRate,
     getSubtotal,
     getTotal,
     customerName,
     customerPhone,
     setCustomer,
   } = useSalesStore()
+
+  useEffect(() => {
+    setTaxRate(user?.user_metadata?.tva_enabled ? 18 : 0)
+  }, [setTaxRate, user])
 
   useEffect(() => {
     setLoadingProducts(true)
@@ -82,6 +90,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   const subtotal = getSubtotal()
   const total = getTotal()
   const discountAmount = subtotal * discount / 100
+  const taxAmount = (subtotal - discountAmount) * taxRate / 100
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0)
 
   const handleAddToCart = (product: Product) => {
@@ -237,6 +246,12 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           <div className="flex justify-between text-xs text-emerald-600">
             <span>Remise ({discount}%)</span>
             <span>-{formatCurrency(discountAmount)}</span>
+          </div>
+        )}
+        {taxRate > 0 && (
+          <div className="flex justify-between text-xs text-[#5C6B73]">
+            <span>TVA ({taxRate}%)</span>
+            <span>+{formatCurrency(taxAmount)}</span>
           </div>
         )}
         <div className="flex justify-between pt-1 text-sm font-bold text-[#1A3636]">
