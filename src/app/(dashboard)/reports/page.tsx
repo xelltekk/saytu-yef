@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Header } from '@/components/layout/Header'
 import { Card, MetricCard } from '@/components/ui/Card'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
 import { TrendingUp, Package, DollarSign, BarChart3 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -35,6 +35,13 @@ export default function ReportsPage() {
     ? data.topProducts.reduce((s, p) => s + p.margin, 0) / data.topProducts.length
     : 0
 
+  const renderResponsiveCurrency = (amount: number) => (
+    <>
+      <span className="sm:hidden">{formatCurrencyCompact(amount)}</span>
+      <span className="hidden sm:inline">{formatCurrency(amount)}</span>
+    </>
+  )
+
   // Catégorie par ventes (basé sur top produits agrégés)
   const categoryData = data?.topProducts.slice(0, 5).map((p, i) => ({
     name: p.name.slice(0, 12),
@@ -50,16 +57,16 @@ export default function ReportsPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             title="Revenus totaux"
-            value={loading ? '…' : formatCurrency(totalRevenue)}
-            change="6 derniers mois"
+            value={loading ? '…' : renderResponsiveCurrency(totalRevenue)}
+            change={<><span className="sm:hidden">6 mois</span><span className="hidden sm:inline">6 derniers mois</span></>}
             changeType="up"
             icon={<DollarSign size={20} />}
             color="#6C5CE7"
           />
           <MetricCard
             title="Bénéfice net"
-            value={loading ? '…' : formatCurrency(totalProfit)}
-            change="6 derniers mois"
+            value={loading ? '…' : renderResponsiveCurrency(totalProfit)}
+            change={<><span className="sm:hidden">6 mois</span><span className="hidden sm:inline">6 derniers mois</span></>}
             changeType="up"
             icon={<TrendingUp size={20} />}
             color="#10b981"
@@ -67,7 +74,7 @@ export default function ReportsPage() {
           <MetricCard
             title="Articles vendus"
             value={loading ? '…' : String(totalSold)}
-            change="tous produits"
+            change={<><span className="sm:hidden">Tous</span><span className="hidden sm:inline">tous produits</span></>}
             changeType="neutral"
             icon={<BarChart3 size={20} />}
             color="#8b5cf6"
@@ -75,7 +82,7 @@ export default function ReportsPage() {
           <MetricCard
             title="Marge moyenne"
             value={loading ? '…' : `${avgMargin.toFixed(1)}%`}
-            change="sur top produits"
+            change={<><span className="sm:hidden">Top ventes</span><span className="hidden sm:inline">sur top produits</span></>}
             changeType="neutral"
             icon={<Package size={20} />}
             color="#f97316"

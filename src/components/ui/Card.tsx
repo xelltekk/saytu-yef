@@ -37,9 +37,9 @@ export function Card({ children, className, hover, glow, accent, mint }: CardPro
 }
 
 interface MetricCardProps {
-  title: string
-  value: string
-  change?: string
+  title: React.ReactNode
+  value: React.ReactNode
+  change?: React.ReactNode
   changeType?: 'up' | 'down' | 'neutral'
   icon: React.ReactNode
   color?: string
@@ -56,7 +56,7 @@ export function MetricCard({
   const isDown = changeType === 'down'
 
   const className = cn(
-    'group relative block overflow-hidden rounded-2xl bg-white border border-[#2D7D7D]/[0.08] p-4 sm:p-5 shadow-[0_6px_20px_rgba(26,54,54,0.06)] transition-all duration-200 hover:border-[#2D7D7D]/[0.16] hover:-translate-y-0.5',
+    'group relative block overflow-hidden rounded-2xl bg-white border border-[#2D7D7D]/[0.08] p-4 sm:p-5 shadow-[0_6px_20px_rgba(26,54,54,0.06)] transition-all duration-200 hover:border-[#2D7D7D]/[0.16] hover:-translate-y-0.5 min-h-[168px] sm:min-h-[176px]',
     href && 'cursor-pointer hover:shadow-[0_10px_28px_rgba(26,54,54,0.12)]'
   )
 
@@ -79,14 +79,14 @@ export function MetricCard({
           <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[#5C6B73] mb-2">
             {title}
           </p>
-          <p className="font-display text-[19px] sm:text-[22px] font-bold text-[#1A3636] leading-tight whitespace-normal break-words">
+          <p className="font-display text-[clamp(1.1rem,5vw,1.35rem)] sm:text-[22px] font-bold text-[#1A3636] leading-[1.1] whitespace-normal break-words">
             {value}
           </p>
           {change && (
             <div className="mt-2 flex items-center gap-1.5">
               <span
                 className={cn(
-                  'inline-flex max-w-full items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold whitespace-normal break-words',
+                  'inline-flex max-w-full items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] sm:text-[11px] font-semibold whitespace-normal break-words',
                   isUp   && 'stat-up',
                   isDown && 'stat-down',
                   !isUp && !isDown && 'text-[#5C6B73] bg-[#2D7D7D]/[0.07]'
@@ -99,7 +99,7 @@ export function MetricCard({
         </div>
 
         <div
-          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10"
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10"
           style={{ background: grad, color }}
         >
           {icon}

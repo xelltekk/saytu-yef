@@ -8,7 +8,7 @@ import { RecentActivity } from '@/components/dashboard/RecentActivity'
 import { LowStockAlert } from '@/components/dashboard/LowStockAlert'
 import { TrendingUp, Package, ShoppingCart, AlertTriangle } from 'lucide-react'
 import { getDashboardMetrics } from '@/lib/supabase/queries'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
 
 interface Metrics {
   revenueToday: number
@@ -33,6 +33,13 @@ export default function DashboardPage() {
       .finally(() => setLoading(false))
   }, [])
 
+  const renderResponsiveCurrency = (amount: number) => (
+    <>
+      <span className="sm:hidden">{formatCurrencyCompact(amount)}</span>
+      <span className="hidden sm:inline">{formatCurrency(amount)}</span>
+    </>
+  )
+
   return (
     <div className="min-h-screen">
       <Header title="Tableau de bord" subtitle="Aperçu de votre activité" />
@@ -42,16 +49,21 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             title="Ventes aujourd'hui"
-            value={loading ? '…' : formatCurrency(metrics?.revenueToday ?? 0)}
-            change={loading ? '' : `${metrics?.salesToday ?? 0} transaction(s)`}
+            value={loading ? '…' : renderResponsiveCurrency(metrics?.revenueToday ?? 0)}
+            change={loading ? '' : (
+              <>
+                <span className="sm:hidden">{metrics?.salesToday ?? 0} ventes</span>
+                <span className="hidden sm:inline">{metrics?.salesToday ?? 0} transaction(s)</span>
+              </>
+            )}
             changeType="neutral"
             icon={<TrendingUp size={20} />}
             color="#2D7D7D"
             href="/sales"
           />
           <MetricCard
-            title="Ce mois-ci"
-            value={loading ? '…' : formatCurrency(metrics?.revenueMonth ?? 0)}
+            title={<><span className="sm:hidden">Ce mois</span><span className="hidden sm:inline">Ce mois-ci</span></>}
+            value={loading ? '…' : renderResponsiveCurrency(metrics?.revenueMonth ?? 0)}
             change={loading ? '' : `${metrics?.salesMonth ?? 0} ventes`}
             changeType="up"
             icon={<ShoppingCart size={20} />}
@@ -70,7 +82,12 @@ export default function DashboardPage() {
           <MetricCard
             title="Marge moyenne"
             value={loading ? '…' : `${(metrics?.avgMargin ?? 0).toFixed(1)}%`}
-            change={loading ? '' : 'Sur tous les produits'}
+            change={loading ? '' : (
+              <>
+                <span className="sm:hidden">Tous produits</span>
+                <span className="hidden sm:inline">Sur tous les produits</span>
+              </>
+            )}
             changeType="neutral"
             icon={<AlertTriangle size={20} />}
             color="#F59E0B"

@@ -32,27 +32,28 @@ export default function LandingPage() {
     <div className="min-h-screen gradient-bg">
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-[#2D7D7D]/[0.08] bg-[#EEF1FA]/80 backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-3 sm:px-4">
-          <div className="flex items-center gap-2.5 text-[15px] sm:text-base">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 px-3 sm:px-4">
+          <div className="flex min-w-0 items-center gap-2 text-[15px] sm:text-base">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#6C5CE7] to-[#8B7DF0] flex items-center justify-center shadow-lg shadow-[rgba(108,92,231,0.4)]">
               <Zap size={16} className="text-white" />
             </div>
-            <span className="font-bold text-[#1A3636]">Saytu Yëf</span>
+            <span className="truncate font-bold text-[#1A3636]">Saytu Yëf</span>
           </div>
           <div className="hidden md:flex items-center gap-6">
             {['Fonctionnalités', 'Tarifs'].map((item) => (
               <a key={item} href={`#${item.toLowerCase()}`} className="text-sm text-[#6B7682] hover:text-[#1A3636] transition-colors">{item}</a>
             ))}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <Link
               href="/login"
-              className="inline-flex items-center justify-center rounded-xl border border-[#2D7D7D]/[0.12] bg-white/70 px-2.5 py-1.5 text-xs font-medium text-[#1A3636] transition-colors hover:border-[#2D7D7D]/[0.24] hover:bg-white sm:px-3 sm:text-sm"
+              className="inline-flex items-center justify-center whitespace-nowrap rounded-xl border border-[#2D7D7D]/[0.12] bg-white/70 px-2 py-1.5 text-[11px] font-medium text-[#1A3636] transition-colors hover:border-[#2D7D7D]/[0.24] hover:bg-white sm:px-3 sm:text-sm"
             >
               Connexion
             </Link>
-            <Link href="/signup" className="inline-flex items-center justify-center rounded-xl bg-[#6C5CE7] px-3 py-1.5 text-xs font-medium text-white transition-all shadow-lg shadow-[rgba(108,92,231,0.3)] hover:bg-[#5A4BD4] sm:px-4 sm:text-sm">
-              Essai gratuit
+            <Link href="/signup" className="inline-flex items-center justify-center whitespace-nowrap rounded-xl bg-[#6C5CE7] px-2.5 py-1.5 text-[11px] font-medium text-white transition-all shadow-lg shadow-[rgba(108,92,231,0.3)] hover:bg-[#5A4BD4] sm:px-4 sm:text-sm">
+              <span className="sm:hidden">Essai</span>
+              <span className="hidden sm:inline">Essai gratuit</span>
             </Link>
           </div>
         </div>
