@@ -5,14 +5,14 @@ import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { generateSKU, getProfitMargin, compressImage } from '@/lib/utils'
-import { addProduct, updateProduct, getCategories } from '@/lib/supabase/queries'
+import { addProduct, updateProduct, getCategories, getProducts } from '@/lib/supabase/queries'
 import type { Product, Category } from '@/types'
 
 interface AddProductModalProps {
   isOpen: boolean
   onClose: () => void
   product?: Product | null
-  onSaved?: () => void
+  onSaved?: (message?: string) => void
 }
 
 const CURRENCIES = [
@@ -36,6 +36,7 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
     currency: product?.currency || 'XOF',
   })
   const [categories, setCategories] = useState<Category[]>([])
+  const [existingProducts, setExistingProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [image, setImage] = useState<string>(product?.image_url || '')
@@ -62,9 +63,20 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
 
   useEffect(() => {
     if (!isOpen) return
-    getCategories().then(setCategories).catch(console.error)
     setError('')
     setImage(product?.image_url || '')
+    getCategories()
+      .then(setCategories)
+      .catch((loadError: unknown) => {
+        console.error(loadError)
+        setError(loadError instanceof Error ? loadError.message : 'Impossible de charger les catégories.')
+      })
+    getProducts()
+      .then(setExistingProducts)
+      .catch((loadError: unknown) => {
+        console.error(loadError)
+        setError(loadError instanceof Error ? loadError.message : 'Impossible de vérifier les références existantes.')
+      })
   }, [isOpen, product])
 
   // Sync form when product changes (edit vs new)
@@ -91,6 +103,13 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
   const margin = form.buying_price && form.selling_price
     ? getProfitMargin(Number(form.buying_price), Number(form.selling_price))
     : 0
+  const previewBuyingPrice = Number(form.buying_price)
+  const previewSellingPrice = Number(form.selling_price)
+  const isLossMaking = form.buying_price !== ''
+    && form.selling_price !== ''
+    && Number.isFinite(previewBuyingPrice)
+    && Number.isFinite(previewSellingPrice)
+    && previewSellingPrice < previewBuyingPrice
 
   const categoryOptions = [
     { value: '', label: 'Sélectionner une catégorie' },
@@ -114,6 +133,10 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
       setError('Le prix de vente doit être positif ou nul')
       return
     }
+    if (sellingPrice <= 0) {
+      setError('Le prix de vente doit être supérieur à zéro pour un produit actif')
+      return
+    }
     if (!product && (!Number.isInteger(initialQuantity) || initialQuantity < 0)) {
       setError('La quantité initiale doit être un nombre entier positif ou nul')
       return
@@ -123,12 +146,22 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
       return
     }
 
+    const requestedSku = form.sku.trim() || generateSKU(form.name)
+    const duplicateSku = existingProducts.some((existingProduct) => (
+      existingProduct.id !== product?.id
+      && existingProduct.sku?.trim().toLocaleLowerCase('fr') === requestedSku.toLocaleLowerCase('fr')
+    ))
+    if (duplicateSku) {
+      setError(`La référence « ${requestedSku} » est déjà utilisée par un autre produit.`)
+      return
+    }
+
     setIsLoading(true)
     setError('')
     try {
       const payload = {
         name: form.name.trim(),
-        sku: form.sku.trim() || generateSKU(form.name),
+        sku: requestedSku,
         category_id: form.category_id || undefined,
         supplier_id: undefined,
         description: form.description.trim() || undefined,
@@ -147,7 +180,7 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
         await addProduct(payload as Parameters<typeof addProduct>[0])
       }
 
-      onSaved?.()
+      onSaved?.(product ? `Le produit « ${payload.name} » a été modifié.` : `Le produit « ${payload.name} » a été ajouté au stock.`)
       onClose()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erreur lors de l\'enregistrement')
@@ -279,13 +312,19 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
               value={form.selling_price}
               onChange={(e) => setForm((f) => ({ ...f, selling_price: e.target.value }))}
             />
-            {margin > 0 && (
-              <p className={`text-xs mt-1 font-medium ${margin > 20 ? 'text-emerald-600' : margin > 10 ? 'text-amber-600' : 'text-red-600'}`}>
-                Marge: {margin.toFixed(1)}%
+            {form.buying_price !== '' && form.selling_price !== '' && previewSellingPrice > 0 && (
+              <p className={`text-xs mt-1 font-medium ${margin > 20 ? 'text-emerald-600' : margin >= 0 ? 'text-amber-600' : 'text-red-600'}`}>
+                {margin < 0 ? 'Perte' : 'Marge'} : {margin.toFixed(1)}%
               </p>
             )}
           </div>
         </div>
+
+        {isLossMaking && (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-700">
+            Attention : le prix de vente est inférieur au prix d’achat. Ce produit sera vendu à perte.
+          </div>
+        )}
 
         {product && (
           <div className="rounded-xl bg-[#6C5CE7]/[0.08] px-3 py-2.5 text-xs text-[#5446C8]">

@@ -17,6 +17,7 @@ export function InstallPrompt() {
   const [isIOS, setIsIOS] = useState(false)
   const [isIOSSafari, setIsIOSSafari] = useState(false)
   const [showIOS, setShowIOS] = useState(false)
+  const [installError, setInstallError] = useState('')
 
   useEffect(() => {
     const nav = navigator as Navigator & { standalone?: boolean }
@@ -67,13 +68,19 @@ export function InstallPrompt() {
   const handleInstall = async () => {
     if (!prompt) return
 
-    await prompt.prompt()
-    const { outcome } = await prompt.userChoice
-    setShow(false)
-    if (outcome === 'dismissed') {
-      localStorage.setItem(DISMISS_KEY, String(Date.now()))
+    setInstallError('')
+    try {
+      await prompt.prompt()
+      const { outcome } = await prompt.userChoice
+      setShow(false)
+      if (outcome === 'dismissed') {
+        localStorage.setItem(DISMISS_KEY, String(Date.now()))
+      }
+      setPrompt(null)
+    } catch (error) {
+      console.error(error)
+      setInstallError('L’installation n’a pas pu démarrer. Réessayez depuis le menu du navigateur.')
     }
-    setPrompt(null)
   }
 
   const dismiss = () => {
@@ -133,13 +140,17 @@ export function InstallPrompt() {
         </div>
 
         {!isIOS && (
-          <button
-            onClick={handleInstall}
-            className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#6C5CE7] to-[#8B7DF0] text-sm font-semibold text-white shadow-[0_4px_14px_rgba(108,92,231,0.3)] transition-all hover:brightness-105"
-          >
-            <Download size={14} />
-            Installer l&apos;application
-          </button>
+          <>
+            {installError && <p role="alert" className="mt-3 text-xs text-red-600">{installError}</p>}
+            <button
+              type="button"
+              onClick={() => void handleInstall()}
+              className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#6C5CE7] to-[#8B7DF0] text-sm font-semibold text-white shadow-[0_4px_14px_rgba(108,92,231,0.3)] transition-all hover:brightness-105"
+            >
+              <Download size={14} />
+              Installer l&apos;application
+            </button>
+          </>
         )}
       </div>
     </div>

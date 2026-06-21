@@ -30,6 +30,9 @@ export function useUser() {
 
   const businessName: string =
     user?.user_metadata?.business_name || ''
+  const businessAddress: string = user?.user_metadata?.address || ''
+  const businessPhone: string = user?.user_metadata?.phone || ''
+  const businessNinea: string = user?.user_metadata?.ninea || ''
 
   const initials: string = displayName
     .split(' ')
@@ -38,5 +41,15 @@ export function useUser() {
     .join('')
     .toUpperCase()
 
-  return { user, loading, displayName, businessName, initials, email: user?.email ?? '' }
+  return {
+    user,
+    loading,
+    displayName,
+    businessName,
+    businessAddress,
+    businessPhone,
+    businessNinea,
+    initials,
+    email: user?.email ?? '',
+  }
 }

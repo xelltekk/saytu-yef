@@ -1,7 +1,9 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import type { CartItem, Product, Sale } from '@/types'
 
 interface SalesState {
+  draftOwnerId: string
   cart: CartItem[]
   sales: Sale[]
   discount: number
@@ -10,6 +12,7 @@ interface SalesState {
   customerPhone: string
   paymentMethod: 'cash' | 'wave' | 'orange_money' | 'card'
   isLoading: boolean
+  setDraftOwner: (userId: string) => void
   addToCart: (item: CartItem) => void
   removeFromCart: (productId: string) => void
   updateCartQuantity: (productId: string, quantity: number) => void
@@ -26,7 +29,9 @@ interface SalesState {
   getTotal: () => number
 }
 
-export const useSalesStore = create<SalesState>()((set, get) => ({
+export const useSalesStore = create<SalesState>()(
+  persist((set, get) => ({
+  draftOwnerId: '',
   cart: [],
   sales: [],
   discount: 0,
@@ -35,6 +40,7 @@ export const useSalesStore = create<SalesState>()((set, get) => ({
   customerPhone: '',
   paymentMethod: 'cash',
   isLoading: false,
+  setDraftOwner: (draftOwnerId) => set({ draftOwnerId }),
   addToCart: (item) =>
     set((state) => {
       const existing = state.cart.find((c) => c.product_id === item.product_id)
@@ -97,4 +103,16 @@ export const useSalesStore = create<SalesState>()((set, get) => ({
     const discountedSubtotal = subtotal - (subtotal * discount) / 100
     return discountedSubtotal + (discountedSubtotal * get().taxRate) / 100
   },
-}))
+  }), {
+    name: 'saytu-yef-sales-draft',
+    version: 1,
+    partialize: (state) => ({
+      cart: state.cart,
+      draftOwnerId: state.draftOwnerId,
+      discount: state.discount,
+      customerName: state.customerName,
+      customerPhone: state.customerPhone,
+      paymentMethod: state.paymentMethod,
+    }),
+  })
+)

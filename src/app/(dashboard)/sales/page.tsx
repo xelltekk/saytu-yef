@@ -6,28 +6,49 @@ import { PaymentModal } from '@/components/sales/PaymentModal'
 import { SaleDetailModal } from '@/components/sales/SaleDetailModal'
 import { Badge } from '@/components/ui/Badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { AlertCircle, ShoppingCart, Clock, RefreshCw } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Download, ShoppingCart, Clock, RefreshCw, Search } from 'lucide-react'
 import { getSales } from '@/lib/supabase/queries'
 import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, SALE_METHOD_LABELS, SALE_METHOD_VARIANTS, SALE_STATUS_LABELS, SALE_STATUS_VARIANTS } from '@/lib/sales'
 import type { Sale } from '@/types'
 
 type Tab = 'pos' | 'history'
+type HistoryFilter = 'all' | 'open' | 'paid'
+type HistoryPeriod = 'all' | 'today' | '7d' | '30d'
+const SALES_PAGE_SIZE = 50
 
 export default function SalesPage() {
   const [tab, setTab] = useState<Tab>('pos')
   const [showPayment, setShowPayment] = useState(false)
   const [sales, setSales] = useState<Sale[]>([])
   const [loadingSales, setLoadingSales] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMoreSales, setHasMoreSales] = useState(true)
   const [salesError, setSalesError] = useState('')
+  const [salesNotice, setSalesNotice] = useState('')
+  const [salesQuery, setSalesQuery] = useState('')
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all')
+  const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('all')
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
   const [posRefreshKey, setPosRefreshKey] = useState(0)
 
-  const loadSales = useCallback(async () => {
-    setLoadingSales(true)
+  const loadSales = useCallback(async (offset = 0) => {
+    const loadingNextPage = offset > 0
+    if (loadingNextPage) setLoadingMore(true)
+    else setLoadingSales(true)
     setSalesError('')
 
     try {
-      setSales(await getSales(50))
+      const nextSales = await getSales(SALES_PAGE_SIZE, offset)
+      if (loadingNextPage) {
+        setSales((current) => {
+          const merged = new Map(current.map((sale) => [sale.id, sale]))
+          nextSales.forEach((sale) => merged.set(sale.id, sale))
+          return Array.from(merged.values())
+        })
+      } else {
+        setSales(nextSales)
+      }
+      setHasMoreSales(nextSales.length === SALES_PAGE_SIZE)
     } catch (error: unknown) {
       console.error(error)
       setSalesError(
@@ -36,13 +57,20 @@ export default function SalesPage() {
           : "Impossible de charger l'historique des ventes."
       )
     } finally {
-      setLoadingSales(false)
+      if (loadingNextPage) setLoadingMore(false)
+      else setLoadingSales(false)
     }
   }, [])
 
   useEffect(() => {
     if (tab === 'history') void loadSales()
   }, [tab, loadSales])
+
+  useEffect(() => {
+    if (!salesNotice) return
+    const timeout = window.setTimeout(() => setSalesNotice(''), 4000)
+    return () => window.clearTimeout(timeout)
+  }, [salesNotice])
 
   const debtCount = useMemo(
     () => sales.filter((sale) => {
@@ -60,6 +88,83 @@ export default function SalesPage() {
     }, 0),
     [sales]
   )
+
+  const filteredSales = useMemo(() => {
+    const query = salesQuery.trim().toLocaleLowerCase('fr')
+
+    return sales.filter((sale) => {
+      const computedStatus = getSaleComputedStatus(sale)
+      const isOpen = getSaleAmountDue(sale) > 0
+        && computedStatus !== 'cancelled'
+        && computedStatus !== 'refunded'
+
+      const saleDate = new Date(sale.created_at)
+      const now = new Date()
+      const matchesPeriod = historyPeriod === 'all'
+        || (historyPeriod === 'today'
+          && saleDate.getFullYear() === now.getFullYear()
+          && saleDate.getMonth() === now.getMonth()
+          && saleDate.getDate() === now.getDate())
+        || (historyPeriod === '7d' && saleDate.getTime() >= now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        || (historyPeriod === '30d' && saleDate.getTime() >= now.getTime() - 30 * 24 * 60 * 60 * 1000)
+
+      if (!matchesPeriod) return false
+      if (historyFilter === 'open' && !isOpen) return false
+      if (historyFilter === 'paid' && (isOpen || computedStatus !== 'completed')) return false
+      if (!query) return true
+
+      const searchableText = [
+        sale.customer_name,
+        sale.customer_phone,
+        ...(sale.items ?? []).map((item) => item.product_name),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLocaleLowerCase('fr')
+
+      return searchableText.includes(query)
+    })
+  }, [historyFilter, historyPeriod, sales, salesQuery])
+
+  const handleSaleSaved = useCallback((message?: string) => {
+    setSalesNotice(message ?? 'La vente a bien été mise à jour.')
+    void loadSales(0)
+  }, [loadSales])
+
+  const exportSalesCsv = () => {
+    if (filteredSales.length === 0) return
+
+    const protectSpreadsheetCell = (value: string | number) => {
+      const text = String(value)
+      const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text
+      return `"${safeText.replace(/"/g, '""')}"`
+    }
+    const rows: Array<Array<string | number>> = [
+      ['Date', 'Client', 'Téléphone', 'Produits', 'Total (FCFA)', 'Versé (FCFA)', 'Reste (FCFA)', 'Statut', 'Paiement'],
+      ...filteredSales.map((sale) => {
+        const status = getSaleComputedStatus(sale)
+        return [
+          new Date(sale.created_at).toLocaleString('fr-SN'),
+          sale.customer_name || 'Client',
+          sale.customer_phone || '',
+          (sale.items ?? []).map((item) => `${item.product_name} x${item.quantity}`).join(' | '),
+          sale.total,
+          getSaleAmountPaid(sale),
+          getSaleAmountDue(sale),
+          SALE_STATUS_LABELS[status],
+          SALE_METHOD_LABELS[sale.payment_method],
+        ]
+      }),
+    ]
+    const csv = rows.map((row) => row.map(protectSpreadsheetCell).join(',')).join('\n')
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `ventes-saytu-yef-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -89,22 +194,82 @@ export default function SalesPage() {
                 <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Dettes ouvertes</p>
                   <p className="mt-1 text-lg font-bold text-[#1A3636]">{debtCount}</p>
+                  <p className="text-[10px] text-[#6B7682]">ventes chargées</p>
                 </div>
                 <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-amber-700">Reste a encaisser</p>
                   <p className="mt-1 text-lg font-bold text-amber-700">{formatCurrency(outstandingAmount)}</p>
+                  <p className="text-[10px] text-amber-700/70">ventes chargées</p>
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => void loadSales()}
-                disabled={loadingSales}
-                className="flex min-h-10 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-[#6B7682] transition-colors hover:bg-white hover:text-[#1A3636] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <RefreshCw size={13} className={loadingSales ? 'animate-spin' : ''} /> Actualiser
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={exportSalesCsv}
+                  disabled={filteredSales.length === 0 || loadingSales}
+                  className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-[#6B7682] transition-colors hover:bg-white hover:text-[#1A3636] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download size={13} /> Exporter CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void loadSales(0)}
+                  disabled={loadingSales || loadingMore}
+                  className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-semibold text-[#6B7682] transition-colors hover:bg-white hover:text-[#1A3636] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RefreshCw size={13} className={loadingSales ? 'animate-spin' : ''} /> Actualiser
+                </button>
+              </div>
             </div>
+
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_180px]">
+              <label className="relative block">
+                <span className="sr-only">Rechercher une vente</span>
+                <Search
+                  size={16}
+                  className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#6B7682]"
+                />
+                <input
+                  type="search"
+                  value={salesQuery}
+                  onChange={(event) => setSalesQuery(event.target.value)}
+                  placeholder="Client, téléphone ou produit…"
+                  className="h-11 w-full rounded-xl border border-[#2D7D7D]/[0.12] bg-white pl-10 pr-4 text-sm text-[#1A3636] placeholder:text-[#9AA7AE]"
+                />
+              </label>
+              <select
+                value={historyFilter}
+                onChange={(event) => setHistoryFilter(event.target.value as HistoryFilter)}
+                aria-label="Filtrer les ventes"
+                className="h-11 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-sm text-[#1A3636]"
+              >
+                <option value="all">Toutes les ventes</option>
+                <option value="open">Dettes ouvertes</option>
+                <option value="paid">Ventes soldées</option>
+              </select>
+              <select
+                value={historyPeriod}
+                onChange={(event) => setHistoryPeriod(event.target.value as HistoryPeriod)}
+                aria-label="Filtrer les ventes par période"
+                className="h-11 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-sm text-[#1A3636]"
+              >
+                <option value="all">Toute période chargée</option>
+                <option value="today">Aujourd’hui</option>
+                <option value="7d">7 derniers jours</option>
+                <option value="30d">30 derniers jours</option>
+              </select>
+            </div>
+
+            {salesNotice && (
+              <div
+                role="status"
+                className="flex items-center gap-2.5 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-700"
+              >
+                <CheckCircle2 size={18} className="shrink-0" />
+                {salesNotice}
+              </div>
+            )}
 
             {salesError && (
               <div
@@ -131,7 +296,7 @@ export default function SalesPage() {
 
             <div
               className="overflow-hidden rounded-2xl border border-[#2D7D7D]/[0.08] bg-white"
-              aria-busy={loadingSales}
+              aria-busy={loadingSales || loadingMore}
             >
               {loadingSales && sales.length === 0 ? (
                 <div className="divide-y divide-white/[0.04]">
@@ -148,7 +313,7 @@ export default function SalesPage() {
               ) : (
                 <>
                   <div className="sm:hidden">
-                    {sales.map((sale) => {
+                    {filteredSales.map((sale) => {
                       const computedStatus = getSaleComputedStatus(sale)
                       const amountDue = getSaleAmountDue(sale)
                       const amountPaid = getSaleAmountPaid(sale)
@@ -207,7 +372,7 @@ export default function SalesPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/[0.04]">
-                        {sales.map((sale) => {
+                        {filteredSales.map((sale) => {
                           const computedStatus = getSaleComputedStatus(sale)
                           const amountDue = getSaleAmountDue(sale)
                           const amountPaid = getSaleAmountPaid(sale)
@@ -253,13 +418,33 @@ export default function SalesPage() {
                 </>
               )}
 
-              {!loadingSales && !salesError && sales.length === 0 && (
+              {!loadingSales && !salesError && filteredSales.length === 0 && (
                 <div className="py-12 text-center">
                   <ShoppingCart size={32} className="mx-auto mb-3 text-[#6B7682] opacity-30" />
-                  <p className="text-sm text-[#6B7682]">Aucune vente enregistree</p>
+                  <p className="text-sm text-[#6B7682]">
+                    {sales.length === 0 ? 'Aucune vente enregistrée' : 'Aucune vente ne correspond à votre recherche'}
+                  </p>
                 </div>
               )}
             </div>
+
+            {!loadingSales && sales.length > 0 && (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-[#6B7682]">
+                  {filteredSales.length} vente(s) affichée(s) sur {sales.length} chargée(s)
+                </p>
+                {hasMoreSales && (
+                  <button
+                    type="button"
+                    onClick={() => void loadSales(sales.length)}
+                    disabled={loadingMore}
+                    className="min-h-10 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-4 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
+                  >
+                    {loadingMore ? 'Chargement…' : 'Charger 50 ventes de plus'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -276,7 +461,7 @@ export default function SalesPage() {
       <SaleDetailModal
         sale={selectedSale}
         onClose={() => setSelectedSale(null)}
-        onSaved={() => void loadSales()}
+        onSaved={handleSaleSaved}
       />
     </div>
   )

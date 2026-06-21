@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -14,19 +14,52 @@ interface ModalProps {
 
 export function Modal({ isOpen, onClose, title, children, size = 'md', footer }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const previousActiveElement = useRef<HTMLElement | null>(null)
+  const titleId = useId()
 
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
+    if (!isOpen) return
+
+    const previousOverflow = document.body.style.overflow
+    previousActiveElement.current = document.activeElement as HTMLElement | null
+    document.body.style.overflow = 'hidden'
+    const frame = window.requestAnimationFrame(() => panelRef.current?.focus())
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      document.body.style.overflow = previousOverflow
+      previousActiveElement.current?.focus()
     }
-    return () => { document.body.style.overflow = '' }
   }, [isOpen])
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !panelRef.current) return
+
+      const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+      )).filter((element) => !element.hasAttribute('hidden'))
+
+      if (focusable.length === 0) {
+        e.preventDefault()
+        panelRef.current.focus()
+        return
+      }
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
     }
     if (isOpen) document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
@@ -45,14 +78,17 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', footer }:
   return (
     <div
       ref={overlayRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
       className="fixed inset-0 z-50 flex items-end justify-center p-2 sm:items-center sm:p-6"
       onClick={(e) => { if (e.target === overlayRef.current) onClose() }}
     >
-      <div className="absolute inset-0 bg-[#1A3636]/40 backdrop-blur-sm" onClick={onClose} />
+      <div aria-hidden="true" className="absolute inset-0 bg-[#1A3636]/40 backdrop-blur-sm" onClick={onClose} />
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        aria-label={title ? undefined : 'Fenêtre de dialogue'}
+        tabIndex={-1}
         className={cn(
           'relative w-full max-h-[calc(100dvh-0.5rem)] rounded-[28px] sm:rounded-2xl border border-[#2D7D7D]/[0.1] bg-white shadow-[0_20px_60px_rgba(26,54,54,0.25)] fade-in',
           sizes[size]
@@ -60,8 +96,9 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', footer }:
       >
         {title && (
           <div className="flex items-center justify-between border-b border-[#2D7D7D]/[0.07] p-4 sm:p-5">
-            <h2 className="text-base font-semibold text-[#1A3636]">{title}</h2>
+            <h2 id={titleId} className="text-base font-semibold text-[#1A3636]">{title}</h2>
             <button
+              type="button"
               onClick={onClose}
               className="p-1.5 rounded-lg hover:bg-[#2D7D7D]/[0.07] text-[#6B7682] hover:text-[#1A3636] transition-colors"
               aria-label="Fermer"

@@ -18,6 +18,8 @@ interface SaleItemSummary {
 }
 
 interface SaleWithItems {
+  total: number
+  tax: number
   items: SaleItemSummary[] | null
 }
 
@@ -35,9 +37,9 @@ export function TopProducts({ refreshKey = 0 }: { refreshKey?: number }) {
 
       const { data, error } = await supabase
         .from('sales')
-        .select('items:sale_items(product_name, quantity, total)')
+        .select('total, tax, items:sale_items(product_name, quantity, total)')
         .gte('created_at', start.toISOString())
-        .eq('payment_status', 'completed')
+        .in('payment_status', ['completed', 'partial', 'pending'])
 
       if (!active) return
 
@@ -50,12 +52,16 @@ export function TopProducts({ refreshKey = 0 }: { refreshKey?: number }) {
 
         const map: Record<string, TopProduct> = {}
         ;((data ?? []) as SaleWithItems[]).forEach((sale) => {
+          const grossItemsTotal = sale.items?.reduce((sum, item) => sum + Number(item.total), 0) ?? 0
+          const netRevenue = Math.max(0, Number(sale.total) - Number(sale.tax ?? 0))
+          const revenueFactor = grossItemsTotal > 0 ? netRevenue / grossItemsTotal : 1
+
           sale.items?.forEach((item) => {
             if (!map[item.product_name]) {
               map[item.product_name] = { product_name: item.product_name, sold: 0, revenue: 0 }
             }
             map[item.product_name].sold += item.quantity
-            map[item.product_name].revenue += Number(item.total)
+            map[item.product_name].revenue += Number(item.total) * revenueFactor
           })
         })
 

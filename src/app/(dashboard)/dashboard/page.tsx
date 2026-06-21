@@ -13,6 +13,8 @@ import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
 interface Metrics {
   revenueToday: number
   revenueMonth: number
+  dueToday: number
+  dueMonth: number
   salesToday: number
   salesMonth: number
   totalProducts: number
@@ -103,8 +105,8 @@ export default function DashboardPage() {
             value={loading ? '…' : renderResponsiveCurrency(metrics?.revenueToday ?? 0)}
             change={loading ? '' : (
               <>
-                <span className="sm:hidden">{metrics?.salesToday ?? 0} ventes</span>
-                <span className="hidden sm:inline">{metrics?.salesToday ?? 0} transaction(s)</span>
+                <span className="sm:hidden">{metrics?.salesToday ?? 0} ventes · {formatCurrencyCompact(metrics?.dueToday ?? 0)} dû</span>
+                <span className="hidden sm:inline">{metrics?.salesToday ?? 0} vente(s) · {formatCurrency(metrics?.dueToday ?? 0)} à encaisser</span>
               </>
             )}
             changeType="neutral"
@@ -115,7 +117,12 @@ export default function DashboardPage() {
           <MetricCard
             title={<><span className="sm:hidden">Ce mois</span><span className="hidden sm:inline">Ce mois-ci</span></>}
             value={loading ? '…' : renderResponsiveCurrency(metrics?.revenueMonth ?? 0)}
-            change={loading ? '' : `${metrics?.salesMonth ?? 0} ventes`}
+            change={loading ? '' : (
+              <>
+                <span className="sm:hidden">{metrics?.salesMonth ?? 0} ventes · {formatCurrencyCompact(metrics?.dueMonth ?? 0)} dû</span>
+                <span className="hidden sm:inline">{metrics?.salesMonth ?? 0} vente(s) · {formatCurrency(metrics?.dueMonth ?? 0)} à encaisser</span>
+              </>
+            )}
             changeType="up"
             icon={<ShoppingCart size={20} />}
             color="#6C5CE7"

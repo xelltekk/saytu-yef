@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Minus, Plus, Search, ShoppingCart, Tag, Trash2, User } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -18,13 +18,17 @@ interface POSInterfaceProps {
 
 export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   const { user } = useUser()
+  const restoredDraftNoticeShown = useRef(false)
   const [search, setSearch] = useState('')
   const [showMobileCart, setShowMobileCart] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
   const [loadingProducts, setLoadingProducts] = useState(true)
   const [productsError, setProductsError] = useState('')
   const [stockNotice, setStockNotice] = useState('')
+  const [currencyNotice, setCurrencyNotice] = useState('')
+  const [showClearCartConfirm, setShowClearCartConfirm] = useState(false)
   const {
+    draftOwnerId,
     cart,
     addToCart,
     removeFromCart,
@@ -39,7 +43,16 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
     customerName,
     customerPhone,
     setCustomer,
+    setDraftOwner,
+    clearCart,
   } = useSalesStore()
+
+  useEffect(() => {
+    if (!user?.id) return
+    if (draftOwnerId === user.id) return
+    if (draftOwnerId) clearCart()
+    setDraftOwner(user.id)
+  }, [clearCart, draftOwnerId, setDraftOwner, user?.id])
 
   useEffect(() => {
     setTaxRate(user?.user_metadata?.tva_enabled ? 18 : 0)
@@ -50,7 +63,9 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
     setProductsError('')
     getProducts()
       .then((data) => {
-        const availableProducts = data.filter((product) => product.status === 'active' && product.quantity > 0)
+        const activeProducts = data.filter((product) => product.status === 'active' && product.quantity > 0)
+        const availableProducts = activeProducts.filter((product) => product.currency === 'XOF')
+        const excludedCurrencyCount = activeProducts.length - availableProducts.length
         const currentCart = useSalesStore.getState().cart
         const productMap = new Map(availableProducts.map((product) => [product.id, product]))
         const removedCount = currentCart.filter((item) => !productMap.has(item.product_id)).length
@@ -60,14 +75,20 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         }).length
 
         setProducts(availableProducts)
-        syncCartStock(availableProducts)
-        setStockNotice(
-          removedCount > 0
-            ? `${removedCount} article(s) indisponible(s) retiré(s) du panier.`
-            : reducedCount > 0
-              ? `${reducedCount} quantité(s) ajustée(s) au stock disponible.`
-              : ''
+        setCurrencyNotice(
+          excludedCurrencyCount > 0
+            ? `${excludedCurrencyCount} produit(s) hors FCFA masqué(s) pour éviter de mélanger les devises à la caisse.`
+            : ''
         )
+        syncCartStock(availableProducts)
+        const notices: string[] = []
+        if (currentCart.length > 0 && !restoredDraftNoticeShown.current) {
+          notices.push('Votre panier en cours a été restauré.')
+          restoredDraftNoticeShown.current = true
+        }
+        if (removedCount > 0) notices.push(`${removedCount} article(s) indisponible(s) retiré(s) du panier.`)
+        else if (reducedCount > 0) notices.push(`${reducedCount} quantité(s) ajustée(s) au stock disponible.`)
+        setStockNotice(notices.join(' '))
       })
       .catch((error: unknown) => {
         console.error(error)
@@ -111,6 +132,11 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
     onCheckout()
   }
 
+  const requestClearCart = () => {
+    setShowMobileCart(false)
+    setShowClearCartConfirm(true)
+  }
+
   const renderCartContent = (mode: 'desktop' | 'mobile') => (
     <>
       {mode === 'desktop' && (
@@ -118,6 +144,11 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           <ShoppingCart size={16} className="text-[#6C5CE7]" />
           <h3 className="text-sm font-semibold text-[#1A3636]">Panier</h3>
           <Badge variant="purple">{cart.length} article(s)</Badge>
+          {cart.length > 0 && (
+            <button type="button" onClick={requestClearCart} className="ml-auto text-[11px] font-semibold text-red-600 hover:text-red-700">
+              Vider
+            </button>
+          )}
         </div>
       )}
 
@@ -199,22 +230,28 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
               </div>
               <div className="flex items-center gap-1">
                 <button
+                  type="button"
                   onClick={() => item.quantity > 1 ? updateCartQuantity(item.product_id, item.quantity - 1) : removeFromCart(item.product_id)}
                   className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#2D7D7D]/[0.08] text-[#1A3636] transition-colors hover:bg-[#2D7D7D]/[0.14]"
+                  aria-label={`Diminuer ${item.product_name}`}
                 >
                   <Minus size={11} />
                 </button>
                 <span className="w-5 text-center text-xs font-medium text-[#1A3636]">{item.quantity}</span>
                 <button
+                  type="button"
                   onClick={() => updateCartQuantity(item.product_id, item.quantity + 1)}
                   className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#2D7D7D]/[0.08] text-[#1A3636] transition-colors hover:bg-[#2D7D7D]/[0.14]"
                   disabled={item.quantity >= item.max_quantity}
+                  aria-label={`Augmenter ${item.product_name}`}
                 >
                   <Plus size={11} />
                 </button>
                 <button
+                  type="button"
                   onClick={() => removeFromCart(item.product_id)}
                   className="ml-1 flex h-6 w-6 items-center justify-center rounded-lg text-[#6B7682] transition-colors hover:bg-red-500/10 hover:text-red-500"
+                  aria-label={`Retirer ${item.product_name}`}
                 >
                   <Trash2 size={11} />
                 </button>
@@ -223,6 +260,12 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           ))
         )}
       </div>
+
+      {mode === 'mobile' && cart.length > 0 && (
+        <button type="button" onClick={requestClearCart} className="min-h-10 text-xs font-semibold text-red-600">
+          Vider tout le panier
+        </button>
+      )}
 
       <div className="flex items-center gap-2">
         <Tag size={14} className="flex-shrink-0 text-[#6B7682]" />
@@ -233,6 +276,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           placeholder="Remise %"
           value={discount || ''}
           onChange={(event) => setDiscount(Number(event.target.value))}
+          aria-label="Remise en pourcentage"
           className="h-9 flex-1 rounded-full border border-[#2D7D7D]/[0.14] bg-white px-3 text-xs text-[#1A3636] placeholder:text-[#6B7682] transition-all focus:border-[#6C5CE7]/60"
         />
       </div>
@@ -279,7 +323,8 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           <div className="relative">
             <Search size={16} className="absolute left-4 top-1/2 z-10 -translate-y-1/2 text-[#6B7682]" />
             <input
-              type="text"
+              type="search"
+              aria-label="Rechercher un produit"
               placeholder="Rechercher un produit..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -290,6 +335,12 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           {productsError && (
             <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
               {productsError}
+            </div>
+          )}
+          {currencyNotice && (
+            <div className="flex items-start justify-between gap-3 rounded-xl border border-[#2D7D7D]/15 bg-[#2D7D7D]/5 px-3 py-2.5 text-xs text-[#2D7D7D]">
+              <span>{currencyNotice}</span>
+              <button type="button" onClick={() => setCurrencyNotice('')} className="font-semibold">Fermer</button>
             </div>
           )}
           {stockNotice && (
@@ -318,8 +369,10 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
                 return (
                   <button
                     key={product.id}
+                    type="button"
                     onClick={() => handleAddToCart(product)}
                     disabled={remaining === 0}
+                    aria-label={remaining === 0 ? `${product.name}, stock épuisé` : `Ajouter ${product.name} au panier, ${remaining} disponible(s)`}
                     className="group relative rounded-xl border border-[#2D7D7D]/[0.07] bg-white p-2 text-left transition-all hover:border-[#6C5CE7]/30 hover:bg-[#6C5CE7]/[0.04] hover:shadow-[0_4px_12px_rgba(26,54,54,0.07)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:border-[#2D7D7D]/[0.07] disabled:hover:bg-white disabled:hover:shadow-none"
                   >
                     {inCart && (
@@ -367,6 +420,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           <button
             type="button"
             onClick={() => setShowMobileCart(true)}
+            aria-label={`Ouvrir le panier, ${itemCount} article(s), total ${formatCurrency(total)}`}
             className="flex w-full items-center justify-between gap-3 rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3 shadow-[0_12px_28px_rgba(26,54,54,0.12)]"
           >
             <div className="flex min-w-0 items-center gap-3">
@@ -395,6 +449,31 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         <div className="flex flex-col gap-3">
           {renderCartContent('mobile')}
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={showClearCartConfirm}
+        onClose={() => setShowClearCartConfirm(false)}
+        title="Vider le panier"
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowClearCartConfirm(false)}>Annuler</Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                clearCart()
+                setShowClearCartConfirm(false)
+              }}
+            >
+              Vider le panier
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-[#5C6B73]">
+          Les {itemCount} article(s) du panier seront retirés. Cette action est irréversible.
+        </p>
       </Modal>
     </>
   )

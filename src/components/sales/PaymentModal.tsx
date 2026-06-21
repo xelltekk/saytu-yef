@@ -7,91 +7,8 @@ import { formatCurrency } from '@/lib/utils'
 import { useSalesStore } from '@/store/salesStore'
 import { useUser } from '@/hooks/useUser'
 import { createSale } from '@/lib/supabase/queries'
+import { printReceipt, type ReceiptData } from '@/lib/receipt'
 import { CheckCircle, Smartphone, Printer, AlertCircle } from 'lucide-react'
-
-interface ReceiptData {
-  businessName: string
-  date: string
-  customerName?: string
-  phone?: string
-  methodLabel: string
-  statusLabel: string
-  items: { name: string; qty: number; unitPrice: number; total: number }[]
-  subtotal: number
-  discountAmount: number
-  taxAmount: number
-  total: number
-  amountPaid: number
-  amountDue: number
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
-  ))
-}
-
-function buildReceiptHTML(r: ReceiptData): string {
-  const money = (n: number) =>
-    `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(n)} FCFA`
-  const rows = r.items.map((it) => `
-    <tr>
-      <td class="l">${escapeHtml(it.name)}<br><span class="muted">${it.qty} x ${money(it.unitPrice)}</span></td>
-      <td class="r">${money(it.total)}</td>
-    </tr>`).join('')
-
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Recu</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { font-family: 'Courier New', monospace; color: #000; margin: 0; padding: 10px; width: 280px; }
-    h1 { font-size: 16px; text-align: center; margin: 0 0 2px; }
-    .center { text-align: center; }
-    .muted { color: #555; font-size: 11px; }
-    .line { border-top: 1px dashed #000; margin: 8px 0; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    td { padding: 3px 0; vertical-align: top; }
-    td.l { text-align: left; } td.r { text-align: right; white-space: nowrap; padding-left: 8px; }
-    .tot td { font-weight: bold; font-size: 13px; }
-    .small { font-size: 11px; }
-    @media print { body { width: auto; } }
-  </style></head><body>
-    <h1>${escapeHtml(r.businessName)}</h1>
-    <div class="center muted">${escapeHtml(r.date)}</div>
-    ${r.customerName ? `<div class="center small">Client: ${escapeHtml(r.customerName)}</div>` : ''}
-    ${r.phone ? `<div class="center small">Tel: ${escapeHtml(r.phone)}</div>` : ''}
-    <div class="line"></div>
-    <table>${rows}</table>
-    <div class="line"></div>
-    <table>
-      <tr><td class="l">Sous-total</td><td class="r">${money(r.subtotal)}</td></tr>
-      ${r.discountAmount > 0 ? `<tr><td class="l">Remise</td><td class="r">-${money(r.discountAmount)}</td></tr>` : ''}
-      ${r.taxAmount > 0 ? `<tr><td class="l">TVA</td><td class="r">${money(r.taxAmount)}</td></tr>` : ''}
-      <tr class="tot"><td class="l">TOTAL</td><td class="r">${money(r.total)}</td></tr>
-      <tr><td class="l small">Verse maintenant</td><td class="r small">${money(r.amountPaid)}</td></tr>
-      ${r.amountDue > 0 ? `<tr><td class="l small">Reste du</td><td class="r small">${money(r.amountDue)}</td></tr>` : ''}
-      <tr><td class="l small">Paiement</td><td class="r small">${escapeHtml(r.methodLabel)}</td></tr>
-      <tr><td class="l small">Statut</td><td class="r small">${escapeHtml(r.statusLabel)}</td></tr>
-    </table>
-    <div class="line"></div>
-    <div class="center small">Merci de votre achat !</div>
-    <div class="center muted">Saytu Yef</div>
-  </body></html>`
-}
-
-function printReceipt(r: ReceiptData) {
-  const iframe = document.createElement('iframe')
-  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
-  document.body.appendChild(iframe)
-  const doc = iframe.contentWindow?.document
-  if (!doc) { document.body.removeChild(iframe); return }
-  doc.open(); doc.write(buildReceiptHTML(r)); doc.close()
-  const win = iframe.contentWindow
-  setTimeout(() => {
-    win?.focus()
-    win?.print()
-    setTimeout(() => { try { document.body.removeChild(iframe) } catch {} }, 1500)
-  }, 300)
-}
 
 const PAYMENT_METHODS = [
   { id: 'wave', label: 'Wave', icon: 'W', color: '#0ea5e9', description: 'Paiement mobile Wave' },
@@ -118,7 +35,7 @@ interface PaymentModalProps {
 
 export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
   const { paymentMethod, setPaymentMethod, getTotal, getSubtotal, cart, discount, taxRate, clearCart, customerPhone, setCustomer, customerName } = useSalesStore()
-  const { businessName } = useUser()
+  const { businessName, businessAddress, businessPhone, businessNinea } = useUser()
   const [step, setStep] = useState<'method' | 'confirm' | 'success'>('method')
   const [localCustomerName, setLocalCustomerName] = useState(customerName)
   const [phone, setPhone] = useState(customerPhone)
@@ -203,7 +120,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
     setError('')
 
     try {
-      await createSale({
+      const createdSale = await createSale({
         customer_name: localCustomerName.trim() || undefined,
         customer_phone: phone.trim() || undefined,
         items: cart.map((item) => ({
@@ -225,6 +142,10 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
 
       setReceipt({
         businessName: businessName || 'Saytu Yef',
+        businessAddress: businessAddress || undefined,
+        businessPhone: businessPhone || undefined,
+        businessNinea: businessNinea || undefined,
+        reference: createdSale.id.slice(0, 8).toUpperCase(),
         date: new Date().toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }),
         customerName: localCustomerName.trim() || undefined,
         phone: phone.trim() || undefined,

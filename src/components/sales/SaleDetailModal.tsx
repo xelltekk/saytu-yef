@@ -1,12 +1,15 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
+import { MessageCircle, Phone, Printer } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { recordSalePayment, updateSale } from '@/lib/supabase/queries'
+import { printReceipt, type ReceiptData } from '@/lib/receipt'
 import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, SALE_METHOD_LABELS, SALE_METHOD_VARIANTS, SALE_STATUS_LABELS, SALE_STATUS_VARIANTS } from '@/lib/sales'
+import { useUser } from '@/hooks/useUser'
 import type { Sale } from '@/types'
 
 const METHOD_OPTIONS = [
@@ -16,18 +19,27 @@ const METHOD_OPTIONS = [
   { value: 'card', label: 'Carte' },
 ]
 
+function normalizeContactPhone(phone: string): string {
+  let digits = phone.replace(/\D/g, '')
+  if (digits.startsWith('00')) digits = digits.slice(2)
+  if (digits.length === 9 && digits.startsWith('7')) digits = `221${digits}`
+  return digits
+}
+
 interface SaleDetailModalProps {
   sale: Sale | null
   onClose: () => void
-  onSaved?: () => void
+  onSaved?: (message?: string) => void
 }
 
 export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps) {
+  const { businessName, businessAddress, businessPhone, businessNinea } = useUser()
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [recordingPayment, setRecordingPayment] = useState(false)
   const [showPaymentForm, setShowPaymentForm] = useState(false)
   const [paymentError, setPaymentError] = useState('')
+  const [saveError, setSaveError] = useState('')
   const [form, setForm] = useState({
     customer_name: '',
     customer_phone: '',
@@ -57,6 +69,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
     setEditing(false)
     setShowPaymentForm(false)
     setPaymentError('')
+    setSaveError('')
   }, [sale])
 
   const computedStatus = useMemo(() => (sale ? getSaleComputedStatus(sale) : 'pending'), [sale])
@@ -66,22 +79,60 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
     () => [...(sale?.payments ?? [])].sort((left, right) => right.created_at.localeCompare(left.created_at)),
     [sale]
   )
+  const receipt = useMemo<ReceiptData | null>(() => {
+    if (!sale) return null
+
+    return {
+      businessName: businessName || 'Saytu Yef',
+      businessAddress: businessAddress || undefined,
+      businessPhone: businessPhone || undefined,
+      businessNinea: businessNinea || undefined,
+      reference: sale.id.slice(0, 8).toUpperCase(),
+      date: new Date(sale.created_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }),
+      customerName: sale.customer_name || undefined,
+      phone: sale.customer_phone || undefined,
+      methodLabel: SALE_METHOD_LABELS[sale.payment_method],
+      statusLabel: SALE_STATUS_LABELS[computedStatus],
+      items: (sale.items ?? []).map((item) => ({
+        name: item.product_name,
+        qty: item.quantity,
+        unitPrice: item.unit_price,
+        total: item.total,
+      })),
+      subtotal: sale.subtotal,
+      discountAmount: sale.discount,
+      taxAmount: sale.tax,
+      total: sale.total,
+      amountPaid,
+      amountDue,
+    }
+  }, [amountDue, amountPaid, businessAddress, businessName, businessNinea, businessPhone, computedStatus, sale])
+  const contactPhone = useMemo(
+    () => normalizeContactPhone(sale?.customer_phone ?? ''),
+    [sale?.customer_phone]
+  )
+  const debtReminder = useMemo(() => {
+    if (!sale || amountDue <= 0) return ''
+    const customer = sale.customer_name ? ` ${sale.customer_name}` : ''
+    return `Bonjour${customer}, nous vous rappelons qu’il reste ${formatCurrency(amountDue)} à régler sur votre achat chez ${businessName || 'Saytu Yef'} (reçu ${sale.id.slice(0, 8).toUpperCase()}). Merci.`
+  }, [amountDue, businessName, sale])
 
   const handleSave = async () => {
     if (!sale) return
     setSaving(true)
+    setSaveError('')
     try {
       await updateSale(sale.id, {
-        customer_name: form.customer_name || undefined,
-        customer_phone: form.customer_phone || undefined,
+        customer_name: form.customer_name.trim() || undefined,
+        customer_phone: form.customer_phone.trim() || undefined,
         payment_method: form.payment_method as Sale['payment_method'],
-        notes: form.notes || undefined,
+        notes: form.notes.trim() || undefined,
       })
-      onSaved?.()
+      onSaved?.('Les informations de la vente ont été enregistrées.')
       onClose()
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err)
-      alert('Erreur lors de la modification de la vente')
+      setSaveError(err instanceof Error ? err.message : 'Erreur lors de la modification de la vente.')
     } finally {
       setSaving(false)
     }
@@ -110,7 +161,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
         payment_method: paymentForm.payment_method as Sale['payment_method'],
         note: paymentForm.note || undefined,
       })
-      onSaved?.()
+      onSaved?.(`Versement de ${formatCurrency(amount)} enregistré.`)
       onClose()
     } catch (err) {
       console.error(err)
@@ -135,6 +186,15 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
         ) : (
           <>
             <Button variant="ghost" className="w-full sm:w-auto" onClick={onClose}>Fermer</Button>
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              leftIcon={<Printer size={15} />}
+              onClick={() => receipt && printReceipt(receipt)}
+              disabled={!receipt}
+            >
+              Imprimer le reçu
+            </Button>
             <Button variant="primary" className="w-full sm:w-auto" onClick={() => setEditing(true)}>Modifier</Button>
           </>
         )
@@ -144,6 +204,14 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
         <div className="space-y-4">
           {editing ? (
             <>
+              {saveError && (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600"
+                >
+                  {saveError}
+                </div>
+              )}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Input
                   label="Nom du client"
@@ -220,6 +288,31 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                   </div>
                 </div>
               </div>
+
+              {amountDue > 0 && computedStatus !== 'cancelled' && computedStatus !== 'refunded' && (
+                contactPhone ? (
+                  <div className="grid grid-cols-2 gap-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
+                    <a
+                      href={`https://wa.me/${contactPhone}?text=${encodeURIComponent(debtReminder)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
+                    >
+                      <MessageCircle size={15} /> Relancer
+                    </a>
+                    <a
+                      href={`tel:+${contactPhone}`}
+                      className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 bg-white px-3 text-xs font-semibold text-[#2D7D7D]"
+                    >
+                      <Phone size={15} /> Appeler
+                    </a>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-700">
+                    Ajoutez le numéro du client pour pouvoir le relancer rapidement.
+                  </div>
+                )
+              )}
 
               <div>
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">

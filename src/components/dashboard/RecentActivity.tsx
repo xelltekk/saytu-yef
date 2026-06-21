@@ -2,6 +2,7 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { formatCurrency, formatTime } from '@/lib/utils'
 import { ShoppingBag } from 'lucide-react'
+import { getSaleComputedStatus, SALE_STATUS_LABELS, SALE_STATUS_VARIANTS } from '@/lib/sales'
 import type { Sale } from '@/types'
 
 const methodColors: Record<string, 'info' | 'warning' | 'default'> = {
@@ -51,32 +52,36 @@ export function RecentActivity({ sales, loading }: RecentActivityProps) {
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {sales.map((sale) => (
-            <div key={sale.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-[#2D7D7D]/[0.04] transition-colors">
-              <div className="w-9 h-9 rounded-xl bg-[#2D7D7D]/[0.1] flex items-center justify-center flex-shrink-0">
-                <ShoppingBag size={16} className="text-[#2D7D7D]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm text-[#1A3636] font-medium truncate">
-                    {sale.customer_name || 'Client'}
+          {sales.map((sale) => {
+            const computedStatus = getSaleComputedStatus(sale)
+
+            return (
+              <div key={sale.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-[#2D7D7D]/[0.04] transition-colors">
+                <div className="w-9 h-9 rounded-xl bg-[#2D7D7D]/[0.1] flex items-center justify-center flex-shrink-0">
+                  <ShoppingBag size={16} className="text-[#2D7D7D]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm text-[#1A3636] font-medium truncate">
+                      {sale.customer_name || 'Client'}
+                    </p>
+                    <Badge variant={methodColors[sale.payment_method] ?? 'default'}>
+                      {methodLabels[sale.payment_method] ?? sale.payment_method}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-[#6B7682]">
+                    {sale.items?.length ?? 0} article(s) · {formatTime(sale.created_at)}
                   </p>
-                  <Badge variant={methodColors[sale.payment_method] ?? 'default'}>
-                    {methodLabels[sale.payment_method] ?? sale.payment_method}
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-sm font-semibold text-[#1A3636]">{formatCurrency(sale.total)}</p>
+                  <Badge variant={SALE_STATUS_VARIANTS[computedStatus]}>
+                    {SALE_STATUS_LABELS[computedStatus]}
                   </Badge>
                 </div>
-                <p className="text-xs text-[#6B7682]">
-                  {sale.items?.length ?? 0} article(s) · {formatTime(sale.created_at)}
-                </p>
               </div>
-              <div className="text-right flex-shrink-0">
-                <p className="text-sm font-semibold text-[#1A3636]">{formatCurrency(sale.total)}</p>
-                <Badge variant={sale.payment_status === 'completed' ? 'success' : 'warning'}>
-                  {sale.payment_status === 'completed' ? 'Payé' : 'En attente'}
-                </Badge>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </Card>

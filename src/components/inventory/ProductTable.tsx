@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   AlertTriangle,
+  CheckCircle2,
   Download,
   Edit,
   Filter,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
 import { CategoryManager } from './CategoryManager'
 import { StockAdjustmentModal } from './StockAdjustmentModal'
 import { StockMovementHistoryModal } from './StockMovementHistoryModal'
@@ -47,8 +49,11 @@ export function ProductTable({
   const [sortBy, setSortBy] = useState<'recent' | 'name' | 'stock-low' | 'stock-high' | 'margin'>('recent')
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [deleteCandidate, setDeleteCandidate] = useState<Product | null>(null)
   const [showCategories, setShowCategories] = useState(false)
   const [showMobileFilters, setShowMobileFilters] = useState(false)
   const [adjustmentProduct, setAdjustmentProduct] = useState<Product | null>(null)
@@ -61,18 +66,23 @@ export function ProductTable({
     return [activatedProduct, ...list]
   }, [activatedProduct])
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setLoading(true)
-    getProducts()
-      .then((data) => {
-        setProducts(mergeActivatedProduct(data))
-        if (activatedProduct) onActivatedProductMerged?.()
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false))
+    setLoadError('')
+
+    try {
+      const data = await getProducts()
+      setProducts(mergeActivatedProduct(data))
+      if (activatedProduct) onActivatedProductMerged?.()
+    } catch (error: unknown) {
+      console.error(error)
+      setLoadError(error instanceof Error ? error.message : "Impossible de charger l'inventaire.")
+    } finally {
+      setLoading(false)
+    }
   }, [activatedProduct, mergeActivatedProduct, onActivatedProductMerged])
 
-  useEffect(() => { load() }, [load, refreshKey])
+  useEffect(() => { void load() }, [load, refreshKey])
 
   useEffect(() => {
     if (!activatedProduct) return
@@ -80,15 +90,23 @@ export function ProductTable({
     onActivatedProductMerged?.()
   }, [activatedProduct, mergeActivatedProduct, onActivatedProductMerged])
 
-  const handleDelete = async (product: Product) => {
-    if (!confirm(`Supprimer "${product.name}" ?`)) return
+  const handleDelete = async () => {
+    if (!deleteCandidate) return
+    const product = deleteCandidate
     setDeleting(product.id)
+    setFeedback(null)
     try {
       await deleteProduct(product.id)
       setProducts((prev) => prev.filter((p) => p.id !== product.id))
-    } catch (err) {
+      setDeleteCandidate(null)
+      setFeedback({ type: 'success', message: `Le produit « ${product.name} » a été supprimé.` })
+    } catch (err: unknown) {
       console.error(err)
-      alert('Erreur lors de la suppression')
+      setDeleteCandidate(null)
+      setFeedback({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Erreur lors de la suppression du produit.',
+      })
     } finally {
       setDeleting(null)
       setActiveMenu(null)
@@ -170,12 +188,22 @@ export function ProductTable({
   }
 
   const handleStockAdjusted = (productId: string, quantity: number) => {
+    const adjustedProduct = products.find((product) => product.id === productId)
     setProducts((current) => current.map((product) => (
       product.id === productId ? { ...product, quantity } : product
     )))
+    setFeedback({
+      type: 'success',
+      message: `Stock de « ${adjustedProduct?.name ?? 'Produit'} » mis à jour : ${quantity} unité(s).`,
+    })
   }
 
   const exportCsv = () => {
+    const protectSpreadsheetCell = (value: string | number) => {
+      const text = String(value)
+      const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text
+      return `"${safeText.replace(/"/g, '""')}"`
+    }
     const rows = filtered.map((product) => ({
       Nom: product.name,
       SKU: product.sku ?? '',
@@ -184,8 +212,14 @@ export function ProductTable({
       Stock_minimum: product.min_quantity,
       Prix_achat: product.buying_price,
       Prix_vente: product.selling_price,
+      Marge_pct: product.selling_price > 0
+        ? (((product.selling_price - product.buying_price) / product.selling_price) * 100).toFixed(2)
+        : '0.00',
+      Valeur_achat_stock: product.buying_price * product.quantity,
+      Valeur_vente_stock: product.selling_price * product.quantity,
       Devise: product.currency,
       Statut: getStockStatus(product.quantity, product.min_quantity).label,
+      Date_ajout: new Date(product.created_at).toLocaleString('fr-SN'),
     }))
     const header = Object.keys(rows[0] ?? {
       Nom: '',
@@ -195,14 +229,18 @@ export function ProductTable({
       Stock_minimum: '',
       Prix_achat: '',
       Prix_vente: '',
+      Marge_pct: '',
+      Valeur_achat_stock: '',
+      Valeur_vente_stock: '',
       Devise: '',
       Statut: '',
+      Date_ajout: '',
     })
     const csv = [
-      header.join(','),
+      header.map(protectSpreadsheetCell).join(','),
       ...rows.map((row) =>
         header
-          .map((key) => `"${String(row[key as keyof typeof row] ?? '').replace(/"/g, '""')}"`)
+          .map((key) => protectSpreadsheetCell(row[key as keyof typeof row] ?? ''))
           .join(',')
       ),
     ].join('\n')
@@ -272,7 +310,7 @@ export function ProductTable({
           <Button variant="outline" size="md" leftIcon={<Tags size={15} />} onClick={() => setShowCategories(true)} aria-label="Gérer les catégories" title="Catégories" className="w-11 gap-0 px-0 sm:w-auto sm:gap-2 sm:px-6">
             <span className="hidden sm:inline">Catégories</span>
           </Button>
-          <Button variant="outline" size="md" leftIcon={<RefreshCw size={15} />} onClick={load} aria-label="Actualiser la liste" title="Actualiser" className="w-11 gap-0 px-0 sm:w-auto sm:gap-2 sm:px-6">
+          <Button variant="outline" size="md" leftIcon={<RefreshCw size={15} className={loading ? 'animate-spin' : ''} />} onClick={() => void load()} disabled={loading} aria-label="Actualiser la liste" title="Actualiser" className="w-11 gap-0 px-0 sm:w-auto sm:gap-2 sm:px-6">
             <span className="hidden sm:inline">Actualiser</span>
           </Button>
           <Button variant="primary" size="md" leftIcon={<Plus size={15} />} onClick={onAddProduct} className="order-first w-full sm:order-last sm:w-auto">
@@ -280,6 +318,32 @@ export function ProductTable({
           </Button>
         </div>
       </div>
+
+      {loadError && (
+        <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
+          <span>{loadError}</span>
+          <button type="button" onClick={() => void load()} className="min-h-10 rounded-xl border border-red-500/25 bg-white px-4 text-xs font-semibold text-red-700">
+            Réessayer
+          </button>
+        </div>
+      )}
+
+      {feedback && (
+        <div
+          role={feedback.type === 'error' ? 'alert' : 'status'}
+          className={`flex items-center gap-2.5 rounded-2xl border px-4 py-3 text-sm font-medium ${
+            feedback.type === 'success'
+              ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700'
+              : 'border-red-500/20 bg-red-500/10 text-red-700'
+          }`}
+        >
+          {feedback.type === 'success' ? <CheckCircle2 size={18} className="shrink-0" /> : <AlertTriangle size={18} className="shrink-0" />}
+          <span className="flex-1">{feedback.message}</span>
+          <button type="button" onClick={() => setFeedback(null)} className="rounded-lg px-2 py-1 text-xs font-semibold" aria-label="Masquer le message">
+            Fermer
+          </button>
+        </div>
+      )}
 
       {/* Filtres */}
       <button
@@ -341,7 +405,7 @@ export function ProductTable({
         )}
       </div>
 
-      <CategoryManager isOpen={showCategories} onClose={() => setShowCategories(false)} onChanged={load} />
+      <CategoryManager isOpen={showCategories} onClose={() => setShowCategories(false)} onChanged={() => void load()} />
       <StockAdjustmentModal
         product={adjustmentProduct}
         onClose={() => setAdjustmentProduct(null)}
@@ -351,6 +415,22 @@ export function ProductTable({
         product={historyProduct}
         onClose={() => setHistoryProduct(null)}
       />
+      <Modal
+        isOpen={deleteCandidate !== null}
+        onClose={() => { if (!deleting) setDeleteCandidate(null) }}
+        title="Supprimer le produit"
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDeleteCandidate(null)} disabled={!!deleting}>Annuler</Button>
+            <Button variant="danger" onClick={() => void handleDelete()} isLoading={!!deleting}>Supprimer</Button>
+          </>
+        }
+      >
+        <p className="text-sm text-[#5C6B73]">
+          Voulez-vous vraiment supprimer <strong className="text-[#1A3636]">{deleteCandidate?.name}</strong> ? Cette action est irréversible.
+        </p>
+      </Modal>
 
       {/* Liste */}
       {loading ? (
@@ -441,7 +521,7 @@ export function ProductTable({
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDelete(product)}
+                            onClick={() => { setDeleteCandidate(product); setActiveMenu(null) }}
                             disabled={deleting === product.id}
                             className="flex min-h-11 w-full items-center gap-2 px-3 text-sm text-red-600 transition-colors hover:bg-red-500/5 disabled:opacity-50"
                           >
@@ -567,7 +647,7 @@ export function ProductTable({
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDelete(product)}
+                            onClick={() => { setDeleteCandidate(product); setActiveMenu(null) }}
                             disabled={deleting === product.id}
                             className="flex w-full items-center gap-2 px-3 py-2 text-xs text-red-600 transition-colors hover:bg-red-500/5 disabled:opacity-50"
                           >

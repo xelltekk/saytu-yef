@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useState } from 'react'
-import { Globe, Package } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { CheckCircle2, Globe, Package } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { ProductTable } from '@/components/inventory/ProductTable'
 import { AddProductModal } from '@/components/inventory/AddProductModal'
@@ -17,10 +17,17 @@ export default function InventoryPage() {
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [activatedProduct, setActivatedProduct] = useState<Product | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [notice, setNotice] = useState('')
   const abroadPendingCount = useInventoryStore(
     (state) => state.abroadProducts.filter((product) => !product.activated).length
   )
   const clearActivatedProduct = useCallback(() => setActivatedProduct(null), [])
+
+  useEffect(() => {
+    if (!notice) return
+    const timeout = window.setTimeout(() => setNotice(''), 4000)
+    return () => window.clearTimeout(timeout)
+  }, [notice])
 
   return (
     <div className="min-h-screen">
@@ -64,6 +71,14 @@ export default function InventoryPage() {
           </button>
         </div>
 
+        {notice && (
+          <div role="status" className="flex items-center gap-2.5 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-700">
+            <CheckCircle2 size={18} className="shrink-0" />
+            <span className="flex-1">{notice}</span>
+            <button type="button" onClick={() => setNotice('')} className="rounded-lg px-2 py-1 text-xs font-semibold">Fermer</button>
+          </div>
+        )}
+
         {tab === 'stock' ? (
           <ProductTable
             onAddProduct={() => setShowAdd(true)}
@@ -76,6 +91,7 @@ export default function InventoryPage() {
           <AbroadBatchEntry
             onTransferred={(product) => {
               setActivatedProduct(product)
+              setNotice(`« ${product.name} » a été transféré vers le stock principal.`)
               setRefreshKey((current) => current + 1)
               setTab('stock')
             }}
@@ -90,7 +106,10 @@ export default function InventoryPage() {
           setEditProduct(null)
         }}
         product={editProduct}
-        onSaved={() => setRefreshKey((current) => current + 1)}
+        onSaved={(message) => {
+          setNotice(message ?? 'Le produit a bien été enregistré.')
+          setRefreshKey((current) => current + 1)
+        }}
       />
     </div>
   )

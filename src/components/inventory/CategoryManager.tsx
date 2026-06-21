@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, Check, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Plus, Pencil, Trash2, Check, X } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { getCategories, addCategory, updateCategory, deleteCategory } from '@/lib/supabase/queries'
@@ -35,6 +35,8 @@ export function CategoryManager({ isOpen, onClose, onChanged }: CategoryManagerP
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [deleteCandidate, setDeleteCandidate] = useState<Category | null>(null)
 
   // Edit state
   const [editId, setEditId] = useState<string | null>(null)
@@ -45,30 +47,44 @@ export function CategoryManager({ isOpen, onClose, onChanged }: CategoryManagerP
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState(COLORS[0])
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setLoading(true)
-    getCategories()
-      .then(setCategories)
-      .catch(console.error)
-      .finally(() => setLoading(false))
+    setFeedback(null)
+
+    try {
+      setCategories(await getCategories())
+    } catch (error: unknown) {
+      console.error(error)
+      setFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Impossible de charger les catégories.',
+      })
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
-    if (isOpen) load()
+    if (isOpen) void load()
   }, [isOpen, load])
 
   const handleAdd = async () => {
     if (!newName.trim()) return
     setBusy(true)
+    setFeedback(null)
     try {
       const created = await addCategory(newName.trim(), newColor)
       setCategories((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
       setNewName('')
       setNewColor(COLORS[0])
       onChanged?.()
-    } catch (err) {
+      setFeedback({ type: 'success', message: `La catégorie « ${created.name} » a été créée.` })
+    } catch (err: unknown) {
       console.error(err)
-      alert('Erreur lors de la création')
+      setFeedback({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Erreur lors de la création de la catégorie.',
+      })
     } finally {
       setBusy(false)
     }
@@ -83,7 +99,9 @@ export function CategoryManager({ isOpen, onClose, onChanged }: CategoryManagerP
   const handleSaveEdit = async () => {
     if (!editId || !editName.trim()) return
     setBusy(true)
+    setFeedback(null)
     try {
+      const savedName = editName.trim()
       await updateCategory(editId, { name: editName.trim(), color: editColor })
       setCategories((prev) =>
         prev.map((c) => (c.id === editId ? { ...c, name: editName.trim(), color: editColor } : c))
@@ -91,24 +109,36 @@ export function CategoryManager({ isOpen, onClose, onChanged }: CategoryManagerP
       )
       setEditId(null)
       onChanged?.()
-    } catch (err) {
+      setFeedback({ type: 'success', message: `La catégorie « ${savedName} » a été modifiée.` })
+    } catch (err: unknown) {
       console.error(err)
-      alert('Erreur lors de la modification')
+      setFeedback({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Erreur lors de la modification de la catégorie.',
+      })
     } finally {
       setBusy(false)
     }
   }
 
-  const handleDelete = async (cat: Category) => {
-    if (!confirm(`Supprimer la catégorie "${cat.name}" ?`)) return
+  const handleDelete = async () => {
+    if (!deleteCandidate) return
+    const category = deleteCandidate
     setBusy(true)
+    setFeedback(null)
     try {
-      await deleteCategory(cat.id)
-      setCategories((prev) => prev.filter((c) => c.id !== cat.id))
+      await deleteCategory(category.id)
+      setCategories((prev) => prev.filter((c) => c.id !== category.id))
+      setDeleteCandidate(null)
       onChanged?.()
-    } catch (err) {
+      setFeedback({ type: 'success', message: `La catégorie « ${category.name} » a été supprimée.` })
+    } catch (err: unknown) {
       console.error(err)
-      alert('Erreur lors de la suppression')
+      setDeleteCandidate(null)
+      setFeedback({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Erreur lors de la suppression de la catégorie.',
+      })
     } finally {
       setBusy(false)
     }
@@ -117,6 +147,32 @@ export function CategoryManager({ isOpen, onClose, onChanged }: CategoryManagerP
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Gérer les catégories" size="md">
       <div className="space-y-4">
+        {feedback && (
+          <div
+            role={feedback.type === 'error' ? 'alert' : 'status'}
+            className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-xs ${
+              feedback.type === 'success'
+                ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700'
+                : 'border-red-500/20 bg-red-500/10 text-red-700'
+            }`}
+          >
+            {feedback.type === 'success' ? <CheckCircle2 size={16} className="shrink-0" /> : <AlertTriangle size={16} className="shrink-0" />}
+            <span className="flex-1">{feedback.message}</span>
+            <button type="button" onClick={() => setFeedback(null)} className="font-semibold">Fermer</button>
+          </div>
+        )}
+
+        {deleteCandidate && (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3">
+            <p className="text-sm font-semibold text-[#1A3636]">Supprimer « {deleteCandidate.name} » ?</p>
+            <p className="mt-1 text-xs text-[#6B7682]">Les produits associés resteront dans l’inventaire sans catégorie.</p>
+            <div className="mt-3 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setDeleteCandidate(null)} disabled={busy}>Annuler</Button>
+              <Button variant="danger" size="sm" onClick={() => void handleDelete()} isLoading={busy}>Supprimer</Button>
+            </div>
+          </div>
+        )}
+
         {/* Liste */}
         {loading ? (
           <div className="space-y-2">
@@ -156,7 +212,8 @@ export function CategoryManager({ isOpen, onClose, onChanged }: CategoryManagerP
                       <Pencil size={14} />
                     </button>
                     <button
-                      onClick={() => handleDelete(cat)}
+                      onClick={() => { setDeleteCandidate(cat); setFeedback(null) }}
+                      disabled={busy}
                       title="Supprimer"
                       className="p-1.5 rounded-lg text-[#6B7682] hover:text-red-600 hover:bg-red-500/5 transition-colors"
                     >

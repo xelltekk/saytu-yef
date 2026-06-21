@@ -209,20 +209,23 @@ export async function getSuppliers(): Promise<Supplier[]> {
 
 // ─── VENTES ───────────────────────────────────────────────────────────────────
 
-export async function getSales(limit = 50): Promise<Sale[]> {
+export async function getSales(limit = 50, offset = 0): Promise<Sale[]> {
   const supabase = createClient()
+  const pageSize = Math.max(1, Math.floor(limit))
+  const start = Math.max(0, Math.floor(offset))
+  const end = start + pageSize - 1
   const { data, error } = await supabase
     .from('sales')
     .select('*, items:sale_items(*), payments:sale_payments(*)')
     .order('created_at', { ascending: false })
-    .limit(limit)
+    .range(start, end)
 
   if (error && isMissingSchemaObject(error, 'sale_payments')) {
     const fallback = await supabase
       .from('sales')
       .select('*, items:sale_items(*)')
       .order('created_at', { ascending: false })
-      .limit(limit)
+      .range(start, end)
 
     if (fallback.error) throw fallback.error
     return (fallback.data ?? []) as Sale[]
@@ -542,6 +545,7 @@ export async function deleteAbroadProduct(id: string): Promise<void> {
 
 export async function getDashboardMetrics() {
   const supabase = createClient()
+  const activeSaleStatuses: Sale['payment_status'][] = ['completed', 'partial', 'pending']
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -549,15 +553,15 @@ export async function getDashboardMetrics() {
   const [salesToday, salesMonth, products, recentSales] = await Promise.all([
     supabase
       .from('sales')
-      .select('total')
+      .select('total, amount_due')
       .gte('created_at', today.toISOString())
-      .eq('payment_status', 'completed'),
+      .in('payment_status', activeSaleStatuses),
 
     supabase
       .from('sales')
-      .select('total, created_at')
+      .select('total, amount_due, created_at')
       .gte('created_at', startOfMonth.toISOString())
-      .eq('payment_status', 'completed'),
+      .in('payment_status', activeSaleStatuses),
 
     supabase
       .from('products')
@@ -566,7 +570,7 @@ export async function getDashboardMetrics() {
     supabase
       .from('sales')
       .select('*, items:sale_items(*)')
-      .eq('payment_status', 'completed')
+      .in('payment_status', activeSaleStatuses)
       .order('created_at', { ascending: false })
       .limit(5),
   ])
@@ -576,6 +580,8 @@ export async function getDashboardMetrics() {
 
   const revenueToday = (salesToday.data ?? []).reduce((s, r) => s + Number(r.total), 0)
   const revenueMonth = (salesMonth.data ?? []).reduce((s, r) => s + Number(r.total), 0)
+  const dueToday = (salesToday.data ?? []).reduce((sum, sale) => sum + Number(sale.amount_due ?? 0), 0)
+  const dueMonth = (salesMonth.data ?? []).reduce((sum, sale) => sum + Number(sale.amount_due ?? 0), 0)
   const inventoryProducts = ((products.data ?? []) as unknown as Array<Pick<Product, 'quantity' | 'min_quantity' | 'buying_price' | 'selling_price' | 'status'>>)
   const activeProducts = inventoryProducts.filter((product) => product.status === 'active')
   const totalProducts = activeProducts.length
@@ -590,6 +596,8 @@ export async function getDashboardMetrics() {
   return {
     revenueToday,
     revenueMonth,
+    dueToday,
+    dueMonth,
     salesToday: salesToday.data?.length ?? 0,
     salesMonth: salesMonth.data?.length ?? 0,
     totalProducts,
@@ -626,7 +634,7 @@ export async function getReportsData(months = 6) {
       .from('sales')
       .select('total, tax, created_at, items:sale_items(product_id, product_name, quantity, unit_price, total)')
       .gte('created_at', start.toISOString())
-      .eq('payment_status', 'completed')
+      .in('payment_status', ['completed', 'partial', 'pending'])
       .order('created_at'),
     supabase
       .from('products')
@@ -693,6 +701,7 @@ export async function getReportsData(months = 6) {
 
   return {
     monthlyData: Object.values(monthlyMap),
+    allProducts: allProductSales,
     topProducts: allProductSales.slice(0, 10),
     totalSold,
     avgMargin: totalProductRevenue > 0 ? (totalProductProfit / totalProductRevenue) * 100 : 0,

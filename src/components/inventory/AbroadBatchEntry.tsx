@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import {
+  AlertTriangle,
   ArrowRight,
   CheckCircle,
   Globe,
@@ -56,8 +57,9 @@ interface ActivateModalState {
   sellingPrice: string
   buyingPrice: string
   categoryId: string
-  sellingCurrency: string
 }
+
+type Feedback = { type: 'success' | 'warning' | 'error'; message: string }
 
 interface AbroadBatchEntryProps {
   onTransferred?: (product: Product) => void
@@ -93,6 +95,13 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
   const [categories, setCategories] = useState<Category[]>([])
   const [transferring, setTransferring] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [feedback, setFeedback] = useState<Feedback | null>(null)
+  const [formError, setFormError] = useState('')
+  const [editError, setEditError] = useState('')
+  const [transferError, setTransferError] = useState('')
+  const [deleteCandidate, setDeleteCandidate] = useState<AbroadProduct | null>(null)
   const [isOnline, setIsOnline] = useState(() =>
     typeof window !== 'undefined' ? window.navigator.onLine : true
   )
@@ -103,7 +112,6 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
     sellingPrice: '',
     buyingPrice: '',
     categoryId: '',
-    sellingCurrency: 'XOF',
   })
   const [form, setForm] = useState({
     name: '',
@@ -139,7 +147,15 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
   }, [])
 
   useEffect(() => {
-    getCategories().then(setCategories).catch(console.error)
+    getCategories()
+      .then(setCategories)
+      .catch((error: unknown) => {
+        console.error(error)
+        setFeedback({
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Impossible de charger les catégories.',
+        })
+      })
   }, [])
 
   useEffect(() => {
@@ -151,10 +167,23 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
           mergeRemoteWithLocal(remoteProducts, useInventoryStore.getState().abroadProducts)
         )
       })
-      .catch(console.error)
+      .catch((error: unknown) => {
+        console.error(error)
+        setFeedback({
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Impossible de charger les saisies étrangères.',
+        })
+      })
   }, [isOnline, setAbroadProducts])
 
+  useEffect(() => {
+    if (!feedback || feedback.type === 'error') return
+    const timeout = window.setTimeout(() => setFeedback(null), 5000)
+    return () => window.clearTimeout(timeout)
+  }, [feedback])
+
   const openEdit = (product: AbroadProduct) => {
+    setEditError('')
     setEditId(product.id)
     setEditForm({
       name: product.name,
@@ -185,49 +214,110 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
     return savedProduct
   }
 
+  const openActivate = (product: AbroadProduct) => {
+    setTransferError('')
+    setActivateModal({
+      open: true,
+      product,
+      sellingPrice: '',
+      buyingPrice: product.currency === 'XOF' ? String(product.purchase_price) : '',
+      categoryId: '',
+    })
+  }
+
   const handleSaveEdit = async () => {
-    if (!editId || !editForm.name || !editForm.purchase_price) return
+    if (!editId) return
 
-    const updates = {
-      name: editForm.name,
-      purchase_price: Number(editForm.purchase_price),
-      currency: editForm.currency,
-      quantity: Number(editForm.quantity),
-      source_country: editForm.source_country,
-      notes: editForm.notes,
+    const purchasePrice = Number(editForm.purchase_price)
+    const quantity = Number(editForm.quantity)
+    if (!editForm.name.trim()) {
+      setEditError('Le nom du produit est requis.')
+      return
     }
-
-    updateAbroadProduct(editId, updates)
+    if (!Number.isFinite(purchasePrice) || purchasePrice < 0) {
+      setEditError("Le prix d'achat doit être positif ou nul.")
+      return
+    }
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      setEditError('La quantité doit être un nombre entier supérieur à zéro.')
+      return
+    }
 
     const editedProduct = abroadProducts.find((product) => product.id === editId)
-    if (isOnline && editedProduct?.synced) {
-      updateAbroadProductRecord(editId, updates).catch((error) => {
-        console.error(error)
-        alert("La modification a ete gardee localement mais n'a pas pu etre synchronisee.")
-      })
+    if (!editedProduct) return
+    if (!isOnline && editedProduct.synced) {
+      setEditError('Une connexion est requise pour modifier un article déjà synchronisé.')
+      return
     }
 
-    setEditId(null)
+    const updates = {
+      name: editForm.name.trim(),
+      purchase_price: purchasePrice,
+      currency: editForm.currency,
+      quantity,
+      source_country: editForm.source_country,
+      notes: editForm.notes.trim(),
+    }
+
+    setSavingEdit(true)
+    setEditError('')
+    try {
+      if (editedProduct.synced) await updateAbroadProductRecord(editId, updates)
+      updateAbroadProduct(editId, updates)
+      setEditId(null)
+      setFeedback({ type: 'success', message: `L’article « ${updates.name} » a été modifié.` })
+    } catch (error: unknown) {
+      console.error(error)
+      setEditError(error instanceof Error ? error.message : 'Impossible de modifier cet article.')
+    } finally {
+      setSavingEdit(false)
+    }
   }
 
   const handleSyncPending = async () => {
     if (!isOnline || pendingSync.length === 0) return
 
     setSyncing(true)
+    setFeedback(null)
+    let syncedCount = 0
     try {
       for (const product of pendingSync) {
         await pushLocalProduct(product)
+        syncedCount += 1
       }
-    } catch (error) {
+      setFeedback({
+        type: 'success',
+        message: `${syncedCount} article(s) synchronisé(s) avec succès.`,
+      })
+    } catch (error: unknown) {
       console.error(error)
-      alert("Erreur lors de la synchronisation des saisies etrangeres")
+      setFeedback({
+        type: 'error',
+        message: syncedCount > 0
+          ? `${syncedCount} article(s) synchronisé(s), puis la synchronisation s’est interrompue.`
+          : error instanceof Error ? error.message : 'La synchronisation a échoué.',
+      })
     } finally {
       setSyncing(false)
     }
   }
 
   const handleAdd = async () => {
-    if (!form.name || !form.purchase_price) return
+    const purchasePrice = Number(form.purchase_price)
+    const quantity = Number(form.quantity)
+    if (!form.name.trim()) {
+      setFormError('Le nom du produit est requis.')
+      return
+    }
+    if (!Number.isFinite(purchasePrice) || purchasePrice < 0) {
+      setFormError("Le prix d'achat doit être positif ou nul.")
+      return
+    }
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      setFormError('La quantité doit être un nombre entier supérieur à zéro.')
+      return
+    }
+    setFormError('')
 
     const localId =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -237,12 +327,12 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
     const localProduct: AbroadProduct = {
       id: `local-${localId}`,
       user_id: 'u1',
-      name: form.name,
-      purchase_price: Number(form.purchase_price),
+      name: form.name.trim(),
+      purchase_price: purchasePrice,
       currency: form.currency,
-      quantity: Number(form.quantity),
+      quantity,
       source_country: form.source_country,
-      notes: form.notes,
+      notes: form.notes.trim(),
       synced: false,
       activated: false,
       created_at: new Date().toISOString(),
@@ -263,12 +353,18 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
           local_id: localId,
         })
         addAbroadProduct(savedProduct)
+        setFeedback({ type: 'success', message: `L’article « ${localProduct.name} » a été enregistré et synchronisé.` })
       } else {
         addAbroadProduct(localProduct)
+        setFeedback({ type: 'warning', message: `L’article « ${localProduct.name} » est conservé localement jusqu’au retour du réseau.` })
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(error)
       addAbroadProduct(localProduct)
+      setFeedback({
+        type: 'warning',
+        message: `La synchronisation a échoué, mais « ${localProduct.name} » est conservé localement.`,
+      })
     }
 
     setForm({
@@ -284,14 +380,26 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
 
   const handleActivate = async () => {
     const product = activateModal.product
-    if (!product || !activateModal.sellingPrice) return
+    if (!product) return
+
+    const buyingPrice = Number(activateModal.buyingPrice)
+    const sellingPrice = Number(activateModal.sellingPrice)
+    if (!Number.isFinite(buyingPrice) || buyingPrice < 0) {
+      setTransferError("Saisissez le prix d'achat converti en FCFA.")
+      return
+    }
+    if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
+      setTransferError('Le prix de vente doit être supérieur à zéro.')
+      return
+    }
 
     if (!isOnline) {
-      alert("La connexion est requise pour transferer cet article vers le stock principal.")
+      setTransferError('Une connexion est requise pour transférer cet article vers le stock principal.')
       return
     }
 
     setTransferring(true)
+    setTransferError('')
     try {
       const productToActivate = product.synced ? product : await pushLocalProduct(product)
 
@@ -303,8 +411,8 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
           category_id: activateModal.categoryId || undefined,
           supplier_id: undefined,
           description: product.notes || undefined,
-          buying_price: Number(activateModal.buyingPrice) || product.purchase_price,
-          selling_price: Number(activateModal.sellingPrice) || 0,
+          buying_price: buyingPrice,
+          selling_price: sellingPrice,
           quantity: product.quantity,
           min_quantity: 5,
           currency: 'XOF',
@@ -319,29 +427,41 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
         sellingPrice: '',
         buyingPrice: '',
         categoryId: '',
-        sellingCurrency: 'XOF',
       })
       onTransferred?.(createdProduct)
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(error)
-      alert('Erreur lors du transfert vers le stock principal')
+      setTransferError(error instanceof Error ? error.message : 'Erreur lors du transfert vers le stock principal.')
     } finally {
       setTransferring(false)
     }
   }
 
-  const handleDeleteItem = async (product: AbroadProduct) => {
-    const previousProducts = abroadProducts
-    deleteAbroadProduct(product.id)
+  const handleDeleteItem = async () => {
+    if (!deleteCandidate) return
+    const product = deleteCandidate
+    if (!isOnline && product.synced) {
+      setDeleteCandidate(null)
+      setFeedback({ type: 'warning', message: 'Une connexion est requise pour supprimer un article déjà synchronisé.' })
+      return
+    }
 
-    if (!isOnline || !product.synced) return
-
+    setDeleting(true)
+    setFeedback(null)
     try {
-      await deleteAbroadProductRecord(product.id)
-    } catch (error) {
+      if (product.synced) await deleteAbroadProductRecord(product.id)
+      deleteAbroadProduct(product.id)
+      setDeleteCandidate(null)
+      setFeedback({ type: 'success', message: `L’article « ${product.name} » a été supprimé.` })
+    } catch (error: unknown) {
       console.error(error)
-      setAbroadProducts(previousProducts)
-      alert("Suppression impossible pour le moment. L'article a ete restaure.")
+      setDeleteCandidate(null)
+      setFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Suppression impossible pour le moment.',
+      })
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -371,7 +491,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                 size="sm"
                 leftIcon={<Upload size={14} />}
                 className="text-emerald-600"
-                onClick={handleSyncPending}
+                onClick={() => void handleSyncPending()}
                 isLoading={syncing}
               >
                 Synchroniser
@@ -390,6 +510,25 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
           </>
         )}
       </div>
+
+      {feedback && (
+        <div
+          role={feedback.type === 'error' ? 'alert' : 'status'}
+          className={`flex items-start gap-2.5 rounded-2xl border px-4 py-3 text-sm ${
+            feedback.type === 'success'
+              ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700'
+              : feedback.type === 'warning'
+                ? 'border-amber-500/20 bg-amber-500/10 text-amber-700'
+                : 'border-red-500/20 bg-red-500/10 text-red-700'
+          }`}
+        >
+          {feedback.type === 'success'
+            ? <CheckCircle size={18} className="shrink-0" />
+            : <AlertTriangle size={18} className="shrink-0" />}
+          <span className="flex-1">{feedback.message}</span>
+          <button type="button" onClick={() => setFeedback(null)} className="rounded-lg px-2 py-1 text-xs font-semibold">Fermer</button>
+        </div>
+      )}
 
       <Card>
         <div className="mb-4 flex items-center justify-between">
@@ -410,7 +549,10 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
             variant={showForm ? 'ghost' : 'primary'}
             size="sm"
             leftIcon={<Plus size={15} />}
-            onClick={() => setShowForm((current) => !current)}
+            onClick={() => {
+              setFormError('')
+              setShowForm((current) => !current)
+            }}
           >
             {showForm ? 'Annuler' : 'Ajouter'}
           </Button>
@@ -418,6 +560,11 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
 
         {showForm && (
           <div className="fade-in space-y-4 border-t border-[#2D7D7D]/[0.08] pt-4">
+            {formError && (
+              <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
+                {formError}
+              </div>
+            )}
             <Input
               label="Nom du produit"
               placeholder="ex: Telephone Xiaomi 14 Pro"
@@ -442,6 +589,9 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
               <Input
                 label="Prix d'achat"
                 type="number"
+                min="0"
+                step="any"
+                inputMode="decimal"
                 placeholder="0"
                 value={form.purchase_price}
                 onChange={(e) =>
@@ -453,6 +603,9 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
               <Input
                 label="Quantite"
                 type="number"
+                min="1"
+                step="1"
+                inputMode="numeric"
                 placeholder="1"
                 value={form.quantity}
                 onChange={(e) => setForm((current) => ({ ...current, quantity: e.target.value }))}
@@ -465,7 +618,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                 rows={1}
               />
             </div>
-            <Button variant="primary" fullWidth onClick={handleAdd}>
+            <Button variant="primary" fullWidth onClick={() => void handleAdd()}>
               {isOnline ? 'Enregistrer et synchroniser' : 'Enregistrer localement'}
             </Button>
           </div>
@@ -538,16 +691,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                           variant="primary"
                           size="sm"
                           rightIcon={<ArrowRight size={13} />}
-                          onClick={() =>
-                            setActivateModal({
-                              open: true,
-                              product,
-                              sellingPrice: '',
-                              buyingPrice: '',
-                              categoryId: '',
-                              sellingCurrency: 'XOF',
-                            })
-                          }
+                          onClick={() => openActivate(product)}
                         >
                           Transferer
                         </Button>
@@ -567,7 +711,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                     </button>
                   )}
                   <button
-                    onClick={() => handleDeleteItem(product)}
+                    onClick={() => { setDeleteCandidate(product); setFeedback(null) }}
                     title="Supprimer"
                     aria-label="Supprimer l'article"
                     className="rounded-lg p-1.5 text-[#6B7682] transition-colors hover:bg-red-500/5 hover:text-red-600"
@@ -583,21 +727,29 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
 
       <Modal
         isOpen={activateModal.open}
-        onClose={() => setActivateModal((current) => ({ ...current, open: false }))}
+        onClose={() => {
+          if (transferring) return
+          setActivateModal((current) => ({ ...current, open: false }))
+          setTransferError('')
+        }}
         title="Transferer vers le stock principal"
         footer={
           <>
             <Button
               variant="ghost"
-              onClick={() => setActivateModal((current) => ({ ...current, open: false }))}
+              onClick={() => {
+                setActivateModal((current) => ({ ...current, open: false }))
+                setTransferError('')
+              }}
+              disabled={transferring}
             >
               Annuler
             </Button>
             <Button
               variant="primary"
-              onClick={handleActivate}
+              onClick={() => void handleActivate()}
               isLoading={transferring}
-              disabled={!activateModal.sellingPrice}
+              disabled={!activateModal.sellingPrice || !activateModal.buyingPrice}
             >
               Transferer
             </Button>
@@ -606,6 +758,11 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
       >
         {activateModal.product && (
           <div className="space-y-4">
+            {transferError && (
+              <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
+                {transferError}
+              </div>
+            )}
             <div className="rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
               <p className="text-sm font-medium text-[#1A3636]">
                 {activateModal.product.name}
@@ -620,7 +777,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
               </p>
             </div>
             <p className="text-xs text-[#6B7682]">
-              Ce produit sera ajoute a votre inventaire principal avec la quantite saisie.
+              Ce produit sera ajouté à votre inventaire principal avec la quantité saisie. Les prix ci-dessous doivent être en FCFA.
             </p>
             <Select
               label="Categorie (optionnel)"
@@ -633,11 +790,14 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                 setActivateModal((current) => ({ ...current, categoryId: e.target.value }))
               }
             />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Input
                 label="Prix d'achat (FCFA)"
                 type="number"
-                placeholder={String(activateModal.product.purchase_price)}
+                min="0"
+                step="any"
+                inputMode="decimal"
+                placeholder={activateModal.product.currency === 'XOF' ? String(activateModal.product.purchase_price) : 'Coût converti en FCFA'}
                 value={activateModal.buyingPrice}
                 onChange={(e) =>
                   setActivateModal((current) => ({ ...current, buyingPrice: e.target.value }))
@@ -646,6 +806,9 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
               <Input
                 label="Prix de vente (FCFA)"
                 type="number"
+                min="1"
+                step="any"
+                inputMode="decimal"
                 placeholder="ex: 150000"
                 value={activateModal.sellingPrice}
                 onChange={(e) =>
@@ -663,23 +826,28 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
         title="Modifier l'article"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setEditId(null)}>
+            <Button variant="ghost" onClick={() => setEditId(null)} disabled={savingEdit}>
               Annuler
             </Button>
-            <Button variant="primary" onClick={handleSaveEdit}>
+            <Button variant="primary" onClick={() => void handleSaveEdit()} isLoading={savingEdit}>
               Enregistrer
             </Button>
           </>
         }
       >
         <div className="space-y-4">
+          {editError && (
+            <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
+              {editError}
+            </div>
+          )}
           <Input
             label="Nom du produit"
             placeholder="ex: Telephone Xiaomi 14 Pro"
             value={editForm.name}
             onChange={(e) => setEditForm((current) => ({ ...current, name: e.target.value }))}
           />
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Select
               label="Pays source"
               options={COUNTRIES}
@@ -697,6 +865,9 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
             <Input
               label="Prix d'achat"
               type="number"
+              min="0"
+              step="any"
+              inputMode="decimal"
               placeholder="0"
               value={editForm.purchase_price}
               onChange={(e) =>
@@ -707,6 +878,9 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
           <Input
             label="Quantite"
             type="number"
+            min="1"
+            step="1"
+            inputMode="numeric"
             placeholder="1"
             value={editForm.quantity}
             onChange={(e) => setEditForm((current) => ({ ...current, quantity: e.target.value }))}
@@ -719,6 +893,23 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
             rows={2}
           />
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={deleteCandidate !== null}
+        onClose={() => { if (!deleting) setDeleteCandidate(null) }}
+        title="Supprimer la saisie"
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDeleteCandidate(null)} disabled={deleting}>Annuler</Button>
+            <Button variant="danger" onClick={() => void handleDeleteItem()} isLoading={deleting}>Supprimer</Button>
+          </>
+        }
+      >
+        <p className="text-sm text-[#5C6B73]">
+          Voulez-vous vraiment supprimer <strong className="text-[#1A3636]">{deleteCandidate?.name}</strong> ?
+        </p>
       </Modal>
     </div>
   )

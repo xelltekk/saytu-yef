@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Header } from '@/components/layout/Header'
 import { Card, MetricCard } from '@/components/ui/Card'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
-import { TrendingUp, Package, DollarSign, BarChart3, RefreshCw } from 'lucide-react'
+import { TrendingUp, Package, DollarSign, BarChart3, Download, RefreshCw } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
@@ -14,12 +14,14 @@ const COLORS = ['#6C5CE7', '#8b5cf6', '#f97316', '#10b981', '#0ea5e9', '#94a3b8'
 
 interface ReportsData {
   monthlyData: { month: string; revenue: number; profit: number }[]
+  allProducts: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number }[]
   topProducts: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number }[]
   totalSold: number
   avgMargin: number
 }
 
 export default function ReportsPage() {
+  const [rangeMonths, setRangeMonths] = useState(6)
   const [data, setData] = useState<ReportsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -27,9 +29,10 @@ export default function ReportsPage() {
 
   const loadReports = useCallback(async (showRefreshState = false) => {
     if (showRefreshState) setRefreshing(true)
+    else setLoading(true)
     setError('')
     try {
-      setData(await getReportsData(6) as ReportsData)
+      setData(await getReportsData(rangeMonths) as ReportsData)
     } catch (err: unknown) {
       console.error(err)
       setError(err instanceof Error ? err.message : 'Impossible de charger les rapports')
@@ -37,7 +40,7 @@ export default function ReportsPage() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [])
+  }, [rangeMonths])
 
   useEffect(() => {
     void loadReports()
@@ -47,6 +50,8 @@ export default function ReportsPage() {
   const totalProfit = data?.monthlyData.reduce((s, m) => s + m.profit, 0) ?? 0
   const totalSold = data?.totalSold ?? 0
   const avgMargin = data?.avgMargin ?? 0
+  const rangeLabel = rangeMonths === 1 ? 'mois en cours' : `${rangeMonths} derniers mois`
+  const rangeSentence = rangeMonths === 1 ? 'du mois en cours' : `des ${rangeMonths} derniers mois`
 
   const renderResponsiveCurrency = (amount: number) => (
     <>
@@ -74,20 +79,78 @@ export default function ReportsPage() {
     })
   }
 
+  const exportCsv = () => {
+    if (!data) return
+
+    const protectSpreadsheetCell = (value: string | number) => {
+      const text = String(value)
+      const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text
+      return `"${safeText.replace(/"/g, '""')}"`
+    }
+    const rows: Array<Array<string | number>> = [
+      ['Rapport Saytu Yëf', rangeLabel],
+      [],
+      ['Synthèse mensuelle'],
+      ['Mois', 'Revenus HT (FCFA)', 'Bénéfice brut (FCFA)'],
+      ...data.monthlyData.map((month) => [month.month, Math.round(month.revenue), Math.round(month.profit)]),
+      [],
+      ['Produits vendus'],
+      ['Produit', 'Unités vendues', 'Revenus HT (FCFA)', 'Bénéfice brut (FCFA)', 'Marge (%)'],
+      ...data.allProducts.map((product) => [
+        product.name,
+        product.sold,
+        Math.round(product.revenue),
+        Math.round(product.profit),
+        product.margin.toFixed(2),
+      ]),
+    ]
+    const csv = rows.map((row) => row.map(protectSpreadsheetCell).join(',')).join('\n')
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `rapport-saytu-yef-${rangeMonths}-mois-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="min-h-screen">
       <Header title="Rapports & Analyses" subtitle="Performances de votre activité" />
       <div className="space-y-4 p-3 sm:p-4 lg:space-y-6 lg:p-6">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] text-[#6B7682]">Données des 6 derniers mois</p>
-          <button
-            type="button"
-            onClick={() => void loadReports(true)}
-            disabled={refreshing}
-            className="flex min-h-10 items-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
-          >
-            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Actualiser
-          </button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-[11px] text-[#6B7682]">Ventes {rangeSentence}, règlements partiels inclus</p>
+            <select
+              value={rangeMonths}
+              onChange={(event) => setRangeMonths(Number(event.target.value))}
+              aria-label="Période du rapport"
+              className="mt-2 h-10 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#1A3636]"
+            >
+              <option value={1}>Mois en cours</option>
+              <option value={3}>3 derniers mois</option>
+              <option value={6}>6 derniers mois</option>
+              <option value={12}>12 derniers mois</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={exportCsv}
+              disabled={!data || loading}
+              className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
+            >
+              <Download size={14} /> Exporter CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => void loadReports(true)}
+              disabled={refreshing || loading}
+              className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Actualiser
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -101,15 +164,15 @@ export default function ReportsPage() {
           <MetricCard
             title="Revenus hors taxe"
             value={loading ? '…' : renderResponsiveCurrency(totalRevenue)}
-            change={<><span className="sm:hidden">6 mois</span><span className="hidden sm:inline">6 derniers mois</span></>}
+            change={rangeLabel}
             changeType="up"
             icon={<DollarSign size={20} />}
             color="#6C5CE7"
           />
           <MetricCard
-            title="Bénéfice net"
+            title="Bénéfice brut"
             value={loading ? '…' : renderResponsiveCurrency(totalProfit)}
-            change={<><span className="sm:hidden">6 mois</span><span className="hidden sm:inline">6 derniers mois</span></>}
+            change={rangeLabel}
             changeType="up"
             icon={<TrendingUp size={20} />}
             color="#10b981"
@@ -135,7 +198,7 @@ export default function ReportsPage() {
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Card className="p-4 sm:p-5 lg:col-span-2">
-            <h3 className="text-sm font-semibold text-[#1A3636] mb-6">Revenus HT & Bénéfices (6 derniers mois)</h3>
+            <h3 className="text-sm font-semibold text-[#1A3636] mb-6">Revenus HT & bénéfices bruts ({rangeLabel})</h3>
             {loading ? (
               <div className="h-[250px] flex items-center justify-center">
                 <div className="animate-pulse text-[#6B7682] text-sm">Chargement…</div>
@@ -206,7 +269,7 @@ export default function ReportsPage() {
 
         {/* Top products table */}
         <Card className="p-4 sm:p-5">
-          <h3 className="text-sm font-semibold text-[#1A3636] mb-4">Top produits — 6 derniers mois</h3>
+          <h3 className="text-sm font-semibold text-[#1A3636] mb-4">Top produits — {rangeLabel}</h3>
           {loading ? (
             <div className="space-y-3">
               {[1, 2, 3].map((i) => (

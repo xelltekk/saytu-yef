@@ -35,7 +35,7 @@ export function SalesChart({ data, loading }: SalesChartProps) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-[13px] font-semibold text-[#1A3636]">Revenus ce mois</h3>
-          <p className="text-[11px] text-[#6B7682] mt-0.5">Comparaison journalière</p>
+          <p className="text-[11px] text-[#6B7682] mt-0.5">Cumul par jour de la semaine</p>
         </div>
       </div>
       {loading ? (
