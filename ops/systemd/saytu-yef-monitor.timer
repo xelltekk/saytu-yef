@@ -1,0 +1,10 @@
+[Unit]
+Description=Contrôle de Saytu Yef toutes les deux minutes
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=2m
+AccuracySec=20s
+
+[Install]
+WantedBy=timers.target

@@ -5,8 +5,8 @@ import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { generateSKU, getProfitMargin, compressImage } from '@/lib/utils'
-import { addProduct, updateProduct, getCategories, getProducts } from '@/lib/supabase/queries'
-import type { Product, Category } from '@/types'
+import { addProduct, updateProduct, getCategories, getProducts, getSuppliers } from '@/lib/supabase/queries'
+import type { Product, Category, Supplier } from '@/types'
 
 interface AddProductModalProps {
   isOpen: boolean
@@ -28,6 +28,7 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
     name: product?.name || '',
     sku: product?.sku || '',
     category_id: product?.category_id || '',
+    supplier_id: product?.supplier_id || '',
     description: product?.description || '',
     buying_price: product?.buying_price?.toString() || '',
     selling_price: product?.selling_price?.toString() || '',
@@ -36,6 +37,7 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
     currency: product?.currency || 'XOF',
   })
   const [categories, setCategories] = useState<Category[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [existingProducts, setExistingProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
@@ -77,18 +79,25 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
         console.error(loadError)
         setError(loadError instanceof Error ? loadError.message : 'Impossible de vérifier les références existantes.')
       })
+    getSuppliers()
+      .then(setSuppliers)
+      .catch((loadError: unknown) => {
+        console.error(loadError)
+        setError(loadError instanceof Error ? loadError.message : 'Impossible de charger les fournisseurs.')
+      })
   }, [isOpen, product])
 
   // Sync form when product changes (edit vs new)
   useEffect(() => {
     if (!isOpen) return
     if (!product) {
-      setForm({ name: '', sku: '', category_id: '', description: '', buying_price: '', selling_price: '', quantity: '', min_quantity: '5', currency: 'XOF' })
+      setForm({ name: '', sku: '', category_id: '', supplier_id: '', description: '', buying_price: '', selling_price: '', quantity: '', min_quantity: '5', currency: 'XOF' })
     } else {
       setForm({
         name: product.name,
         sku: product.sku,
         category_id: product.category_id,
+        supplier_id: product.supplier_id || '',
         description: product.description || '',
         buying_price: product.buying_price.toString(),
         selling_price: product.selling_price.toString(),
@@ -114,6 +123,10 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
   const categoryOptions = [
     { value: '', label: 'Sélectionner une catégorie' },
     ...categories.map((c) => ({ value: c.id, label: c.name })),
+  ]
+  const supplierOptions = [
+    { value: '', label: 'Sans fournisseur' },
+    ...suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name })),
   ]
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -163,7 +176,7 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
         name: form.name.trim(),
         sku: requestedSku,
         category_id: form.category_id || undefined,
-        supplier_id: undefined,
+        supplier_id: form.supplier_id || undefined,
         description: form.description.trim() || undefined,
         buying_price: buyingPrice,
         selling_price: sellingPrice,
@@ -283,6 +296,13 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
             onChange={(e) => setForm((f) => ({ ...f, category_id: e.target.value }))}
           />
         </div>
+
+        <Select
+          label="Fournisseur (optionnel)"
+          options={supplierOptions}
+          value={form.supplier_id}
+          onChange={(e) => setForm((f) => ({ ...f, supplier_id: e.target.value }))}
+        />
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           <Select

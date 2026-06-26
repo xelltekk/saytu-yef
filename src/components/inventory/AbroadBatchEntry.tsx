@@ -8,6 +8,7 @@ import {
   Globe,
   Pencil,
   Plus,
+  RefreshCw,
   Trash2,
   Upload,
   Wifi,
@@ -57,6 +58,9 @@ interface ActivateModalState {
   sellingPrice: string
   buyingPrice: string
   categoryId: string
+  exchangeRate: number | null
+  rateUpdatedAt: string | null
+  rateSource: string | null
 }
 
 type Feedback = { type: 'success' | 'warning' | 'error'; message: string }
@@ -94,6 +98,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
 
   const [categories, setCategories] = useState<Category[]>([])
   const [transferring, setTransferring] = useState(false)
+  const [loadingRate, setLoadingRate] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -112,6 +117,9 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
     sellingPrice: '',
     buyingPrice: '',
     categoryId: '',
+    exchangeRate: null,
+    rateUpdatedAt: null,
+    rateSource: null,
   })
   const [form, setForm] = useState({
     name: '',
@@ -222,7 +230,43 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
       sellingPrice: '',
       buyingPrice: product.currency === 'XOF' ? String(product.purchase_price) : '',
       categoryId: '',
+      exchangeRate: product.currency === 'XOF' ? 1 : null,
+      rateUpdatedAt: product.currency === 'XOF' ? new Date().toISOString() : null,
+      rateSource: product.currency === 'XOF' ? 'Taux fixe XOF' : null,
     })
+  }
+
+  const loadExchangeRate = async () => {
+    const product = activateModal.product
+    if (!product) return
+
+    setLoadingRate(true)
+    setTransferError('')
+    try {
+      const response = await fetch(`/api/exchange-rates?base=${encodeURIComponent(product.currency)}`)
+      const payload = (await response.json()) as {
+        rate?: number
+        updatedAt?: string
+        source?: string
+        stale?: boolean
+        error?: string
+      }
+      if (!response.ok || !payload.rate) throw new Error(payload.error ?? 'Taux indisponible.')
+
+      setActivateModal((current) => ({
+        ...current,
+        buyingPrice: String(Math.round(product.purchase_price * payload.rate!)),
+        exchangeRate: payload.rate!,
+        rateUpdatedAt: payload.updatedAt ?? new Date().toISOString(),
+        rateSource: `${payload.source ?? 'ExchangeRate-API'}${payload.stale ? ' (cache)' : ''}`,
+      }))
+    } catch (error) {
+      setTransferError(
+        `${error instanceof Error ? error.message : 'Conversion indisponible.'} Vous pouvez saisir le prix FCFA manuellement.`
+      )
+    } finally {
+      setLoadingRate(false)
+    }
   }
 
   const handleSaveEdit = async () => {
@@ -417,7 +461,13 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
           min_quantity: 5,
           currency: 'XOF',
           status: 'active',
-        } as Parameters<typeof activateAbroadProductRecord>[1]
+        } as Parameters<typeof activateAbroadProductRecord>[1],
+        {
+          exchange_rate: activateModal.exchangeRate ?? undefined,
+          converted_purchase_price: buyingPrice,
+          rate_source: activateModal.rateSource ?? 'Saisie manuelle',
+          rate_updated_at: activateModal.rateUpdatedAt ?? new Date().toISOString(),
+        }
       )
 
       updateAbroadProduct(productToActivate.id, { activated: true, synced: true })
@@ -427,6 +477,9 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
         sellingPrice: '',
         buyingPrice: '',
         categoryId: '',
+        exchangeRate: null,
+        rateUpdatedAt: null,
+        rateSource: null,
       })
       onTransferred?.(createdProduct)
     } catch (error: unknown) {
@@ -779,6 +832,35 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
             <p className="text-xs text-[#6B7682]">
               Ce produit sera ajouté à votre inventaire principal avec la quantité saisie. Les prix ci-dessous doivent être en FCFA.
             </p>
+            {activateModal.product.currency !== 'XOF' && (
+              <div className="rounded-xl border border-[#2D7D7D]/15 bg-[#2D7D7D]/5 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-medium text-[#1A3636]">Conversion vers le FCFA</p>
+                    <p className="mt-1 text-[11px] text-[#6B7682]">
+                      {activateModal.exchangeRate
+                        ? `1 ${activateModal.product.currency} = ${activateModal.exchangeRate.toLocaleString('fr-FR')} FCFA`
+                        : 'Récupérez le dernier taux disponible avant le transfert.'}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => void loadExchangeRate()}
+                    isLoading={loadingRate}
+                    disabled={!isOnline}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Obtenir le taux
+                  </Button>
+                </div>
+                {activateModal.rateUpdatedAt && (
+                  <p className="mt-2 text-[10px] text-[#7B8794]">
+                    Taux du {new Date(activateModal.rateUpdatedAt).toLocaleString('fr-FR')} · {activateModal.rateSource}
+                  </p>
+                )}
+              </div>
+            )}
             <Select
               label="Categorie (optionnel)"
               options={[
@@ -799,9 +881,16 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                 inputMode="decimal"
                 placeholder={activateModal.product.currency === 'XOF' ? String(activateModal.product.purchase_price) : 'Coût converti en FCFA'}
                 value={activateModal.buyingPrice}
-                onChange={(e) =>
-                  setActivateModal((current) => ({ ...current, buyingPrice: e.target.value }))
-                }
+                onChange={(e) => {
+                  const value = e.target.value
+                  setActivateModal((current) => ({
+                    ...current,
+                    buyingPrice: value,
+                    exchangeRate: null,
+                    rateSource: 'Saisie manuelle',
+                    rateUpdatedAt: new Date().toISOString(),
+                  }))
+                }}
               />
               <Input
                 label="Prix de vente (FCFA)"

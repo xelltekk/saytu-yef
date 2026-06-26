@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Package, ShoppingCart, BarChart3, Settings } from 'lucide-react'
+import { LayoutDashboard, Package, ShoppingCart, BarChart3, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const leftItems = [
@@ -9,8 +9,8 @@ const leftItems = [
   { href: '/inventory',  icon: Package,          label: 'Stock' },
 ]
 const rightItems = [
+  { href: '/clients',  icon: Users, label: 'Clients' },
   { href: '/reports',  icon: BarChart3, label: 'Rapports' },
-  { href: '/settings', icon: Settings,  label: 'Réglages' },
 ]
 
 export function BottomNav() {

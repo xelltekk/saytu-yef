@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Package, ShoppingCart, BarChart3,
   Settings, ChevronLeft, ChevronRight, TrendingUp, LogOut,
-  Globe, User
+  Globe, User, Users, Truck, UserRoundCog
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
@@ -14,6 +14,9 @@ const navItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Tableau de bord' },
   { href: '/inventory',  icon: Package,          label: 'Inventaire' },
   { href: '/sales',      icon: ShoppingCart,      label: 'Ventes' },
+  { href: '/clients',    icon: Users,             label: 'Clients & dettes' },
+  { href: '/suppliers',  icon: Truck,             label: 'Fournisseurs' },
+  { href: '/team',       icon: UserRoundCog,      label: 'Équipe & rôles' },
   { href: '/reports',    icon: BarChart3,         label: 'Rapports' },
   { href: '/abroad',     icon: Globe,             label: 'Saisie Étranger' },
   { href: '/settings',   icon: Settings,          label: 'Paramètres' },

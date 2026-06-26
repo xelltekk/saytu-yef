@@ -1,15 +1,16 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { MessageCircle, Phone, Printer } from 'lucide-react'
+import { AlertTriangle, MessageCircle, Phone, Printer, RotateCcw } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { Input, Select } from '@/components/ui/Input'
+import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { recordSalePayment, updateSale } from '@/lib/supabase/queries'
+import { recordSalePayment, reverseSale, updateSale } from '@/lib/supabase/queries'
 import { printReceipt, type ReceiptData } from '@/lib/receipt'
 import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, SALE_METHOD_LABELS, SALE_METHOD_VARIANTS, SALE_STATUS_LABELS, SALE_STATUS_VARIANTS } from '@/lib/sales'
 import { useUser } from '@/hooks/useUser'
+import { useAccountRole } from '@/hooks/useAccountRole'
 import type { Sale } from '@/types'
 
 const METHOD_OPTIONS = [
@@ -34,12 +35,17 @@ interface SaleDetailModalProps {
 
 export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps) {
   const { businessName, businessAddress, businessPhone, businessNinea } = useUser()
+  const { isAdmin } = useAccountRole()
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [recordingPayment, setRecordingPayment] = useState(false)
   const [showPaymentForm, setShowPaymentForm] = useState(false)
   const [paymentError, setPaymentError] = useState('')
   const [saveError, setSaveError] = useState('')
+  const [showReversal, setShowReversal] = useState(false)
+  const [reversalReason, setReversalReason] = useState('')
+  const [reversalError, setReversalError] = useState('')
+  const [reversing, setReversing] = useState(false)
   const [form, setForm] = useState({
     customer_name: '',
     customer_phone: '',
@@ -70,6 +76,9 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
     setShowPaymentForm(false)
     setPaymentError('')
     setSaveError('')
+    setShowReversal(false)
+    setReversalReason('')
+    setReversalError('')
   }, [sale])
 
   const computedStatus = useMemo(() => (sale ? getSaleComputedStatus(sale) : 'pending'), [sale])
@@ -116,6 +125,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
     const customer = sale.customer_name ? ` ${sale.customer_name}` : ''
     return `Bonjour${customer}, nous vous rappelons qu’il reste ${formatCurrency(amountDue)} à régler sur votre achat chez ${businessName || 'Saytu Yef'} (reçu ${sale.id.slice(0, 8).toUpperCase()}). Merci.`
   }, [amountDue, businessName, sale])
+  const reversalTarget = amountPaid > 0 ? 'refunded' : 'cancelled'
 
   const handleSave = async () => {
     if (!sale) return
@@ -171,14 +181,46 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
     }
   }
 
+  const handleReverseSale = async () => {
+    if (!sale) return
+    if (reversalReason.trim().length < 3) {
+      setReversalError('Indiquez un motif d’au moins 3 caractères.')
+      return
+    }
+
+    setReversing(true)
+    setReversalError('')
+    try {
+      await reverseSale(sale.id, reversalTarget, reversalReason)
+      onSaved?.(
+        reversalTarget === 'refunded'
+          ? 'La vente a été remboursée et le stock restauré.'
+          : 'La vente a été annulée et le stock restauré.'
+      )
+      onClose()
+    } catch (error: unknown) {
+      console.error(error)
+      setReversalError(error instanceof Error ? error.message : 'Impossible de traiter cette vente.')
+    } finally {
+      setReversing(false)
+    }
+  }
+
   return (
     <Modal
       isOpen={sale !== null}
       onClose={onClose}
-      title={editing ? 'Modifier la vente' : 'Detail de la vente'}
+      title={showReversal ? (reversalTarget === 'refunded' ? 'Rembourser la vente' : 'Annuler la vente') : editing ? 'Modifier la vente' : 'Detail de la vente'}
       size="md"
       footer={
-        editing ? (
+        showReversal ? (
+          <>
+            <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setShowReversal(false)} disabled={reversing}>Retour</Button>
+            <Button variant="danger" className="w-full sm:w-auto" onClick={() => void handleReverseSale()} isLoading={reversing}>
+              {reversalTarget === 'refunded' ? 'Confirmer le remboursement' : 'Confirmer l’annulation'}
+            </Button>
+          </>
+        ) : editing ? (
           <>
             <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setEditing(false)}>Annuler</Button>
             <Button variant="primary" className="w-full sm:w-auto" onClick={handleSave} isLoading={saving}>Enregistrer</Button>
@@ -195,6 +237,16 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
             >
               Imprimer le reçu
             </Button>
+            {isAdmin && computedStatus !== 'cancelled' && computedStatus !== 'refunded' && (
+              <Button
+                variant="danger"
+                className="w-full sm:w-auto"
+                leftIcon={<RotateCcw size={15} />}
+                onClick={() => setShowReversal(true)}
+              >
+                {amountPaid > 0 ? 'Rembourser' : 'Annuler'}
+              </Button>
+            )}
             <Button variant="primary" className="w-full sm:w-auto" onClick={() => setEditing(true)}>Modifier</Button>
           </>
         )
@@ -202,7 +254,54 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
     >
       {sale && (
         <div className="space-y-4">
-          {editing ? (
+          {showReversal ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-600">
+                    <AlertTriangle size={20} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-[#1A3636]">
+                      {reversalTarget === 'refunded' ? 'Remboursement avec remise en stock' : 'Annulation avec remise en stock'}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-[#5C6B73]">
+                      Les quantités des {sale.items?.length ?? 0} article(s) seront automatiquement restaurées et tracées dans l’historique du stock.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {reversalTarget === 'refunded' && (
+                <div className="flex items-center justify-between rounded-xl bg-amber-500/10 px-3 py-3 text-sm text-amber-800">
+                  <span>Montant encaissé à restituer</span>
+                  <strong>{formatCurrency(amountPaid)}</strong>
+                </div>
+              )}
+
+              {reversalError && (
+                <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
+                  {reversalError}
+                </div>
+              )}
+
+              <Textarea
+                label="Motif obligatoire"
+                value={reversalReason}
+                onChange={(event) => {
+                  setReversalReason(event.target.value)
+                  setReversalError('')
+                }}
+                placeholder="Ex : retour client, erreur de saisie…"
+                rows={3}
+                disabled={reversing}
+              />
+
+              <p className="text-xs text-[#6B7682]">
+                Cette action est irréversible. Le remboursement financier doit être effectué avec le moyen convenu avec le client.
+              </p>
+            </div>
+          ) : editing ? (
             <>
               {saveError && (
                 <div

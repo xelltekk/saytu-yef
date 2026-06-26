@@ -1,0 +1,11 @@
+[Unit]
+Description=Contrôle de santé de Saytu Yef
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/saytu-yef-ops.env
+ExecStart=/usr/local/sbin/saytu-yef-monitor
+User=root
+NoNewPrivileges=true

@@ -1,0 +1,12 @@
+[Unit]
+Description=Sauvegarde PostgreSQL de Saytu Yef
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/saytu-yef-ops.env
+ExecStart=/usr/local/sbin/saytu-yef-backup
+Nice=10
+PrivateTmp=true
+NoNewPrivileges=true

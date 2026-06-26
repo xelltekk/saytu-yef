@@ -4,8 +4,17 @@ export interface User {
   full_name: string
   business_name: string
   avatar_url?: string
-  role: 'owner' | 'manager' | 'staff'
+  role: 'admin' | 'employee'
   subscription_plan: 'free' | 'starter' | 'pro' | 'enterprise'
+  created_at: string
+}
+
+export interface TeamMember {
+  id: string
+  email: string
+  full_name?: string
+  role: 'admin' | 'employee'
+  account_owner_id?: string
   created_at: string
 }
 
@@ -55,6 +64,10 @@ export interface AbroadProduct {
   activated: boolean
   created_at: string
   local_id?: string
+  exchange_rate?: number
+  converted_purchase_price?: number
+  rate_source?: string
+  rate_updated_at?: string
 }
 
 export interface Category {
@@ -92,6 +105,8 @@ export interface Sale {
   payment_method: 'cash' | 'wave' | 'orange_money' | 'card'
   payment_status: 'completed' | 'partial' | 'pending' | 'cancelled' | 'refunded'
   notes?: string
+  reversed_at?: string
+  reversal_reason?: string
   created_at: string
   payments?: SalePayment[]
 }

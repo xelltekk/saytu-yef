@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { CheckCircle2, Globe, Package } from 'lucide-react'
+import Link from 'next/link'
+import { CheckCircle2, Globe, Package, Truck } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { ProductTable } from '@/components/inventory/ProductTable'
 import { AddProductModal } from '@/components/inventory/AddProductModal'
@@ -34,6 +35,7 @@ export default function InventoryPage() {
       <Header title="Inventaire" subtitle="Gerez votre stock de produits" />
 
       <div className="space-y-4 p-3 sm:p-4 lg:space-y-6 lg:p-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="grid w-full grid-cols-2 gap-1 rounded-xl border border-[#2D7D7D]/[0.08] bg-[#E9EEF6] p-1 sm:w-fit">
           <button
             onClick={() => setTab('stock')}
@@ -69,6 +71,10 @@ export default function InventoryPage() {
               </span>
             )}
           </button>
+        </div>
+          <Link href="/suppliers" className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-4 text-xs font-semibold text-[#2D7D7D]">
+            <Truck size={15} /> Fournisseurs
+          </Link>
         </div>
 
         {notice && (

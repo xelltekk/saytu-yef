@@ -1,5 +1,41 @@
 import { createClient } from './client'
-import type { Product, Category, Supplier, Sale, AbroadProduct, StockMovement } from '@/types'
+import type { Product, Category, Supplier, Sale, AbroadProduct, StockMovement, TeamMember } from '@/types'
+
+export async function getTeamContext(): Promise<{ current: TeamMember; members: TeamMember[] }> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Non connecté')
+
+  const { data: members, error } = await supabase
+    .from('profiles')
+    .select('id,email,full_name,role,account_owner_id,created_at')
+    .order('created_at')
+  if (error) throw error
+
+  const current = (members ?? []).find((member) => member.id === user.id)
+  if (!current) throw new Error('Profil introuvable')
+  return { current: current as TeamMember, members: (members ?? []) as TeamMember[] }
+}
+
+export async function addTeamMember(email: string, role: TeamMember['role']): Promise<TeamMember> {
+  const supabase = createClient()
+  const { data, error } = await supabase.rpc('add_team_member', { p_email: email, p_role: role })
+  if (error) throw error
+  return data as TeamMember
+}
+
+export async function updateTeamMemberRole(id: string, role: TeamMember['role']): Promise<TeamMember> {
+  const supabase = createClient()
+  const { data, error } = await supabase.rpc('update_team_member_role', { p_member_id: id, p_role: role })
+  if (error) throw error
+  return data as TeamMember
+}
+
+export async function removeTeamMember(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.rpc('remove_team_member', { p_member_id: id })
+  if (error) throw error
+}
 
 // ─── PRODUITS ────────────────────────────────────────────────────────────────
 
@@ -208,6 +244,38 @@ export async function getSuppliers(): Promise<Supplier[]> {
 }
 
 // ─── VENTES ───────────────────────────────────────────────────────────────────
+
+export async function addSupplier(
+  supplier: Omit<Supplier, 'id' | 'user_id' | 'created_at'>
+): Promise<Supplier> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Non connecté')
+
+  const { data, error } = await supabase
+    .from('suppliers')
+    .insert({ ...supplier, user_id: user.id })
+    .select()
+    .single()
+
+  if (error) throw error
+  return data as Supplier
+}
+
+export async function updateSupplier(
+  id: string,
+  updates: Partial<Omit<Supplier, 'id' | 'user_id' | 'created_at'>>
+): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('suppliers').update(updates).eq('id', id)
+  if (error) throw error
+}
+
+export async function deleteSupplier(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('suppliers').delete().eq('id', id)
+  if (error) throw error
+}
 
 export async function getSales(limit = 50, offset = 0): Promise<Sale[]> {
   const supabase = createClient()
@@ -476,6 +544,34 @@ export async function recordSalePayment(id: string, payment: RecordSalePaymentIn
 
 // ─── PRODUITS ÉTRANGER ────────────────────────────────────────────────────────
 
+export async function reverseSale(
+  id: string,
+  targetStatus: 'cancelled' | 'refunded',
+  reason: string
+): Promise<Sale> {
+  const supabase = createClient()
+  const { data, error } = await supabase.rpc('reverse_sale_with_stock', {
+    p_sale_id: id,
+    p_target_status: targetStatus,
+    p_reason: reason.trim(),
+  })
+
+  if (error) {
+    if (isMissingRpc(error, 'reverse_sale_with_stock')) {
+      throw new Error('La migration d’annulation et remboursement doit être appliquée dans Supabase.')
+    }
+
+    throwSupabaseError(
+      error,
+      targetStatus === 'refunded'
+        ? 'Erreur lors du remboursement de la vente'
+        : 'Erreur lors de l’annulation de la vente'
+    )
+  }
+
+  return data as Sale
+}
+
 export async function getAbroadProducts(): Promise<AbroadProduct[]> {
   const supabase = createClient()
   const { data, error } = await supabase
@@ -512,7 +608,8 @@ export async function updateAbroadProductRecord(
 
 export async function activateAbroadProduct(
   abroadId: string,
-  productPayload: Omit<Product, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'category' | 'supplier'>
+  productPayload: Omit<Product, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'category' | 'supplier'>,
+  conversion?: Pick<AbroadProduct, 'exchange_rate' | 'converted_purchase_price' | 'rate_source' | 'rate_updated_at'>
 ): Promise<Product> {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -529,7 +626,7 @@ export async function activateAbroadProduct(
   // Marquer comme activé dans abroad_products
   await supabase
     .from('abroad_products')
-    .update({ activated: true, synced: true })
+    .update({ activated: true, synced: true, ...conversion })
     .eq('id', abroadId)
 
   return newProduct as Product
