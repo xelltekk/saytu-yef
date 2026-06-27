@@ -139,13 +139,7 @@ export function BusinessOnboarding() {
       if (profileError) throw profileError
 
       const { error: authError } = await supabase.auth.updateUser({
-        data: {
-          business_name: payload.business_name,
-          address: payload.business_address ?? '',
-          phone: payload.phone,
-          currency: payload.currency,
-          tva_enabled: payload.tax_enabled,
-        },
+        data: { business_name: payload.business_name },
       })
       if (authError) throw authError
 

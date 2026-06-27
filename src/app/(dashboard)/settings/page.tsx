@@ -16,6 +16,8 @@ const PLANS = [
 
 type SettingsTab = 'profile' | 'business' | 'billing' | 'notifications' | 'security'
 
+const NOTIFICATION_SETTINGS_KEY = 'saytu-yef:notification-preferences'
+
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -86,7 +88,12 @@ export default function SettingsPage() {
       currency: (meta.currency as string) || 'XOF',
       tva: Boolean(meta.tva_enabled),
     })
-    if (meta.notifications) setNotifs((n) => ({ ...n, ...(meta.notifications as typeof n) }))
+    try {
+      const storedNotifs = window.localStorage.getItem(NOTIFICATION_SETTINGS_KEY)
+      if (storedNotifs) setNotifs((n) => ({ ...n, ...(JSON.parse(storedNotifs) as Partial<typeof n>) }))
+    } catch (storageError) {
+      console.error(storageError)
+    }
 
     let active = true
     const loadProfileRecord = async () => {
@@ -150,9 +157,7 @@ export default function SettingsPage() {
     try {
       const supabase = createClient()
       const full_name = `${profile.firstName} ${profile.lastName}`.trim()
-      const { error } = await supabase.auth.updateUser({
-        data: { full_name, phone: profile.phone, language: profile.language },
-      })
+      const { error } = await supabase.auth.updateUser({ data: { full_name } })
       if (error) throw error
       const { error: profileError } = await supabase
         .from('profiles')
@@ -177,10 +182,7 @@ export default function SettingsPage() {
     try {
       const supabase = createClient()
       const { error } = await supabase.auth.updateUser({
-        data: {
-          business_name: business.name, ninea: business.ninea, address: business.address,
-          city: business.city, currency: business.currency, tva_enabled: business.tva,
-        },
+        data: { business_name: business.name.trim() || '' },
       })
       if (error) throw error
       const { error: profileError } = await supabase
@@ -207,9 +209,7 @@ export default function SettingsPage() {
     setSavingNotifs(true)
     setNotifMsg(null)
     try {
-      const supabase = createClient()
-      const { error } = await supabase.auth.updateUser({ data: { notifications: notifs } })
-      if (error) throw error
+      window.localStorage.setItem(NOTIFICATION_SETTINGS_KEY, JSON.stringify(notifs))
       setNotifMsg({ type: 'success', msg: 'Préférences enregistrées.' })
     } catch (e) {
       setNotifMsg({ type: 'error', msg: e instanceof Error ? e.message : 'Erreur d\'enregistrement.' })
