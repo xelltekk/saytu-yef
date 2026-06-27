@@ -11,18 +11,19 @@ type LoginBody = {
   next?: string
 }
 
-type LoginSessionPayload = {
-  access_token: string
-  refresh_token: string
-}
-
 function getFriendlyError(message: string) {
-  if (message === 'Invalid login credentials') {
+  const normalized = message.toLowerCase()
+
+  if (normalized.includes('invalid login credentials') || normalized.includes('invalid credentials')) {
     return 'Email ou mot de passe incorrect.'
   }
 
-  if (message === 'Email not confirmed') {
+  if (normalized.includes('email not confirmed')) {
     return 'Veuillez confirmer votre email avant de vous connecter.'
+  }
+
+  if (normalized.includes('rate limit') || normalized.includes('too many')) {
+    return 'Trop de tentatives. Patientez quelques minutes puis réessayez.'
   }
 
   return 'Impossible de se connecter pour le moment. Vérifiez votre connexion et réessayez.'
@@ -60,30 +61,27 @@ export async function POST(request: Request) {
     }
   )
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: body.email,
+  const { error } = await supabase.auth.signInWithPassword({
+    email: body.email.trim().toLowerCase(),
     password: body.password,
   })
 
   if (error) {
+    console.warn('auth_login_failed', {
+      code: error.code,
+      status: error.status,
+      message: error.message,
+    })
+
     return NextResponse.json(
       { error: getFriendlyError(error.message) },
       { status: 400, headers: { 'Cache-Control': 'no-store, max-age=0' } }
     )
   }
 
-  const sessionPayload =
-    data.session?.access_token && data.session?.refresh_token
-      ? {
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
-        }
-      : null
-
   return NextResponse.json(
     {
       redirectTo: getSafeRedirectPath(body.next),
-      session: sessionPayload satisfies LoginSessionPayload | null,
     },
     { headers: { 'Cache-Control': 'no-store, max-age=0' } }
   )
