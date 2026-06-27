@@ -86,7 +86,13 @@ export default withPWA({
           sameOrigin &&
           request.mode === "navigate" &&
           !url.pathname.startsWith("/api/") &&
-          !url.pathname.startsWith("/auth/"),
+          !url.pathname.startsWith("/auth/") &&
+          ![
+            "/login",
+            "/signup",
+            "/forgot-password",
+            "/auth/reset-password",
+          ].some((path) => url.pathname === path || url.pathname.startsWith(`${path}/`)),
         handler: "NetworkFirst",
         options: {
           cacheName: "app-pages",
