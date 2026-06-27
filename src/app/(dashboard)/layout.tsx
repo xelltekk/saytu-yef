@@ -1,6 +1,7 @@
 import { Sidebar } from '@/components/layout/Sidebar'
 import { BottomNav } from '@/components/layout/BottomNav'
 import { InstallPrompt } from '@/components/pwa/InstallPrompt'
+import { BusinessOnboarding } from '@/components/onboarding/BusinessOnboarding'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,6 +14,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
       <BottomNav />
       <InstallPrompt />
+      <BusinessOnboarding />
     </div>
   )
 }

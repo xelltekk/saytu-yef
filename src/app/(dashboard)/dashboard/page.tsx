@@ -6,6 +6,7 @@ import { SalesChart } from '@/components/dashboard/SalesChart'
 import { TopProducts } from '@/components/dashboard/TopProducts'
 import { RecentActivity } from '@/components/dashboard/RecentActivity'
 import { LowStockAlert } from '@/components/dashboard/LowStockAlert'
+import { LaunchChecklist } from '@/components/dashboard/LaunchChecklist'
 import { TrendingUp, Package, ShoppingCart, AlertTriangle, RefreshCw } from 'lucide-react'
 import { getDashboardMetrics } from '@/lib/supabase/queries'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
@@ -97,6 +98,8 @@ export default function DashboardPage() {
             {error}
           </div>
         )}
+
+        <LaunchChecklist refreshKey={refreshKey} />
 
         {/* Métriques */}
         <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
