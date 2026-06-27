@@ -11,14 +11,55 @@ type SignupBody = {
   password?: string
 }
 
+type SignupError = {
+  code?: string
+  message?: string
+  status?: number
+}
+
 const noStoreHeaders = { 'Cache-Control': 'no-store, max-age=0' }
+
+function getSignupErrorResponse(error: SignupError): { message: string; status: number } {
+  const code = error.code?.toLowerCase() ?? ''
+  const message = error.message?.toLowerCase() ?? ''
+  const combined = `${code} ${message}`
+
+  if (combined.includes('user already registered') || combined.includes('already registered')) {
+    return { message: 'Cet email est deja utilise. Connectez-vous.', status: 409 }
+  }
+
+  if (combined.includes('over_email_send_rate_limit') || combined.includes('email rate limit')) {
+    return {
+      message:
+        "Les emails de confirmation sont temporairement limites. Reessayez plus tard ou contactez l'administrateur pour activer le compte.",
+      status: 429,
+    }
+  }
+
+  if (combined.includes('signup is disabled') || combined.includes('signups not allowed')) {
+    return {
+      message: "L'inscription est temporairement desactivee. Contactez l'administrateur.",
+      status: 503,
+    }
+  }
+
+  if (combined.includes('invalid email')) {
+    return { message: 'Adresse email invalide.', status: 400 }
+  }
+
+  if (combined.includes('password')) {
+    return { message: 'Le mot de passe ne respecte pas les exigences de securite.', status: 400 }
+  }
+
+  return { message: 'Impossible de creer le compte pour le moment. Reessayez.', status: 400 }
+}
 
 export async function POST(request: Request) {
   let body: SignupBody
   try {
-    body = await request.json() as SignupBody
+    body = (await request.json()) as SignupBody
   } catch {
-    return NextResponse.json({ error: 'Requête invalide.' }, { status: 400, headers: noStoreHeaders })
+    return NextResponse.json({ error: 'Requete invalide.' }, { status: 400, headers: noStoreHeaders })
   }
 
   const fullName = body.fullName?.trim() ?? ''
@@ -27,10 +68,17 @@ export async function POST(request: Request) {
   const password = body.password ?? ''
 
   if (!fullName || !email || !password) {
-    return NextResponse.json({ error: 'Nom, email et mot de passe requis.' }, { status: 400, headers: noStoreHeaders })
+    return NextResponse.json(
+      { error: 'Nom, email et mot de passe requis.' },
+      { status: 400, headers: noStoreHeaders }
+    )
   }
+
   if (password.length < 8) {
-    return NextResponse.json({ error: 'Le mot de passe doit contenir au moins 8 caractères.' }, { status: 400, headers: noStoreHeaders })
+    return NextResponse.json(
+      { error: 'Le mot de passe doit contenir au moins 8 caracteres.' },
+      { status: 400, headers: noStoreHeaders }
+    )
   }
 
   const cookieStore = await cookies()
@@ -40,7 +88,8 @@ export async function POST(request: Request) {
     {
       cookies: {
         getAll: () => cookieStore.getAll(),
-        setAll: (list) => list.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+        setAll: (list) =>
+          list.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
       },
     }
   )
@@ -57,17 +106,19 @@ export async function POST(request: Request) {
   })
 
   if (error) {
-    const message = error.message === 'User already registered'
-      ? 'Cet email est déjà utilisé. Connectez-vous.'
-      : error.message.toLowerCase().includes('password')
-        ? 'Le mot de passe ne respecte pas les exigences de sécurité.'
-        : 'Impossible de créer le compte pour le moment. Réessayez.'
-    return NextResponse.json({ error: message }, { status: 400, headers: noStoreHeaders })
+    console.warn('auth_signup_failed', {
+      code: error.code,
+      status: error.status,
+      message: error.message,
+    })
+
+    const { message, status } = getSignupErrorResponse(error)
+    return NextResponse.json({ error: message }, { status, headers: noStoreHeaders })
   }
 
   if (data.user && data.user.identities?.length === 0) {
     return NextResponse.json(
-      { error: 'Cet email est déjà utilisé. Connectez-vous.' },
+      { error: 'Cet email est deja utilise. Connectez-vous.' },
       { status: 409, headers: noStoreHeaders }
     )
   }
