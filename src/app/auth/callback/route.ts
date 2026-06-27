@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { createServerClient } = require('@supabase/ssr')
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { cookies } = require('next/headers')
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+import { getRequestOrigin } from '@/lib/requestOrigin'
 
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url)
+  const { searchParams } = new URL(request.url)
+  const origin = getRequestOrigin(request)
   const code = searchParams.get('code')
 
   if (code) {

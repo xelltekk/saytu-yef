@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { createServerClient } = require('@supabase/ssr')
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { cookies } = require('next/headers')
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+import { getRequestOrigin } from '@/lib/requestOrigin'
 
-export async function POST(request: Request) {
+async function signOut(request: Request) {
   const cookieStore = await cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,6 +18,9 @@ export async function POST(request: Request) {
   )
   await supabase.auth.signOut()
 
-  const { origin } = new URL(request.url)
+  const origin = getRequestOrigin(request)
   return NextResponse.redirect(`${origin}/login`)
 }
+
+export const GET = signOut
+export const POST = signOut

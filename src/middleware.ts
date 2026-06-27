@@ -1,16 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { getRequestOrigin } from '@/lib/requestOrigin'
 
 const PUBLIC_ROUTES = ['/', '/login', '/signup', '/forgot-password', '/auth/callback', '/auth/reset-password']
-
-function getRequestOrigin(request: NextRequest): string {
-  const forwardedHost = request.headers.get('x-forwarded-host')
-  const forwardedProto = request.headers.get('x-forwarded-proto')
-  const host = forwardedHost ?? request.headers.get('host') ?? request.nextUrl.host
-  const proto = forwardedProto ?? request.nextUrl.protocol.replace(':', '')
-
-  return `${proto}://${host}`
-}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
