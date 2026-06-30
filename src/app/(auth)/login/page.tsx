@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient } from '@/lib/supabase/client'
 import { getSafeRedirectPath } from '@/lib/authRedirect'
+import { getLoginErrorMessage } from '@/lib/authErrors'
 
 const GENERIC_LOGIN_ERROR =
   'Impossible de se connecter pour le moment. Verifiez votre connexion et reessayez.'
@@ -19,8 +20,11 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: '', password: '' })
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('error') === 'oauth') {
-      setError('La connexion Google a échoué. Réessayez.')
+    const errorParam = new URLSearchParams(window.location.search).get('error')
+    if (errorParam === 'oauth') {
+      setError('La connexion Google a echoue. Reessayez.')
+    } else if (errorParam === 'email_not_confirmed') {
+      setError(getLoginErrorMessage('email not confirmed'))
     }
   }, [])
 
@@ -65,12 +69,16 @@ export default function LoginPage() {
 
   const handleGoogle = async () => {
     setError('')
+    const nextPath = new URLSearchParams(window.location.search).get('next')
+    const redirectPath = getSafeRedirectPath(nextPath)
     const supabase = createClient()
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectPath)}`,
+      },
     })
-    if (oauthError) setError('La connexion Google a échoué. Réessayez.')
+    if (oauthError) setError('La connexion Google a echoue. Reessayez.')
   }
 
   return (

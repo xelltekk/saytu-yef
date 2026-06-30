@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { getSignupErrorResponse } from '@/lib/authErrors'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,48 +12,7 @@ type SignupBody = {
   password?: string
 }
 
-type SignupError = {
-  code?: string
-  message?: string
-  status?: number
-}
-
 const noStoreHeaders = { 'Cache-Control': 'no-store, max-age=0' }
-
-function getSignupErrorResponse(error: SignupError): { message: string; status: number } {
-  const code = error.code?.toLowerCase() ?? ''
-  const message = error.message?.toLowerCase() ?? ''
-  const combined = `${code} ${message}`
-
-  if (combined.includes('user already registered') || combined.includes('already registered')) {
-    return { message: 'Cet email est deja utilise. Connectez-vous.', status: 409 }
-  }
-
-  if (combined.includes('over_email_send_rate_limit') || combined.includes('email rate limit')) {
-    return {
-      message:
-        "Les emails de confirmation sont temporairement limites. Reessayez plus tard ou contactez l'administrateur pour activer le compte.",
-      status: 429,
-    }
-  }
-
-  if (combined.includes('signup is disabled') || combined.includes('signups not allowed')) {
-    return {
-      message: "L'inscription est temporairement desactivee. Contactez l'administrateur.",
-      status: 503,
-    }
-  }
-
-  if (combined.includes('invalid email')) {
-    return { message: 'Adresse email invalide.', status: 400 }
-  }
-
-  if (combined.includes('password')) {
-    return { message: 'Le mot de passe ne respecte pas les exigences de securite.', status: 400 }
-  }
-
-  return { message: 'Impossible de creer le compte pour le moment. Reessayez.', status: 400 }
-}
 
 export async function POST(request: Request) {
   let body: SignupBody

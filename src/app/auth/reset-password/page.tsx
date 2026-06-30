@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { TrendingUp, Lock, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { createClient } from '@/lib/supabase/client'
+import { getPasswordUpdateErrorMessage } from '@/lib/authErrors'
 
 export default function ResetPasswordPage() {
   const router = useRouter()
@@ -46,7 +47,7 @@ export default function ResetPasswordPage() {
     const { error } = await supabase.auth.updateUser({ password: form.password })
 
     if (error) {
-      setError('Erreur lors de la mise à jour. Le lien a peut-être expiré.')
+      setError(getPasswordUpdateErrorMessage(error))
       setIsLoading(false)
       return
     }

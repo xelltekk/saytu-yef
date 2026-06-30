@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { getSafeRedirectPath } from '@/lib/authRedirect'
+import { getLoginErrorMessage } from '@/lib/authErrors'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,24 +10,6 @@ type LoginBody = {
   email?: string
   password?: string
   next?: string
-}
-
-function getFriendlyError(message: string) {
-  const normalized = message.toLowerCase()
-
-  if (normalized.includes('invalid login credentials') || normalized.includes('invalid credentials')) {
-    return 'Email ou mot de passe incorrect.'
-  }
-
-  if (normalized.includes('email not confirmed')) {
-    return 'Veuillez confirmer votre email avant de vous connecter.'
-  }
-
-  if (normalized.includes('rate limit') || normalized.includes('too many')) {
-    return 'Trop de tentatives. Patientez quelques minutes puis réessayez.'
-  }
-
-  return 'Impossible de se connecter pour le moment. Vérifiez votre connexion et réessayez.'
 }
 
 export async function POST(request: Request) {
@@ -74,7 +57,7 @@ export async function POST(request: Request) {
     })
 
     return NextResponse.json(
-      { error: getFriendlyError(error.message) },
+      { error: getLoginErrorMessage(error) },
       { status: 400, headers: { 'Cache-Control': 'no-store, max-age=0' } }
     )
   }

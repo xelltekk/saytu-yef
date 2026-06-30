@@ -5,6 +5,7 @@ import { TrendingUp, Mail, ArrowRight, AlertCircle, CheckCircle, ArrowLeft } fro
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient } from '@/lib/supabase/client'
+import { getPasswordResetRequestErrorMessage } from '@/lib/authErrors'
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
@@ -24,7 +25,7 @@ export default function ForgotPasswordPage() {
     })
 
     if (error) {
-      setError('Une erreur est survenue. Vérifiez l\'adresse email et réessayez.')
+      setError(getPasswordResetRequestErrorMessage(error))
       setIsLoading(false)
       return
     }
