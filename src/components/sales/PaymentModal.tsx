@@ -17,6 +17,15 @@ const PAYMENT_METHODS = [
   { id: 'card', label: 'Carte', icon: 'CB', color: '#8b5cf6', description: 'Carte bancaire' },
 ] as const
 
+function roundUpToStep(amount: number, step: number): number {
+  if (step <= 0) return Math.round(amount)
+  return Math.ceil(amount / step) * step
+}
+
+function formatQuickAmountLabel(amount: number): string {
+  return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(amount)
+}
+
 function getPaymentErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message
   if (err && typeof err === 'object') {
@@ -49,26 +58,41 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
   const discountAmount = subtotal * discount / 100
   const taxAmount = (subtotal - discountAmount) * taxRate / 100
   const method = PAYMENT_METHODS.find((m) => m.id === paymentMethod) || PAYMENT_METHODS[2]
-  const paidNow = useMemo(() => {
+  const enteredAmount = useMemo(() => {
     const parsed = Number(amountPaid)
     if (Number.isNaN(parsed)) return 0
-    return Math.max(0, Math.min(parsed, total))
-  }, [amountPaid, total])
+    return Math.max(0, parsed)
+  }, [amountPaid])
+  const paidNow = useMemo(() => Math.max(0, Math.min(enteredAmount, total)), [enteredAmount, total])
+  const changeDue = useMemo(
+    () => paymentMethod === 'cash' ? Math.max(0, enteredAmount - total) : 0,
+    [enteredAmount, paymentMethod, total]
+  )
+  const hasCashChange = changeDue > 0.001
   const amountDue = Math.max(0, total - paidNow)
   const hasOutstandingDebt = amountDue > 0.001
   const requiresPhone = (paymentMethod === 'wave' || paymentMethod === 'orange_money') && paidNow > 0
   const quickAmounts = useMemo(() => {
-    const presets = [
-      { label: 'Total', value: Math.round(total) },
-      { label: '50%', value: Math.round(total / 2) },
-      { label: '0', value: 0 },
-    ]
+    const presets = paymentMethod === 'cash'
+      ? [
+          { label: 'Exact', value: Math.round(total) },
+          { label: formatQuickAmountLabel(roundUpToStep(total, 500)), value: roundUpToStep(total, 500) },
+          { label: formatQuickAmountLabel(roundUpToStep(total, 1000)), value: roundUpToStep(total, 1000) },
+          { label: formatQuickAmountLabel(roundUpToStep(total, 5000)), value: roundUpToStep(total, 5000) },
+        ]
+      : [
+          { label: 'Total', value: Math.round(total) },
+          { label: '50%', value: Math.round(total / 2) },
+          { label: '25%', value: Math.round(total / 4) },
+          { label: '0', value: 0 },
+        ]
 
     return presets.filter((preset, index, list) => (
       total > 0 &&
       list.findIndex((candidate) => candidate.value === preset.value) === index
     ))
-  }, [total])
+  }, [paymentMethod, total])
+  const salePreviewItems = useMemo(() => cart.slice(0, 3), [cart])
 
   useEffect(() => {
     if (!isOpen) return
@@ -95,6 +119,12 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
     if (Number.isNaN(Number(amountPaid))) {
       setStep('method')
       setError('Le montant verse est invalide')
+      return
+    }
+
+    if (paymentMethod !== 'cash' && Number(amountPaid) > total) {
+      setStep('method')
+      setError('Le montant verse ne peut pas depasser le total avec ce mode de paiement')
       return
     }
 
@@ -163,6 +193,8 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
         total,
         amountPaid: paidNow,
         amountDue,
+        amountTendered: hasCashChange ? enteredAmount : undefined,
+        changeDue: hasCashChange ? changeDue : undefined,
       })
       setStep('success')
     } catch (err: unknown) {
@@ -189,6 +221,11 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
 
     if (Number.isNaN(Number(amountPaid))) {
       setError('Le montant verse est invalide')
+      return
+    }
+
+    if (paymentMethod !== 'cash' && Number(amountPaid) > total) {
+      setError('Le montant verse ne peut pas depasser le total avec ce mode de paiement')
       return
     }
 
@@ -237,13 +274,43 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
 
             <div className="mt-4 grid grid-cols-2 gap-3 text-center">
               <div className="rounded-2xl bg-white px-3 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Verse</p>
-                <p className="mt-1 text-sm font-semibold text-[#1A3636]">{formatCurrency(paidNow)}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">
+                  {hasCashChange ? 'Recu' : 'Verse'}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-[#1A3636]">
+                  {formatCurrency(hasCashChange ? enteredAmount : paidNow)}
+                </p>
               </div>
-              <div className={`rounded-2xl px-3 py-3 ${hasOutstandingDebt ? 'bg-amber-500/10 text-amber-700' : 'bg-emerald-500/10 text-emerald-700'}`}>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.06em]">Reste du</p>
-                <p className="mt-1 text-sm font-semibold">{formatCurrency(amountDue)}</p>
+              <div className={`rounded-2xl px-3 py-3 ${
+                hasCashChange
+                  ? 'bg-[#6C5CE7]/10 text-[#6C5CE7]'
+                  : hasOutstandingDebt
+                    ? 'bg-amber-500/10 text-amber-700'
+                    : 'bg-emerald-500/10 text-emerald-700'
+              }`}>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.06em]">
+                  {hasCashChange ? 'Monnaie' : 'Reste du'}
+                </p>
+                <p className="mt-1 text-sm font-semibold">{formatCurrency(hasCashChange ? changeDue : amountDue)}</p>
               </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-[#5C6B73]">
+                Mode {method.label}
+              </span>
+              <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-[#5C6B73]">
+                {localCustomerName.trim() || phone.trim() || 'Client comptoir'}
+              </span>
+              {hasOutstandingDebt ? (
+                <span className="rounded-full bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-700">
+                  Solde a suivre
+                </span>
+              ) : (
+                <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                  Paiement complet
+                </span>
+              )}
             </div>
           </div>
 
@@ -281,7 +348,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
             label="Montant verse maintenant"
             type="number"
             min="0"
-            max={Math.ceil(total)}
+            max={paymentMethod === 'cash' ? undefined : Math.ceil(total)}
             step="1"
             inputMode="numeric"
             placeholder="0"
@@ -290,10 +357,16 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
               setAmountPaid(event.target.value)
               setError('')
             }}
-            hint="Laissez le total pour un paiement complet."
+            hint={
+              paymentMethod === 'cash'
+                ? hasCashChange
+                  ? `Monnaie a rendre: ${formatCurrency(changeDue)}`
+                  : 'Vous pouvez saisir le montant remis par le client.'
+                : 'Laissez le total pour un paiement complet.'
+            }
           />
 
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {quickAmounts.map((preset) => (
               <button
                 key={`${preset.label}-${preset.value}`}
@@ -311,6 +384,33 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
                 {preset.label}
               </button>
             ))}
+          </div>
+
+          {hasCashChange && (
+            <div className="rounded-xl border border-[#6C5CE7]/20 bg-[#6C5CE7]/5 px-3 py-2.5 text-xs text-[#6C5CE7]">
+              Le client remet {formatCurrency(enteredAmount)}. Vous rendez {formatCurrency(changeDue)}.
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Resume panier</p>
+              <span className="text-[11px] font-medium text-[#6B7682]">{cart.length} article(s)</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {salePreviewItems.map((item) => (
+                <div key={item.product_id} className="flex items-center justify-between gap-3 rounded-xl bg-[#F4F7FB] px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-[#1A3636]">{item.product_name}</p>
+                    <p className="text-xs text-[#6B7682]">{item.quantity} x {formatCurrency(item.unit_price)}</p>
+                  </div>
+                  <p className="shrink-0 text-sm font-semibold text-[#1A3636]">{formatCurrency(item.total)}</p>
+                </div>
+              ))}
+              {cart.length > salePreviewItems.length && (
+                <p className="text-xs text-[#6B7682]">+ {cart.length - salePreviewItems.length} autre(s) article(s)</p>
+              )}
+            </div>
           </div>
 
           <p className="text-xs font-medium text-[#6B7682] uppercase tracking-wider">Mode de paiement</p>
@@ -392,19 +492,52 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
                 <span>+{formatCurrency(taxAmount)}</span>
               </div>
             )}
-            <div className="flex justify-between border-t border-[#2D7D7D]/[0.08] pt-2 text-sm">
-              <span className="text-[#6B7682]">Montant verse</span>
-              <span className="font-medium text-[#1A3636]">{formatCurrency(paidNow)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-[#6B7682]">Reste du</span>
-              <span className={`font-medium ${hasOutstandingDebt ? 'text-amber-700' : 'text-emerald-700'}`}>
-                {formatCurrency(amountDue)}
-              </span>
+              <div className="flex justify-between border-t border-[#2D7D7D]/[0.08] pt-2 text-sm">
+                <span className="text-[#6B7682]">{hasCashChange ? 'Montant recu' : 'Montant verse'}</span>
+                <span className="font-medium text-[#1A3636]">{formatCurrency(hasCashChange ? enteredAmount : paidNow)}</span>
+              </div>
+              {hasCashChange && (
+                <>
+                  <div className="flex justify-between text-sm text-[#5C6B73]">
+                    <span>Affecte a la vente</span>
+                    <span className="font-medium text-[#1A3636]">{formatCurrency(paidNow)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-[#6C5CE7]">
+                    <span>Monnaie a rendre</span>
+                    <span className="font-medium">{formatCurrency(changeDue)}</span>
+                  </div>
+                </>
+              )}
+              <div className="flex justify-between text-sm">
+                <span className="text-[#6B7682]">Reste du</span>
+                <span className={`font-medium ${hasOutstandingDebt ? 'text-amber-700' : 'text-emerald-700'}`}>
+                  {formatCurrency(amountDue)}
+                </span>
             </div>
             <div className="flex justify-between pt-1 text-base font-bold">
               <span className="text-[#1A3636]">Total</span>
               <span className="text-[#6C5CE7]">{formatCurrency(total)}</span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Controle rapide</p>
+              <span className="text-[11px] font-medium text-[#6B7682]">{cart.length} article(s)</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {salePreviewItems.map((item) => (
+                <div key={item.product_id} className="flex items-center justify-between gap-3 rounded-xl bg-[#F4F7FB] px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-[#1A3636]">{item.product_name}</p>
+                    <p className="text-xs text-[#6B7682]">x{item.quantity}</p>
+                  </div>
+                  <p className="shrink-0 text-sm font-semibold text-[#1A3636]">{formatCurrency(item.total)}</p>
+                </div>
+              ))}
+              {cart.length > salePreviewItems.length && (
+                <p className="text-xs text-[#6B7682]">+ {cart.length - salePreviewItems.length} autre(s) article(s)</p>
+              )}
             </div>
           </div>
 
@@ -441,7 +574,9 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
             <p className="mt-1 text-sm text-[#6B7682]">
               {hasOutstandingDebt
                 ? `${formatCurrency(paidNow)} encaisses, ${formatCurrency(amountDue)} restent dus.`
-                : `${formatCurrency(total)} encaisses via ${method.label}.`}
+                : hasCashChange
+                  ? `${formatCurrency(enteredAmount)} recus, ${formatCurrency(changeDue)} rendus, vente comptee pour ${formatCurrency(total)}.`
+                  : `${formatCurrency(total)} encaisses via ${method.label}.`}
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">

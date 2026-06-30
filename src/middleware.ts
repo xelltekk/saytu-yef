@@ -1,6 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import type { User } from '@supabase/supabase-js'
 import { getRequestOrigin } from '@/lib/requestOrigin'
+import { clearSupabaseAuthCookies } from '@/lib/supabase/authCookies'
 
 const PUBLIC_ROUTES = ['/', '/login', '/signup', '/forgot-password', '/auth/callback', '/auth/reset-password']
 
@@ -49,14 +51,48 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  let user: User | null = null
+
+  try {
+    const {
+      data: { user: currentUser },
+      error,
+    } = await supabase.auth.getUser()
+
+    if (error) {
+      console.warn('middleware_auth_get_user_failed', {
+        code: error.code,
+        status: error.status,
+        message: error.message,
+      })
+
+      clearSupabaseAuthCookies(
+        request.cookies.getAll().map(({ name }) => name),
+        (name) => response.cookies.set(name, '', { path: '/', maxAge: 0 })
+      )
+    }
+
+    user = currentUser
+  } catch (error) {
+    console.warn('middleware_auth_get_user_failed', {
+      message: error instanceof Error ? error.message : 'unknown_error',
+    })
+
+    clearSupabaseAuthCookies(
+      request.cookies.getAll().map(({ name }) => name),
+      (name) => response.cookies.set(name, '', { path: '/', maxAge: 0 })
+    )
+  }
 
   if (!user) {
     const url = new URL('/login', getRequestOrigin(request))
     url.searchParams.set('next', pathname)
-    return NextResponse.redirect(url)
+    const redirectResponse = NextResponse.redirect(url)
+    clearSupabaseAuthCookies(
+      request.cookies.getAll().map(({ name }) => name),
+      (name) => redirectResponse.cookies.set(name, '', { path: '/', maxAge: 0 })
+    )
+    return redirectResponse
   }
 
   return response

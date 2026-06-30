@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { getSafeRedirectPath } from '@/lib/authRedirect'
 import { getLoginErrorMessage } from '@/lib/authErrors'
+import { clearSupabaseAuthCookies } from '@/lib/supabase/authCookies'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,6 +33,11 @@ export async function POST(request: Request) {
   }
 
   const cookieStore = await cookies()
+  clearSupabaseAuthCookies(
+    cookieStore.getAll().map(({ name }) => name),
+    (name) => cookieStore.set(name, '', { path: '/', maxAge: 0 })
+  )
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

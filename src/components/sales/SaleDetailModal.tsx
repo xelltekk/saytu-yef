@@ -126,6 +126,19 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
     return `Bonjour${customer}, nous vous rappelons qu’il reste ${formatCurrency(amountDue)} à régler sur votre achat chez ${businessName || 'Saytu Yef'} (reçu ${sale.id.slice(0, 8).toUpperCase()}). Merci.`
   }, [amountDue, businessName, sale])
   const reversalTarget = amountPaid > 0 ? 'refunded' : 'cancelled'
+  const paymentQuickAmounts = useMemo(() => {
+    const presets = [
+      { label: 'Reste', value: Math.round(amountDue) },
+      { label: '50%', value: Math.round(amountDue / 2) },
+      { label: '25%', value: Math.round(amountDue / 4) },
+    ]
+
+    return presets.filter((preset, index, list) => (
+      amountDue > 0 &&
+      preset.value > 0 &&
+      list.findIndex((candidate) => candidate.value === preset.value) === index
+    ))
+  }, [amountDue])
 
   const handleSave = async () => {
     if (!sale) return
@@ -389,28 +402,50 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
               </div>
 
               {amountDue > 0 && computedStatus !== 'cancelled' && computedStatus !== 'refunded' && (
-                contactPhone ? (
-                  <div className="grid grid-cols-2 gap-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
-                    <a
-                      href={`https://wa.me/${contactPhone}?text=${encodeURIComponent(debtReminder)}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
-                    >
-                      <MessageCircle size={15} /> Relancer
-                    </a>
-                    <a
-                      href={`tel:+${contactPhone}`}
-                      className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 bg-white px-3 text-xs font-semibold text-[#2D7D7D]"
-                    >
-                      <Phone size={15} /> Appeler
-                    </a>
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[#1A3636]">Solde a recouvrer</p>
+                      <p className="text-xs text-amber-700">Suivi client et versement rapide depuis mobile.</p>
+                    </div>
+                    <p className="shrink-0 text-sm font-bold text-amber-700">{formatCurrency(amountDue)}</p>
                   </div>
-                ) : (
-                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-700">
-                    Ajoutez le numéro du client pour pouvoir le relancer rapidement.
+
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <Button
+                      variant={showPaymentForm ? 'ghost' : 'teal'}
+                      className="w-full"
+                      onClick={() => {
+                        setShowPaymentForm((current) => !current)
+                        setPaymentError('')
+                      }}
+                    >
+                      {showPaymentForm ? 'Masquer le versement' : 'Ajouter un versement'}
+                    </Button>
+                    {contactPhone ? (
+                      <>
+                        <a
+                          href={`https://wa.me/${contactPhone}?text=${encodeURIComponent(debtReminder)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
+                        >
+                          <MessageCircle size={15} /> Relancer
+                        </a>
+                        <a
+                          href={`tel:+${contactPhone}`}
+                          className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 bg-white px-3 text-xs font-semibold text-[#2D7D7D]"
+                        >
+                          <Phone size={15} /> Appeler
+                        </a>
+                      </>
+                    ) : (
+                      <div className="rounded-xl border border-amber-500/20 bg-white px-3 py-3 text-xs text-amber-700 sm:col-span-2">
+                        Ajoutez le numero du client pour pouvoir le relancer rapidement.
+                      </div>
+                    )}
                   </div>
-                )
+                </div>
               )}
 
               <div>
@@ -435,16 +470,16 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                   <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">
                     Versements ({payments.length})
                   </p>
-                  {amountDue > 0 && computedStatus !== 'cancelled' && computedStatus !== 'refunded' && (
+                  {amountDue > 0 && computedStatus !== 'cancelled' && computedStatus !== 'refunded' && showPaymentForm && (
                     <Button
-                      variant={showPaymentForm ? 'ghost' : 'teal'}
+                      variant="ghost"
                       size="sm"
                       onClick={() => {
-                        setShowPaymentForm((current) => !current)
+                        setShowPaymentForm(false)
                         setPaymentError('')
                       }}
                     >
-                      {showPaymentForm ? 'Masquer' : 'Ajouter un versement'}
+                      Masquer
                     </Button>
                   )}
                 </div>
@@ -474,6 +509,22 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                         value={paymentForm.payment_method}
                         onChange={(e) => setPaymentForm((current) => ({ ...current, payment_method: e.target.value }))}
                       />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {paymentQuickAmounts.map((preset) => (
+                        <button
+                          key={`${preset.label}-${preset.value}`}
+                          type="button"
+                          onClick={() => setPaymentForm((current) => ({ ...current, amount: String(preset.value) }))}
+                          className={`rounded-full border px-3 py-2 text-xs font-semibold transition-all ${
+                            Number(paymentForm.amount) === preset.value
+                              ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7]'
+                              : 'border-[#2D7D7D]/[0.14] bg-white text-[#5C6B73] hover:border-[#6C5CE7]/35 hover:text-[#1A3636]'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
                     </div>
                     <Input
                       label="Note"

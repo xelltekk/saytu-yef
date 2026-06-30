@@ -15,6 +15,17 @@ type Tab = 'pos' | 'history'
 type HistoryFilter = 'all' | 'open' | 'paid'
 type HistoryPeriod = 'all' | 'today' | '7d' | '30d'
 const SALES_PAGE_SIZE = 50
+const HISTORY_FILTER_OPTIONS: Array<{ value: HistoryFilter; label: string; shortLabel: string }> = [
+  { value: 'all', label: 'Toutes les ventes', shortLabel: 'Toutes' },
+  { value: 'open', label: 'Dettes ouvertes', shortLabel: 'Dettes' },
+  { value: 'paid', label: 'Ventes soldees', shortLabel: 'Soldees' },
+]
+const HISTORY_PERIOD_OPTIONS: Array<{ value: HistoryPeriod; label: string; shortLabel: string }> = [
+  { value: 'all', label: 'Toute periode chargee', shortLabel: 'Periode' },
+  { value: 'today', label: 'Aujourd hui', shortLabel: 'Jour' },
+  { value: '7d', label: '7 derniers jours', shortLabel: '7 jours' },
+  { value: '30d', label: '30 derniers jours', shortLabel: '30 jours' },
+]
 
 export default function SalesPage() {
   const [tab, setTab] = useState<Tab>('pos')
@@ -125,6 +136,16 @@ export default function SalesPage() {
       return searchableText.includes(query)
     })
   }, [historyFilter, historyPeriod, sales, salesQuery])
+
+  const hasActiveHistoryFilters = salesQuery.trim().length > 0
+    || historyFilter !== 'all'
+    || historyPeriod !== 'all'
+
+  const resetHistoryFilters = () => {
+    setSalesQuery('')
+    setHistoryFilter('all')
+    setHistoryPeriod('all')
+  }
 
   const handleSaleSaved = useCallback((message?: string) => {
     setSalesNotice(message ?? 'La vente a bien été mise à jour.')
@@ -242,7 +263,7 @@ export default function SalesPage() {
                 value={historyFilter}
                 onChange={(event) => setHistoryFilter(event.target.value as HistoryFilter)}
                 aria-label="Filtrer les ventes"
-                className="h-11 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-sm text-[#1A3636]"
+                className="hidden h-11 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-sm text-[#1A3636] sm:block"
               >
                 <option value="all">Toutes les ventes</option>
                 <option value="open">Dettes ouvertes</option>
@@ -252,7 +273,7 @@ export default function SalesPage() {
                 value={historyPeriod}
                 onChange={(event) => setHistoryPeriod(event.target.value as HistoryPeriod)}
                 aria-label="Filtrer les ventes par période"
-                className="h-11 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-sm text-[#1A3636]"
+                className="hidden h-11 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-sm text-[#1A3636] sm:block"
               >
                 <option value="all">Toute période chargée</option>
                 <option value="today">Aujourd’hui</option>
@@ -260,6 +281,77 @@ export default function SalesPage() {
                 <option value="30d">30 derniers jours</option>
               </select>
             </div>
+
+            <div className="space-y-2 sm:hidden">
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-[#2D7D7D]/[0.08] bg-white px-3 py-2">
+                <p className="text-xs font-medium text-[#5C6B73]">
+                  {filteredSales.length} resultat(s)
+                </p>
+                {hasActiveHistoryFilters && (
+                  <button
+                    type="button"
+                    onClick={resetHistoryFilters}
+                    className="min-h-9 rounded-lg border border-[#2D7D7D]/[0.12] px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05]"
+                  >
+                    Reinitialiser
+                  </button>
+                )}
+              </div>
+
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {HISTORY_FILTER_OPTIONS.map((option) => {
+                  const active = historyFilter === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-label={option.label}
+                      onClick={() => setHistoryFilter(option.value)}
+                      className={`min-h-10 shrink-0 rounded-full border px-3 text-xs font-semibold transition-colors ${
+                        active
+                          ? 'border-[#6C5CE7] bg-[#6C5CE7] text-white'
+                          : 'border-[#2D7D7D]/[0.12] bg-white text-[#5C6B73]'
+                      }`}
+                    >
+                      {option.shortLabel}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {HISTORY_PERIOD_OPTIONS.map((option) => {
+                  const active = historyPeriod === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-label={option.label}
+                      onClick={() => setHistoryPeriod(option.value)}
+                      className={`min-h-10 shrink-0 rounded-full border px-3 text-xs font-semibold transition-colors ${
+                        active
+                          ? 'border-[#2D7D7D] bg-[#2D7D7D] text-white'
+                          : 'border-[#2D7D7D]/[0.12] bg-white text-[#5C6B73]'
+                      }`}
+                    >
+                      {option.shortLabel}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {hasActiveHistoryFilters && (
+              <div className="hidden sm:flex sm:justify-end">
+                <button
+                  type="button"
+                  onClick={resetHistoryFilters}
+                  className="min-h-10 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-4 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05]"
+                >
+                  Reinitialiser les filtres
+                </button>
+              </div>
+            )}
 
             {salesNotice && (
               <div
@@ -317,6 +409,7 @@ export default function SalesPage() {
                       const computedStatus = getSaleComputedStatus(sale)
                       const amountDue = getSaleAmountDue(sale)
                       const amountPaid = getSaleAmountPaid(sale)
+                      const paymentCount = sale.payments?.length ?? 0
 
                       return (
                         <button
@@ -329,6 +422,9 @@ export default function SalesPage() {
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold text-[#1A3636]">{sale.customer_name || 'Client'}</p>
                               <p className="mt-1 text-xs text-[#6B7682]">{formatDate(sale.created_at)}</p>
+                              {sale.customer_phone && (
+                                <p className="mt-1 truncate text-xs text-[#6B7682]">{sale.customer_phone}</p>
+                              )}
                             </div>
                             <div className="text-right">
                               <p className="text-sm font-semibold text-[#1A3636]">{formatCurrency(sale.total)}</p>
@@ -345,10 +441,19 @@ export default function SalesPage() {
                             <Badge variant={SALE_METHOD_VARIANTS[sale.payment_method]}>
                               {SALE_METHOD_LABELS[sale.payment_method]}
                             </Badge>
+                            {amountDue > 0 && (
+                              <Badge variant="warning">Dette client</Badge>
+                            )}
+                            {paymentCount > 1 && (
+                              <Badge variant="default">{paymentCount} versements</Badge>
+                            )}
                           </div>
 
-                          <div className="mt-3 flex items-center justify-between gap-3 text-xs">
-                            <span className="text-[#6B7682]">{sale.items?.length ?? 0} article(s)</span>
+                          <div className="mt-3 flex items-end justify-between gap-3 text-xs">
+                            <div className="space-y-1 text-[#6B7682]">
+                              <p>{sale.items?.length ?? 0} article(s)</p>
+                              <p>{paymentCount} versement(s)</p>
+                            </div>
                             {amountDue > 0 ? (
                               <span className="font-medium text-amber-700">Reste: {formatCurrency(amountDue)}</span>
                             ) : (

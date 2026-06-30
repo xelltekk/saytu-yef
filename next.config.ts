@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
 import withPWA from "@ducanh2912/next-pwa";
 
-const nextConfig: NextConfig = {};
+const isDevelopment = process.env.NODE_ENV === "development";
+
+const nextConfig: NextConfig = {
+  distDir: isDevelopment ? ".next-dev" : ".next",
+};
 
 export default withPWA({
   dest: "public",

@@ -16,6 +16,8 @@ export interface ReceiptData {
   total: number
   amountPaid: number
   amountDue: number
+  amountTendered?: number
+  changeDue?: number
 }
 
 function escapeHtml(value: string): string {
@@ -27,6 +29,10 @@ function escapeHtml(value: string): string {
 function buildReceiptHTML(receipt: ReceiptData): string {
   const money = (amount: number) =>
     `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(amount)} FCFA`
+  const tenderedAmount = receipt.amountTendered && receipt.amountTendered > 0
+    ? receipt.amountTendered
+    : receipt.amountPaid
+  const hasChangeDue = (receipt.changeDue ?? 0) > 0.001
   const rows = receipt.items.map((item) => `
     <tr>
       <td class="l">${escapeHtml(item.name)}<br><span class="muted">${item.qty} x ${money(item.unitPrice)}</span></td>
@@ -65,7 +71,9 @@ function buildReceiptHTML(receipt: ReceiptData): string {
       ${receipt.discountAmount > 0 ? `<tr><td class="l">Remise</td><td class="r">-${money(receipt.discountAmount)}</td></tr>` : ''}
       ${receipt.taxAmount > 0 ? `<tr><td class="l">TVA</td><td class="r">${money(receipt.taxAmount)}</td></tr>` : ''}
       <tr class="tot"><td class="l">TOTAL</td><td class="r">${money(receipt.total)}</td></tr>
-      <tr><td class="l small">Verse</td><td class="r small">${money(receipt.amountPaid)}</td></tr>
+      <tr><td class="l small">${hasChangeDue ? 'Montant recu' : 'Verse'}</td><td class="r small">${money(tenderedAmount)}</td></tr>
+      ${hasChangeDue ? `<tr><td class="l small">Affecte a la vente</td><td class="r small">${money(receipt.amountPaid)}</td></tr>` : ''}
+      ${hasChangeDue ? `<tr><td class="l small">Monnaie rendue</td><td class="r small">${money(receipt.changeDue ?? 0)}</td></tr>` : ''}
       ${receipt.amountDue > 0 ? `<tr><td class="l small">Reste du</td><td class="r small">${money(receipt.amountDue)}</td></tr>` : ''}
       <tr><td class="l small">Paiement</td><td class="r small">${escapeHtml(receipt.methodLabel)}</td></tr>
       <tr><td class="l small">Statut</td><td class="r small">${escapeHtml(receipt.statusLabel)}</td></tr>

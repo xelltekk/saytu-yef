@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Minus, Plus, Search, ShoppingCart, Tag, Trash2, User } from 'lucide-react'
+import { ArrowRight, Minus, Phone, Plus, Search, ShoppingCart, Tag, Trash2, User } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
@@ -15,6 +15,13 @@ interface POSInterfaceProps {
   onCheckout: () => void
   refreshKey?: number
 }
+
+const PAYMENT_METHOD_CHIPS = [
+  { id: 'cash', label: 'Especes' },
+  { id: 'wave', label: 'Wave' },
+  { id: 'orange_money', label: 'Orange Money' },
+  { id: 'card', label: 'Carte' },
+] as const
 
 export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   const { user } = useUser()
@@ -43,6 +50,8 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
     customerName,
     customerPhone,
     setCustomer,
+    paymentMethod,
+    setPaymentMethod,
     setDraftOwner,
     clearCart,
   } = useSalesStore()
@@ -113,6 +122,13 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   const discountAmount = subtotal * discount / 100
   const taxAmount = (subtotal - discountAmount) * taxRate / 100
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+  const selectedPaymentMethod = PAYMENT_METHOD_CHIPS.find((option) => option.id === paymentMethod) ?? PAYMENT_METHOD_CHIPS[0]
+  const cartSummaryPills = [
+    itemCount > 0 ? `${itemCount} article(s)` : '',
+    customerName.trim() || customerPhone.trim() ? (customerName.trim() || customerPhone.trim()) : '',
+    discount > 0 ? `Remise ${discount}%` : '',
+    `Mode ${selectedPaymentMethod.label}`,
+  ].filter(Boolean)
 
   const handleAddToCart = (product: Product) => {
     const item: CartItem = {
@@ -152,12 +168,46 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         </div>
       )}
 
-      <Input
-        placeholder="Nom du client (optionnel)"
-        value={customerName}
-        onChange={(event) => setCustomer(event.target.value, customerPhone)}
-        leftAddon={<User size={14} />}
-      />
+      <div className="grid gap-3">
+        <Input
+          placeholder="Nom du client (optionnel)"
+          value={customerName}
+          onChange={(event) => setCustomer(event.target.value, customerPhone)}
+          leftAddon={<User size={14} />}
+        />
+        <Input
+          placeholder="Telephone client"
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          value={customerPhone}
+          onChange={(event) => setCustomer(customerName, event.target.value)}
+          leftAddon={<Phone size={14} />}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Mode prefere</p>
+          <span className="text-[11px] font-medium text-[#6B7682]">{selectedPaymentMethod.label}</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {PAYMENT_METHOD_CHIPS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setPaymentMethod(option.id)}
+              className={`min-h-10 rounded-2xl border px-3 text-xs font-semibold transition-all ${
+                paymentMethod === option.id
+                  ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7]'
+                  : 'border-[#2D7D7D]/[0.1] bg-[#F4F7FB] text-[#5C6B73] hover:border-[#6C5CE7]/30 hover:text-[#1A3636]'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className={mode === 'mobile' ? 'max-h-[38dvh] space-y-2 overflow-y-auto pr-1' : 'flex-1 space-y-2 overflow-y-auto'}>
         {cart.length === 0 ? (
@@ -282,6 +332,18 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
       </div>
 
       <div className="space-y-1.5 border-t border-[#2D7D7D]/[0.07] pt-3">
+        {cartSummaryPills.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pb-1">
+            {cartSummaryPills.map((pill) => (
+              <span
+                key={pill}
+                className="rounded-full bg-[#F4F7FB] px-2.5 py-1 text-[10px] font-semibold text-[#5C6B73]"
+              >
+                {pill}
+              </span>
+            ))}
+          </div>
+        )}
         <div className="flex justify-between text-xs text-[#5C6B73]">
           <span>Sous-total</span>
           <span>{formatCurrency(subtotal)}</span>
@@ -332,6 +394,29 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
             />
           </div>
 
+          {(itemCount > 0 || customerName.trim() || customerPhone.trim() || discount > 0) && (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Panier</p>
+                <p className="mt-1 text-sm font-bold text-[#1A3636]">{itemCount} article(s)</p>
+              </div>
+              <div className="rounded-2xl border border-[#6C5CE7]/10 bg-[#6C5CE7]/[0.04] px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Total</p>
+                <p className="mt-1 text-sm font-bold text-[#6C5CE7]">{formatCurrency(total)}</p>
+              </div>
+              <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Client</p>
+                <p className="mt-1 truncate text-sm font-semibold text-[#1A3636]">
+                  {customerName.trim() || customerPhone.trim() || 'Comptoir'}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Mode</p>
+                <p className="mt-1 truncate text-sm font-semibold text-[#1A3636]">{selectedPaymentMethod.label}</p>
+              </div>
+            </div>
+          )}
+
           {productsError && (
             <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
               {productsError}
@@ -351,7 +436,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           )}
 
           {loadingProducts ? (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-3 min-[420px]:grid-cols-3 sm:grid-cols-4 lg:grid-cols-5">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((index) => (
                 <div key={index} className="rounded-xl border border-[#2D7D7D]/[0.07] bg-white p-2 animate-pulse">
                   <div className="mb-1.5 h-14 w-full rounded-lg bg-[#2D7D7D]/[0.08]" />
@@ -361,7 +446,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
               ))}
             </div>
           ) : (
-            <div className="grid flex-1 grid-cols-3 gap-2 overflow-y-auto pr-1 sm:grid-cols-4 lg:grid-cols-5">
+            <div className="grid flex-1 grid-cols-2 gap-3 overflow-y-auto pr-1 min-[420px]:grid-cols-3 sm:grid-cols-4 lg:grid-cols-5">
               {filtered.map((product) => {
                 const inCart = cart.find((current) => current.product_id === product.id)
                 const remaining = Math.max(0, product.quantity - (inCart?.quantity ?? 0))
@@ -376,11 +461,11 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
                     className="group relative rounded-xl border border-[#2D7D7D]/[0.07] bg-white p-2 text-left transition-all hover:border-[#6C5CE7]/30 hover:bg-[#6C5CE7]/[0.04] hover:shadow-[0_4px_12px_rgba(26,54,54,0.07)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:border-[#2D7D7D]/[0.07] disabled:hover:bg-white disabled:hover:shadow-none"
                   >
                     {inCart && (
-                      <div className="absolute right-1.5 top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-[#6C5CE7]">
+                      <div className="absolute right-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-[#6C5CE7]">
                         <span className="text-[9px] font-bold text-white">{inCart.quantity}</span>
                       </div>
                     )}
-                    <div className="mb-1.5 flex h-14 w-full items-center justify-center overflow-hidden rounded-lg bg-[#E8F4F2]">
+                    <div className="mb-2 flex h-20 w-full items-center justify-center overflow-hidden rounded-xl bg-[#E8F4F2] min-[420px]:h-16">
                       {product.image_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
@@ -388,12 +473,12 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
                         <span className="text-lg">📦</span>
                       )}
                     </div>
-                    <p className="line-clamp-2 text-[11px] font-medium leading-tight text-[#1A3636]">{product.name}</p>
-                    <p className="mt-0.5 text-xs font-bold text-[#6C5CE7]">
+                    <p className="line-clamp-2 text-xs font-semibold leading-tight text-[#1A3636] min-[420px]:text-[11px]">{product.name}</p>
+                    <p className="mt-1 text-sm font-bold text-[#6C5CE7] min-[420px]:text-xs">
                       <span className="sm:hidden">{formatCurrencyCompact(product.selling_price)}</span>
                       <span className="hidden sm:inline">{formatCurrency(product.selling_price)}</span>
                     </p>
-                    <p className={`text-[9px] ${remaining === 0 ? 'text-red-600' : 'text-[#6B7682]'}`}>
+                    <p className={`mt-0.5 text-[10px] ${remaining === 0 ? 'text-red-600' : 'text-[#6B7682]'}`}>
                       {remaining === 0 ? 'Stock epuise' : `Reste: ${remaining}`}
                     </p>
                   </button>
@@ -417,26 +502,38 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
 
       {cart.length > 0 && (
         <div className="sticky bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-20 -mt-2 lg:hidden">
-          <button
-            type="button"
-            onClick={() => setShowMobileCart(true)}
-            aria-label={`Ouvrir le panier, ${itemCount} article(s), total ${formatCurrency(total)}`}
-            className="flex w-full items-center justify-between gap-3 rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3 shadow-[0_12px_28px_rgba(26,54,54,0.12)]"
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-[#6C5CE7]/10 text-[#6C5CE7]">
-                <ShoppingCart size={18} />
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-[28px] border border-[#2D7D7D]/[0.08] bg-white/95 p-3 shadow-[0_12px_28px_rgba(26,54,54,0.12)] backdrop-blur">
+            <button
+              type="button"
+              onClick={() => setShowMobileCart(true)}
+              aria-label={`Ouvrir le panier, ${itemCount} article(s), total ${formatCurrency(total)}`}
+              className="flex min-w-0 items-center justify-between gap-3 rounded-2xl bg-[#F4F7FB] px-3 py-3 text-left"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-[#6C5CE7]/10 text-[#6C5CE7]">
+                  <ShoppingCart size={18} />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[#1A3636]">{itemCount} article(s)</p>
+                  <p className="truncate text-xs text-[#6B7682]">
+                    {customerName.trim() || customerPhone.trim() || 'Client comptoir'} · {selectedPaymentMethod.label}
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0 text-left">
-                <p className="truncate text-sm font-semibold text-[#1A3636]">{itemCount} article(s) dans le panier</p>
-                <p className="text-xs text-[#6B7682]">Touchez pour modifier puis encaisser</p>
+              <div className="flex flex-shrink-0 items-center gap-2">
+                <span className="text-sm font-bold text-[#6C5CE7]">{formatCurrency(total)}</span>
+                <ArrowRight size={16} className="text-[#6C5CE7]" />
               </div>
-            </div>
-            <div className="flex flex-shrink-0 items-center gap-2">
-              <span className="text-sm font-bold text-[#6C5CE7]">{formatCurrency(total)}</span>
-              <ArrowRight size={16} className="text-[#6C5CE7]" />
-            </div>
-          </button>
+            </button>
+            <Button
+              variant="primary"
+              size="md"
+              className="min-w-[132px] px-5"
+              onClick={handleCheckout}
+            >
+              Encaisser
+            </Button>
+          </div>
         </div>
       )}
 
