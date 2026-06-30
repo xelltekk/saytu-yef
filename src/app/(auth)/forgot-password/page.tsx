@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient } from '@/lib/supabase/client'
 import { getPasswordResetRequestErrorMessage } from '@/lib/authErrors'
+import { getBrowserEmailRedirectOrigin } from '@/lib/publicSiteUrl'
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
@@ -20,8 +21,9 @@ export default function ForgotPasswordPage() {
     setError('')
 
     const supabase = createClient()
+    const redirectOrigin = getBrowserEmailRedirectOrigin()
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-      redirectTo: `${window.location.origin}/auth/reset-password`,
+      redirectTo: `${redirectOrigin}/auth/reset-password`,
     })
 
     if (error) {

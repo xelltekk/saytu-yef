@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowRight,
@@ -118,7 +119,33 @@ const FAQS = [
   },
 ]
 
-export default function LandingPage() {
+type LandingPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}
+
+export default async function LandingPage({ searchParams }: LandingPageProps) {
+  const resolvedSearchParams = await searchParams
+  const code = resolvedSearchParams.code
+  const type = resolvedSearchParams.type
+
+  if (typeof code === 'string' && code) {
+    const callbackParams = new URLSearchParams()
+
+    for (const [key, value] of Object.entries(resolvedSearchParams)) {
+      if (Array.isArray(value)) {
+        value.forEach((entry) => callbackParams.append(key, entry))
+      } else if (typeof value === 'string') {
+        callbackParams.set(key, value)
+      }
+    }
+
+    if (!callbackParams.get('next') && type === 'recovery') {
+      callbackParams.set('next', '/auth/reset-password')
+    }
+
+    redirect(`/auth/callback?${callbackParams.toString()}`)
+  }
+
   return (
     <div className="min-h-screen gradient-bg">
       <nav className="sticky top-0 z-50 border-b border-[#2D7D7D]/[0.08] bg-[#EEF1FA]/85 backdrop-blur-xl">
