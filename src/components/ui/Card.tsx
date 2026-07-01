@@ -56,7 +56,7 @@ export function MetricCard({
   const isDown = changeType === 'down'
 
   const className = cn(
-    'group relative block overflow-hidden rounded-2xl bg-white border border-[#2D7D7D]/[0.08] p-4 sm:p-5 shadow-[0_6px_20px_rgba(26,54,54,0.06)] transition-all duration-200 hover:border-[#2D7D7D]/[0.16] hover:-translate-y-0.5 min-h-[168px] sm:min-h-[176px]',
+    'group relative block overflow-hidden rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3.5 min-[420px]:p-4 sm:p-5 shadow-[0_6px_20px_rgba(26,54,54,0.06)] transition-all duration-200 hover:border-[#2D7D7D]/[0.16] hover:-translate-y-0.5 min-h-[138px] min-[420px]:min-h-[168px] sm:min-h-[176px]',
     href && 'cursor-pointer hover:shadow-[0_10px_28px_rgba(26,54,54,0.12)]'
   )
 
@@ -76,17 +76,17 @@ export function MetricCard({
 
       <div className="relative flex items-start justify-between gap-2 sm:gap-3">
         <div className="min-w-0 flex-1 pr-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[#5C6B73] mb-2">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.07em] text-[#5C6B73] min-[420px]:text-[11px]">
             {title}
           </p>
-          <p className="font-display text-[clamp(1.1rem,5vw,1.35rem)] sm:text-[22px] font-bold text-[#1A3636] leading-[1.1] whitespace-normal break-words">
+          <p className="font-display text-[clamp(1rem,5vw,1.2rem)] min-[420px]:text-[clamp(1.1rem,5vw,1.35rem)] sm:text-[22px] font-bold leading-[1.1] text-[#1A3636] whitespace-normal break-words">
             {value}
           </p>
           {change && (
-            <div className="mt-2 flex items-center gap-1.5">
+            <div className="mt-2.5 flex items-center gap-1.5">
               <span
                 className={cn(
-                  'inline-flex max-w-full items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] sm:text-[11px] font-semibold whitespace-normal break-words',
+                  'inline-flex max-w-full items-center gap-0.5 rounded-xl px-2 py-1 text-[10px] font-semibold leading-snug whitespace-normal break-words min-[420px]:text-[11px]',
                   isUp   && 'stat-up',
                   isDown && 'stat-down',
                   !isUp && !isDown && 'text-[#5C6B73] bg-[#2D7D7D]/[0.07]'
@@ -99,7 +99,7 @@ export function MetricCard({
         </div>
 
         <div
-          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl sm:h-10 sm:w-10"
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl min-[420px]:h-10 min-[420px]:w-10"
           style={{ background: grad, color }}
         >
           {icon}

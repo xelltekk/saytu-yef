@@ -125,7 +125,7 @@ export default function ReportsPage() {
               value={rangeMonths}
               onChange={(event) => setRangeMonths(Number(event.target.value))}
               aria-label="Période du rapport"
-              className="mt-2 h-10 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#1A3636]"
+              className="mt-2 h-10 w-full rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#1A3636] sm:w-auto sm:min-w-[170px]"
             >
               <option value={1}>Mois en cours</option>
               <option value={3}>3 derniers mois</option>
@@ -133,12 +133,12 @@ export default function ReportsPage() {
               <option value={12}>12 derniers mois</option>
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:w-auto">
             <button
               type="button"
               onClick={exportCsv}
               disabled={!data || loading}
-              className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
+              className="flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
             >
               <Download size={14} /> Exporter CSV
             </button>
@@ -146,7 +146,7 @@ export default function ReportsPage() {
               type="button"
               onClick={() => void loadReports(true)}
               disabled={refreshing || loading}
-              className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
+              className="flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
             >
               <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Actualiser
             </button>
@@ -160,7 +160,7 @@ export default function ReportsPage() {
         )}
 
         {/* Metrics */}
-        <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
           <MetricCard
             title="Revenus hors taxe"
             value={loading ? '…' : renderResponsiveCurrency(totalRevenue)}
@@ -196,28 +196,30 @@ export default function ReportsPage() {
         </div>
 
         {/* Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-3">
           <Card className="p-4 sm:p-5 lg:col-span-2">
-            <h3 className="text-sm font-semibold text-[#1A3636] mb-6">Revenus HT & bénéfices bruts ({rangeLabel})</h3>
+            <h3 className="mb-4 text-sm font-semibold text-[#1A3636] sm:mb-6">Revenus HT & bénéfices bruts ({rangeLabel})</h3>
             {loading ? (
-              <div className="h-[250px] flex items-center justify-center">
+              <div className="flex h-[220px] min-[420px]:h-[240px] sm:h-[250px] items-center justify-center">
                 <div className="animate-pulse text-[#6B7682] text-sm">Chargement…</div>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={230}>
-                <BarChart data={data?.monthlyData ?? []} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                  <XAxis dataKey="month" tick={{ fill: '#9AA7AE', fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: '#9AA7AE', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(value) => formatCurrencyCompact(Number(value)).replace(' FCFA', '')} width={48} />
-                  <Tooltip
-                    contentStyle={{ background: '#F4F7FB', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', fontSize: '12px' }}
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    formatter={(value: any) => [formatCurrency(Number(value)), '']}
-                  />
-                  <Bar dataKey="revenue" fill="#6C5CE7" radius={[6, 6, 0, 0]} name="Revenus" />
-                  <Bar dataKey="profit" fill="#10b981" radius={[6, 6, 0, 0]} name="Bénéfice" />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="h-[220px] min-[420px]:h-[240px] sm:h-[250px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={data?.monthlyData ?? []} margin={{ top: 5, right: 5, bottom: 0, left: 0 }} barCategoryGap="18%" maxBarSize={28}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                    <XAxis dataKey="month" tick={{ fill: '#9AA7AE', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#9AA7AE', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(value) => formatCurrencyCompact(Number(value)).replace(' FCFA', '')} width={44} />
+                    <Tooltip
+                      contentStyle={{ background: '#F4F7FB', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', fontSize: '12px' }}
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      formatter={(value: any) => [formatCurrency(Number(value)), '']}
+                    />
+                    <Bar dataKey="revenue" fill="#6C5CE7" radius={[6, 6, 0, 0]} name="Revenus" />
+                    <Bar dataKey="profit" fill="#10b981" radius={[6, 6, 0, 0]} name="Bénéfice" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             )}
           </Card>
 
@@ -225,28 +227,30 @@ export default function ReportsPage() {
             <h3 className="text-sm font-semibold text-[#1A3636] mb-4">Top produits</h3>
             {!loading && categoryData.length > 0 ? (
               <>
-                <ResponsiveContainer width="100%" height={200}>
-                  <PieChart>
-                    <Pie
-                      data={categoryData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={80}
-                      paddingAngle={3}
-                      dataKey="value"
-                    >
-                      {categoryData.map((entry, index) => (
-                        <Cell key={index} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ background: '#F4F7FB', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', fontSize: '12px' }}
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      formatter={(value: any) => [formatCurrency(Number(value)), '']}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                <div className="h-[220px] min-[420px]:h-[240px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={categoryData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={50}
+                        outerRadius={80}
+                        paddingAngle={3}
+                        dataKey="value"
+                      >
+                        {categoryData.map((entry, index) => (
+                          <Cell key={index} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ background: '#F4F7FB', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', fontSize: '12px' }}
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        formatter={(value: any) => [formatCurrency(Number(value)), '']}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
                 <div className="space-y-2 mt-2">
                   {categoryData.map((cat) => (
                     <div key={cat.id} className="flex items-center justify-between gap-3 text-xs">
