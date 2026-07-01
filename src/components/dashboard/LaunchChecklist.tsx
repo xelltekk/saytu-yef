@@ -189,6 +189,10 @@ export function LaunchChecklist({ refreshKey = 0 }: { refreshKey?: number }) {
     setState((current) => ({ ...current, pwaTested: true }))
   }
 
+  if (!loading && progress >= 100) {
+    return null
+  }
+
   return (
     <Card className="overflow-hidden p-0">
       <div className="border-b border-[#2D7D7D]/[0.07] bg-gradient-to-r from-[#2D7D7D]/10 to-[#6C5CE7]/10 p-4 sm:p-5">
