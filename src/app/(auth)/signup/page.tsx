@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { TrendingUp, Mail, Lock, User, Building, Eye, EyeOff, ArrowRight, Check, AlertCircle, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { createClient, syncServerSessionFromBrowser } from '@/lib/supabase/client'
+import { getSignupErrorResponse } from '@/lib/authErrors'
 
 const PERKS = [
   'Compte gratuit pour commencer',
@@ -12,6 +14,18 @@ const PERKS = [
   'Saisie hors ligne depuis l\'étranger',
   'Support en français & Wolof',
 ]
+
+const PRIVATE_NETWORK_HOST_PATTERN =
+  /^(localhost|127\.0\.0\.1|::1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/i
+
+function isLocalRuntime() {
+  if (typeof window === 'undefined') return false
+
+  return (
+    window.location.protocol === 'http:' ||
+    PRIVATE_NETWORK_HOST_PATTERN.test(window.location.hostname)
+  )
+}
 
 export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false)
@@ -26,6 +40,34 @@ export default function SignupPage() {
     setError('')
 
     try {
+      if (isLocalRuntime()) {
+        const supabase = createClient()
+        const { data, error: signupError } = await supabase.auth.signUp({
+          email: form.email.trim().toLowerCase(),
+          password: form.password,
+          options: {
+            data: {
+              full_name: form.fullName.trim(),
+              business_name: form.businessName.trim() || undefined,
+            },
+          },
+        })
+
+        if (signupError) {
+          setError(getSignupErrorResponse(signupError).message)
+          return
+        }
+
+        if (data.session) {
+          await syncServerSessionFromBrowser(supabase)
+          window.location.assign('/dashboard')
+          return
+        }
+
+        setSuccess(true)
+        return
+      }
+
       const response = await fetch('/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

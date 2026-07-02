@@ -28,14 +28,15 @@ export function getRequestOrigin(request: Request): string {
   const forwardedHost = firstHeaderValue(request.headers.get('x-forwarded-host'))
   const forwardedProto = firstHeaderValue(request.headers.get('x-forwarded-proto'))
   const host = forwardedHost ?? firstHeaderValue(request.headers.get('host'))
+  const requestOrigin = getRequestUrlOrigin(request)
 
   if (host && !LOCAL_HOST_PATTERN.test(host)) {
-    const requestOrigin = getRequestUrlOrigin(request)
     const proto = forwardedProto ?? requestOrigin?.split('://')[0] ?? 'https'
     return `${proto}://${host}`
   }
 
+  if (requestOrigin) return requestOrigin
   if (configuredOrigin) return configuredOrigin
 
-  return getRequestUrlOrigin(request) ?? 'http://localhost:3000'
+  return 'http://localhost:3000'
 }

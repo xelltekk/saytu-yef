@@ -1,4 +1,4 @@
-import { createClient } from './client'
+import { createClient, ensureBrowserSupabaseSession } from './client'
 import type { Product, Category, Supplier, Sale, AbroadProduct, StockMovement, TeamMember } from '@/types'
 
 export async function getTeamContext(): Promise<{ current: TeamMember; members: TeamMember[] }> {
@@ -41,6 +41,7 @@ export async function removeTeamMember(id: string): Promise<void> {
 
 export async function getProducts(): Promise<Product[]> {
   const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
   const { data, error } = await supabase
     .from('products')
     .select('*, category:categories(id,name,color,user_id,created_at), supplier:suppliers(id,name,country,user_id,created_at)')
@@ -234,6 +235,7 @@ export async function deleteCategory(id: string): Promise<void> {
 
 export async function getSuppliers(): Promise<Supplier[]> {
   const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
   const { data, error } = await supabase
     .from('suppliers')
     .select('*')
@@ -279,6 +281,7 @@ export async function deleteSupplier(id: string): Promise<void> {
 
 export async function getSales(limit = 50, offset = 0): Promise<Sale[]> {
   const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
   const pageSize = Math.max(1, Math.floor(limit))
   const start = Math.max(0, Math.floor(offset))
   const end = start + pageSize - 1
@@ -642,6 +645,7 @@ export async function deleteAbroadProduct(id: string): Promise<void> {
 
 export async function getDashboardMetrics() {
   const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
   const activeSaleStatuses: Sale['payment_status'][] = ['completed', 'partial', 'pending']
 
   const today = new Date()
@@ -722,6 +726,7 @@ function buildChartData(sales: { total: number; created_at: string }[]) {
 
 export async function getReportsData(months = 6) {
   const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
   const monthCount = Math.max(1, Math.floor(months))
   const now = new Date()
   const start = new Date(now.getFullYear(), now.getMonth() - monthCount + 1, 1)

@@ -1,6 +1,10 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import {
+  clearBrowserSupabaseAuthStorage,
+  createClient,
+  ensureBrowserSupabaseSession,
+} from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
 
 export function useUser() {
@@ -8,18 +12,45 @@ export function useUser() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let active = true
     const supabase = createClient()
 
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user)
+    const loadUser = async () => {
+      try {
+        await ensureBrowserSupabaseSession(supabase)
+        const { data, error } = await supabase.auth.getUser()
+        if (!active) return
+
+        if (error) {
+          console.warn('use_user_get_user_failed', error)
+          clearBrowserSupabaseAuthStorage()
+          setUser(null)
+          return
+        }
+
+        setUser(data.user)
+      } catch (error) {
+        console.warn('use_user_load_failed', error)
+        if (!active) return
+        clearBrowserSupabaseAuthStorage()
+        setUser(null)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+
+    void loadUser()
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
+      if (!active) return
+      setUser(session?.user ?? null)
       setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
-      setUser(session?.user ?? null)
-    })
-
-    return () => subscription.unsubscribe()
+    return () => {
+      active = false
+      subscription.unsubscribe()
+    }
   }, [])
 
   const displayName: string =

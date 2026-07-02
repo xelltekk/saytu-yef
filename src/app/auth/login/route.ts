@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { getSafeRedirectPath } from '@/lib/authRedirect'
 import { getLoginErrorMessage } from '@/lib/authErrors'
 import { clearSupabaseAuthCookies } from '@/lib/supabase/authCookies'
+import { createResponseCookieBridge } from '@/lib/supabase/responseCookies'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,20 +34,17 @@ export async function POST(request: Request) {
   }
 
   const cookieStore = await cookies()
+  const responseCookieBridge = createResponseCookieBridge(cookieStore)
   clearSupabaseAuthCookies(
     cookieStore.getAll().map(({ name }) => name),
-    (name) => cookieStore.set(name, '', { path: '/', maxAge: 0 })
+    (name) => responseCookieBridge.set(name, '', { path: '/', maxAge: 0 })
   )
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: (list) =>
-          list.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
-      },
+      cookies: responseCookieBridge.cookies,
     }
   )
 
@@ -62,16 +60,16 @@ export async function POST(request: Request) {
       message: error.message,
     })
 
-    return NextResponse.json(
+    return responseCookieBridge.apply(NextResponse.json(
       { error: getLoginErrorMessage(error) },
       { status: 400, headers: { 'Cache-Control': 'no-store, max-age=0' } }
-    )
+    ))
   }
 
-  return NextResponse.json(
+  return responseCookieBridge.apply(NextResponse.json(
     {
       redirectTo: getSafeRedirectPath(body.next),
     },
     { headers: { 'Cache-Control': 'no-store, max-age=0' } }
-  )
+  ))
 }

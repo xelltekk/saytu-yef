@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/Card'
 import { formatCurrency } from '@/lib/utils'
 import { TrendingUp, Package } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { createClient, ensureBrowserSupabaseSession } from '@/lib/supabase/client'
 
 interface TopProduct {
   product_name: string
@@ -32,6 +32,7 @@ export function TopProducts({ refreshKey = 0 }: { refreshKey?: number }) {
 
     const loadTopProducts = async () => {
       const supabase = createClient()
+      await ensureBrowserSupabaseSession(supabase)
       const start = new Date()
       start.setMonth(start.getMonth() - 1)
 

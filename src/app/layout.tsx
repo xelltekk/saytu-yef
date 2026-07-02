@@ -48,17 +48,18 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fr" className="h-full" suppressHydrationWarning>
+    <html lang="fr" translate="no" className="h-full notranslate" suppressHydrationWarning>
       <head>
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Saytu Yef" />
         <meta name="format-detection" content="telephone=no" />
+        <meta httpEquiv="Content-Language" content="fr" />
         <meta name="google" content="notranslate" />
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
       </head>
-      <body className="min-h-full gradient-bg" suppressHydrationWarning>
+      <body className="min-h-full gradient-bg notranslate" translate="no" suppressHydrationWarning>
         {children}
         <NetworkStatus />
         <ServiceWorkerRegister />

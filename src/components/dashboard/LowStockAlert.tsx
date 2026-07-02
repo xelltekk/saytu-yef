@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/Card'
 import { AlertTriangle, Package } from 'lucide-react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { createClient, ensureBrowserSupabaseSession } from '@/lib/supabase/client'
 
 interface LowStockItem {
   id: string
@@ -22,6 +22,7 @@ export function LowStockAlert({ refreshKey = 0 }: { refreshKey?: number }) {
 
     const loadLowStockItems = async () => {
       const supabase = createClient()
+      await ensureBrowserSupabaseSession(supabase)
       const { data, error } = await supabase
         .from('products')
         .select('id, name, quantity, min_quantity, category:categories(name)')

@@ -5,13 +5,24 @@ import Link from 'next/link'
 import { TrendingUp, Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { createClient } from '@/lib/supabase/client'
+import { createClient, syncServerSessionFromBrowser } from '@/lib/supabase/client'
 import { getSafeRedirectPath } from '@/lib/authRedirect'
 import { getLoginErrorMessage } from '@/lib/authErrors'
 
 const GENERIC_LOGIN_ERROR =
   'Impossible de se connecter pour le moment. Verifiez votre connexion et reessayez.'
 const GOOGLE_AUTH_ENABLED = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_AUTH === 'true'
+const PRIVATE_NETWORK_HOST_PATTERN =
+  /^(localhost|127\.0\.0\.1|::1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/i
+
+function isLocalRuntime() {
+  if (typeof window === 'undefined') return false
+
+  return (
+    window.location.protocol === 'http:' ||
+    PRIVATE_NETWORK_HOST_PATTERN.test(window.location.hostname)
+  )
+}
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
@@ -37,13 +48,35 @@ export default function LoginPage() {
     const redirectPath = getSafeRedirectPath(nextPath)
 
     try {
+      const email = form.email.trim().toLowerCase()
+
+      if (isLocalRuntime()) {
+        const supabase = createClient()
+        const { data, error: authError } = await supabase.auth.signInWithPassword({
+          email,
+          password: form.password,
+        })
+
+        if (authError) {
+          setError(getLoginErrorMessage(authError))
+          return
+        }
+
+        if (data.session) {
+          await syncServerSessionFromBrowser(supabase)
+        }
+
+        window.location.assign(redirectPath)
+        return
+      }
+
       const response = await fetch('/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          email: form.email.trim().toLowerCase(),
+          email,
           password: form.password,
           next: redirectPath,
         }),

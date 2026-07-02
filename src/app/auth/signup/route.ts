@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { getSignupErrorResponse } from '@/lib/authErrors'
 import { getRequestOrigin } from '@/lib/requestOrigin'
+import { createResponseCookieBridge } from '@/lib/supabase/responseCookies'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,15 +46,12 @@ export async function POST(request: Request) {
   const origin = getRequestOrigin(request)
 
   const cookieStore = await cookies()
+  const responseCookieBridge = createResponseCookieBridge(cookieStore)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: (list) =>
-          list.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
-      },
+      cookies: responseCookieBridge.cookies,
     }
   )
 
@@ -77,21 +75,21 @@ export async function POST(request: Request) {
     })
 
     const { message, status } = getSignupErrorResponse(error)
-    return NextResponse.json({ error: message }, { status, headers: noStoreHeaders })
+    return responseCookieBridge.apply(NextResponse.json({ error: message }, { status, headers: noStoreHeaders }))
   }
 
   if (data.user && data.user.identities?.length === 0) {
-    return NextResponse.json(
+    return responseCookieBridge.apply(NextResponse.json(
       { error: 'Cet email est deja utilise. Connectez-vous.' },
       { status: 409, headers: noStoreHeaders }
-    )
+    ))
   }
 
-  return NextResponse.json(
+  return responseCookieBridge.apply(NextResponse.json(
     {
       requiresEmailConfirmation: !data.session,
       redirectTo: data.session ? '/dashboard' : '/login',
     },
     { headers: noStoreHeaders }
-  )
+  ))
 }
