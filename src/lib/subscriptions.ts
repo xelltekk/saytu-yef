@@ -1,5 +1,5 @@
 import { createClient, ensureBrowserSupabaseSession } from '@/lib/supabase/client'
-import type { BillingCycle, SubscriptionPlan, SubscriptionStatus } from '@/types'
+import type { BillingCycle, SubscriptionPlan, SubscriptionRequestStatus, SubscriptionStatus } from '@/types'
 
 type PlanLimitKey = 'products' | 'teamMembers' | 'monthlySales'
 
@@ -15,6 +15,20 @@ type RawBillingProfile = {
   current_period_ends_at?: string | null
   cancelled_at?: string | null
   subscription_notes?: string | null
+}
+
+type RawSubscriptionRequest = {
+  id: string
+  current_plan?: string | null
+  requested_plan?: string | null
+  status?: string | null
+  requested_by_email?: string | null
+  business_name?: string | null
+  notes?: string | null
+  support_note?: string | null
+  activated_at?: string | null
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 export type SubscriptionUsage = {
@@ -38,6 +52,27 @@ export type SubscriptionOverview = {
   usage: SubscriptionUsage
   hasAdvancedFields: boolean
 }
+
+export type SubscriptionRequestRecord = {
+  id: string
+  currentPlan: SubscriptionPlan
+  requestedPlan: SubscriptionPlan
+  status: SubscriptionRequestStatus
+  requestedByEmail?: string | null
+  businessName?: string | null
+  notes?: string | null
+  supportNote?: string | null
+  activatedAt?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+}
+
+export type SubmitSubscriptionRequestResult = {
+  mode: 'created' | 'existing'
+  request: SubscriptionRequestRecord
+}
+
+export type SupportSubscriptionRequestAction = 'mark_in_progress' | 'activate' | 'cancel'
 
 export const SUBSCRIPTION_PLANS: Array<{
   id: SubscriptionPlan
@@ -120,6 +155,20 @@ export const BILLING_CYCLE_LABELS: Record<BillingCycle, string> = {
   manual: 'Activation manuelle',
 }
 
+export const SUBSCRIPTION_REQUEST_STATUS_LABELS: Record<SubscriptionRequestStatus, string> = {
+  sent: 'Envoyee',
+  in_progress: 'En cours',
+  activated: 'Activee',
+  cancelled: 'Annulee',
+}
+
+export const SUBSCRIPTION_REQUEST_STATUS_STYLES: Record<SubscriptionRequestStatus, string> = {
+  sent: 'bg-violet-500/10 text-violet-700 border border-violet-500/15',
+  in_progress: 'bg-amber-500/10 text-amber-700 border border-amber-500/15',
+  activated: 'bg-emerald-500/10 text-emerald-700 border border-emerald-500/15',
+  cancelled: 'bg-slate-500/10 text-slate-700 border border-slate-500/15',
+}
+
 function normalizePlan(value: string | null | undefined): SubscriptionPlan {
   return SUBSCRIPTION_PLANS.some((plan) => plan.id === value)
     ? (value as SubscriptionPlan)
@@ -139,6 +188,63 @@ function normalizeCycle(value: string | null | undefined, plan: SubscriptionPlan
     return value
   }
   return plan === 'free' ? 'manual' : 'monthly'
+}
+
+function normalizeRequestStatus(value: string | null | undefined): SubscriptionRequestStatus {
+  if (value === 'sent' || value === 'in_progress' || value === 'activated' || value === 'cancelled') {
+    return value
+  }
+  return 'sent'
+}
+
+function isMissingSubscriptionRequestTable(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : ''
+  const message = 'message' in error && typeof error.message === 'string' ? error.message : ''
+
+  return code === '42P01' || message.toLowerCase().includes('subscription_requests')
+}
+
+function isSupportAccessDenied(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : ''
+  const message = 'message' in error && typeof error.message === 'string' ? error.message.toLowerCase() : ''
+
+  return code === 'P0001' && message.includes('acces support requis')
+}
+
+function isMissingSupportRpc(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : ''
+  const message = 'message' in error && typeof error.message === 'string' ? error.message.toLowerCase() : ''
+
+  return code === '42883'
+    || code === 'PGRST202'
+    || message.includes('list_support_subscription_requests')
+    || message.includes('apply_support_subscription_request_action')
+}
+
+function mapSubscriptionRequest(row: RawSubscriptionRequest): SubscriptionRequestRecord {
+  return {
+    id: row.id,
+    currentPlan: normalizePlan(row.current_plan),
+    requestedPlan: normalizePlan(row.requested_plan),
+    status: normalizeRequestStatus(row.status),
+    requestedByEmail: row.requested_by_email ?? null,
+    businessName: row.business_name ?? null,
+    notes: row.notes ?? null,
+    supportNote: row.support_note ?? null,
+    activatedAt: row.activated_at ?? null,
+    createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
+  }
+}
+
+export function getSubscriptionRequestReference(requestId: string): string {
+  return requestId.slice(0, 8).toUpperCase()
 }
 
 function inferStatus(plan: SubscriptionPlan, createdAt?: string | null, trialEndsAt?: string | null): SubscriptionStatus {
@@ -254,13 +360,18 @@ export function getSubscriptionHeadline(overview: SubscriptionOverview): string 
   return 'Version gratuite active'
 }
 
-export function buildSubscriptionRequestMailto(plan: SubscriptionPlan, overview: SubscriptionOverview): string {
+export function buildSubscriptionRequestMailto(
+  plan: SubscriptionPlan,
+  overview: SubscriptionOverview,
+  request?: SubscriptionRequestRecord | null
+): string {
   const targetPlan = getPlanDefinition(plan)
   const currentPlan = getPlanDefinition(overview.plan)
   const body = [
     'Bonjour equipe Saytu Yef,',
     '',
     `Je souhaite passer ma boutique sur le plan ${targetPlan.name}.`,
+    request ? `Reference de demande: ${getSubscriptionRequestReference(request.id)}` : null,
     overview.businessName ? `Boutique: ${overview.businessName}` : null,
     `Plan actuel: ${currentPlan.name}`,
     `Statut actuel: ${SUBSCRIPTION_STATUS_LABELS[overview.status]}`,
@@ -273,6 +384,136 @@ export function buildSubscriptionRequestMailto(plan: SubscriptionPlan, overview:
 
   const subject = `Demande abonnement Saytu Yef - ${targetPlan.name}`
   return `mailto:contact@xelltekk.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+}
+
+export async function getSubscriptionRequests(limit = 5): Promise<SubscriptionRequestRecord[]> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { error, data } = await supabase
+    .from('subscription_requests')
+    .select('id,current_plan,requested_plan,status,requested_by_email,business_name,notes,support_note,activated_at,created_at,updated_at')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    if (isMissingSubscriptionRequestTable(error)) return []
+    throw error
+  }
+
+  return ((data ?? []) as RawSubscriptionRequest[]).map(mapSubscriptionRequest)
+}
+
+export async function getSupportSubscriptionRequests(limit = 12): Promise<SubscriptionRequestRecord[] | null> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { error, data } = await supabase.rpc('list_support_subscription_requests', {
+    p_limit: limit,
+  })
+
+  if (error) {
+    if (isSupportAccessDenied(error)) return null
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration support abonnement n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
+
+  return ((data ?? []) as RawSubscriptionRequest[]).map(mapSubscriptionRequest)
+}
+
+export async function applySupportSubscriptionRequestAction(
+  requestId: string,
+  action: SupportSubscriptionRequestAction
+): Promise<SubscriptionRequestRecord> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { error, data } = await supabase.rpc('apply_support_subscription_request_action', {
+    p_request_id: requestId,
+    p_action: action,
+    p_support_note: null,
+  })
+
+  if (error) {
+    if (isSupportAccessDenied(error)) {
+      throw new Error('Acces support requis pour cette action.')
+    }
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration support abonnement n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
+
+  const rows = (data ?? []) as RawSubscriptionRequest[]
+  if (!rows[0]) {
+    throw new Error('Reponse support invalide.')
+  }
+
+  return mapSubscriptionRequest(rows[0])
+}
+
+export async function submitSubscriptionRequest(
+  requestedPlan: SubscriptionPlan,
+  overview: SubscriptionOverview
+): Promise<SubmitSubscriptionRequestResult> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError) throw userError
+  if (!user) throw new Error('Non connecte')
+
+  const existingResult = await supabase
+    .from('subscription_requests')
+    .select('id,current_plan,requested_plan,status,requested_by_email,business_name,notes,support_note,activated_at,created_at,updated_at')
+    .eq('requested_plan', requestedPlan)
+    .in('status', ['sent', 'in_progress'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (existingResult.error) {
+    if (isMissingSubscriptionRequestTable(existingResult.error)) {
+      throw new Error("La migration de suivi d'abonnement n'est pas encore appliquee dans Supabase.")
+    }
+    throw existingResult.error
+  }
+
+  if (existingResult.data) {
+    return {
+      mode: 'existing',
+      request: mapSubscriptionRequest(existingResult.data as RawSubscriptionRequest),
+    }
+  }
+
+  const insertResult = await supabase
+    .from('subscription_requests')
+    .insert({
+      user_id: user.id,
+      requested_by_id: user.id,
+      requested_by_email: user.email?.trim().toLowerCase() ?? null,
+      business_name: overview.businessName || null,
+      current_plan: overview.plan,
+      requested_plan: requestedPlan,
+      status: 'sent',
+      notes: "Demande envoyee depuis le centre d'abonnement.",
+    })
+    .select('id,current_plan,requested_plan,status,requested_by_email,business_name,notes,support_note,activated_at,created_at,updated_at')
+    .single()
+
+  if (insertResult.error) {
+    if (isMissingSubscriptionRequestTable(insertResult.error)) {
+      throw new Error("La migration de suivi d'abonnement n'est pas encore appliquee dans Supabase.")
+    }
+    throw insertResult.error
+  }
+
+  return {
+    mode: 'created',
+    request: mapSubscriptionRequest(insertResult.data as RawSubscriptionRequest),
+  }
 }
 
 export async function getSubscriptionOverview(): Promise<SubscriptionOverview> {

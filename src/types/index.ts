@@ -1,6 +1,7 @@
 export type SubscriptionPlan = 'free' | 'starter' | 'pro' | 'enterprise'
 export type SubscriptionStatus = 'free' | 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled' | 'expired'
 export type BillingCycle = 'monthly' | 'quarterly' | 'yearly' | 'manual'
+export type SubscriptionRequestStatus = 'sent' | 'in_progress' | 'activated' | 'cancelled'
 
 export interface User {
   id: string
@@ -173,6 +174,22 @@ export interface SubscriptionCatalogPlan {
   max_users: number
   has_reports: boolean
   has_api: boolean
+}
+
+export interface SubscriptionRequest {
+  id: string
+  user_id: string
+  requested_by_id?: string | null
+  requested_by_email?: string | null
+  business_name?: string | null
+  current_plan: SubscriptionPlan
+  requested_plan: SubscriptionPlan
+  status: SubscriptionRequestStatus
+  notes?: string | null
+  support_note?: string | null
+  activated_at?: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface SalesReport {

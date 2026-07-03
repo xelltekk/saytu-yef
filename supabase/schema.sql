@@ -31,6 +31,30 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Subscription requests
+CREATE TABLE IF NOT EXISTS public.subscription_requests (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  requested_by_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  requested_by_email TEXT,
+  business_name TEXT,
+  current_plan TEXT NOT NULL CHECK (current_plan IN ('free', 'starter', 'pro', 'enterprise')),
+  requested_plan TEXT NOT NULL CHECK (requested_plan IN ('free', 'starter', 'pro', 'enterprise')),
+  status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent', 'in_progress', 'activated', 'cancelled')),
+  notes TEXT,
+  support_note TEXT,
+  activated_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.support_admins (
+  email TEXT PRIMARY KEY,
+  full_name TEXT,
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Categories
 CREATE TABLE IF NOT EXISTS public.categories (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
@@ -151,6 +175,8 @@ CREATE TABLE IF NOT EXISTS public.stock_movements (
 
 -- Row Level Security
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.support_admins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subscription_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.suppliers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
@@ -162,6 +188,7 @@ ALTER TABLE public.stock_movements ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies (users can only see their own data)
 CREATE POLICY "Users can manage their own profile" ON public.profiles FOR ALL USING (auth.uid() = id);
+CREATE POLICY "Users can manage their own subscription requests" ON public.subscription_requests FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users can manage their own categories" ON public.categories FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users can manage their own suppliers" ON public.suppliers FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Users can manage their own products" ON public.products FOR ALL USING (auth.uid() = user_id);

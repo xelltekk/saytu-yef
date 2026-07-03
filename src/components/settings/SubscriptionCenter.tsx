@@ -5,8 +5,12 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { useAccountRole } from '@/hooks/useAccountRole'
 import {
+  applySupportSubscriptionRequestAction,
   BILLING_CYCLE_LABELS,
   SUBSCRIPTION_PLANS,
+  getSupportSubscriptionRequests,
+  SUBSCRIPTION_REQUEST_STATUS_LABELS,
+  SUBSCRIPTION_REQUEST_STATUS_STYLES,
   SUBSCRIPTION_STATUS_LABELS,
   SUBSCRIPTION_STATUS_STYLES,
   buildSubscriptionRequestMailto,
@@ -17,8 +21,13 @@ import {
   getRemainingDays,
   getSubscriptionHeadline,
   getSubscriptionOverview,
+  getSubscriptionRequestReference,
+  getSubscriptionRequests,
   getUsageLimit,
   getUsageRatio,
+  submitSubscriptionRequest,
+  type SupportSubscriptionRequestAction,
+  type SubscriptionRequestRecord,
   type SubscriptionOverview,
 } from '@/lib/subscriptions'
 import type { SubscriptionPlan } from '@/types'
@@ -99,15 +108,28 @@ function getUsageTone(value: number, limit: number | null): 'default' | 'warning
 export function SubscriptionCenter() {
   const { isAdmin, loading: roleLoading } = useAccountRole()
   const [overview, setOverview] = useState<SubscriptionOverview | null>(null)
+  const [requests, setRequests] = useState<SubscriptionRequestRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [requestFeedback, setRequestFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const [requestingPlan, setRequestingPlan] = useState<SubscriptionPlan | null>(null)
+  const [supportQueue, setSupportQueue] = useState<SubscriptionRequestRecord[]>([])
+  const [supportAccess, setSupportAccess] = useState(false)
+  const [supportLoading, setSupportLoading] = useState(true)
+  const [supportError, setSupportError] = useState('')
+  const [supportFeedback, setSupportFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const [supportActionTarget, setSupportActionTarget] = useState<string | null>(null)
 
   const loadOverview = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const nextOverview = await getSubscriptionOverview()
+      const [nextOverview, nextRequests] = await Promise.all([
+        getSubscriptionOverview(),
+        getSubscriptionRequests(),
+      ])
       setOverview(nextOverview)
+      setRequests(nextRequests)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Impossible de charger l'abonnement.")
     } finally {
@@ -119,10 +141,94 @@ export function SubscriptionCenter() {
     void loadOverview()
   }, [loadOverview])
 
+  const loadSupportQueue = useCallback(async () => {
+    setSupportLoading(true)
+    setSupportError('')
+    try {
+      const queue = await getSupportSubscriptionRequests()
+      if (!queue) {
+        setSupportAccess(false)
+        setSupportQueue([])
+      } else {
+        setSupportAccess(true)
+        setSupportQueue(queue)
+      }
+    } catch (loadError) {
+      setSupportAccess(false)
+      setSupportError(loadError instanceof Error ? loadError.message : 'Impossible de charger la file support.')
+    } finally {
+      setSupportLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadSupportQueue()
+  }, [loadSupportQueue])
+
   const recommendation = useMemo(() => {
     if (!overview) return null
     return getRecommendedPlan(overview.plan, overview.usage)
   }, [overview])
+
+  const handleRequestPlan = useCallback(async (plan: SubscriptionPlan) => {
+    if (!overview || !isAdmin) return
+
+    setRequestingPlan(plan)
+    setRequestFeedback(null)
+
+    try {
+      const result = await submitSubscriptionRequest(plan, overview)
+      setRequests((current) => {
+        const next = [result.request, ...current.filter((entry) => entry.id !== result.request.id)]
+        return next
+          .sort((left, right) => new Date(right.createdAt ?? 0).getTime() - new Date(left.createdAt ?? 0).getTime())
+          .slice(0, 5)
+      })
+      setRequestFeedback({
+        type: 'success',
+        msg: result.mode === 'existing'
+          ? 'Une demande de ce type est deja en cours. Le mail a ete prepare avec la meme reference.'
+          : 'Demande enregistree dans la base. Le mail de suivi va s ouvrir.',
+      })
+      window.location.href = buildSubscriptionRequestMailto(plan, overview, result.request)
+    } catch (requestError) {
+      setRequestFeedback({
+        type: 'error',
+        msg: requestError instanceof Error ? requestError.message : "Impossible d'enregistrer la demande.",
+      })
+    } finally {
+      setRequestingPlan(null)
+    }
+  }, [isAdmin, overview])
+
+  const handleSupportAction = useCallback(async (requestId: string, action: SupportSubscriptionRequestAction) => {
+    setSupportActionTarget(requestId)
+    setSupportFeedback(null)
+
+    try {
+      const updatedRequest = await applySupportSubscriptionRequestAction(requestId, action)
+      setSupportQueue((current) => current.map((entry) => (entry.id === updatedRequest.id ? updatedRequest : entry)))
+      setRequests((current) => current.map((entry) => (entry.id === updatedRequest.id ? updatedRequest : entry)))
+      setSupportFeedback({
+        type: 'success',
+        msg:
+          action === 'activate'
+            ? 'La demande a ete activee et le profil a ete mis a jour.'
+            : action === 'mark_in_progress'
+              ? 'La demande est maintenant en cours.'
+              : 'La demande a ete annulee.',
+      })
+      void loadOverview()
+      void loadSupportQueue()
+    } catch (actionError) {
+      setSupportFeedback({
+        type: 'error',
+        msg: actionError instanceof Error ? actionError.message : "Impossible de traiter la demande.",
+      })
+    } finally {
+      setSupportActionTarget(null)
+    }
+  }, [loadOverview, loadSupportQueue])
 
   if (loading) {
     return (
@@ -234,12 +340,16 @@ export function SubscriptionCenter() {
           <div className="flex w-full flex-col gap-3 lg:w-[260px]">
             <Button
               variant="primary"
-              onClick={() => { window.location.href = buildSubscriptionRequestMailto(recommendation ?? 'starter', overview) }}
-              disabled={!isAdmin}
+              onClick={() => void handleRequestPlan(recommendation ?? 'starter')}
+              disabled={!isAdmin || requestingPlan !== null}
               fullWidth
             >
               <CreditCard size={16} />
-              {recommendation ? `Demander ${getPlanDefinition(recommendation).name}` : 'Demander une activation'}
+              {requestingPlan === (recommendation ?? 'starter')
+                ? 'Envoi en cours...'
+                : recommendation
+                  ? `Demander ${getPlanDefinition(recommendation).name}`
+                  : 'Demander une activation'}
             </Button>
             <Button
               variant="outline"
@@ -257,6 +367,17 @@ export function SubscriptionCenter() {
               <RefreshCw size={16} />
               Actualiser
             </Button>
+            {requestFeedback && (
+              <div
+                className={`rounded-2xl border px-3 py-2 text-xs ${
+                  requestFeedback.type === 'success'
+                    ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700'
+                    : 'border-red-500/20 bg-red-500/10 text-red-700'
+                }`}
+              >
+                {requestFeedback.msg}
+              </div>
+            )}
           </div>
         </div>
 
@@ -320,11 +441,11 @@ export function SubscriptionCenter() {
               <Button
                 variant="primary"
                 size="sm"
-                onClick={() => { window.location.href = buildSubscriptionRequestMailto(recommendation, overview) }}
-                disabled={!isAdmin}
+                onClick={() => void handleRequestPlan(recommendation)}
+                disabled={!isAdmin || requestingPlan !== null}
               >
                 <Crown size={15} />
-                Demander {getPlanDefinition(recommendation).name}
+                {requestingPlan === recommendation ? 'Envoi...' : `Demander ${getPlanDefinition(recommendation).name}`}
               </Button>
             </div>
           )}
@@ -363,8 +484,183 @@ export function SubscriptionCenter() {
               {overview.notes || 'Aucune note particuliere pour le moment. Utilisez le support pour les upgrades, les renouvellements et la confirmation de paiement.'}
             </p>
           </div>
+
+          <div className="mt-4 rounded-2xl border border-[#2D7D7D]/10 bg-white/80 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-[#1A3636]">Demandes enregistrees</p>
+                <p className="mt-1 text-sm text-[#5C6B73]">Le suivi reste visible ici meme apres l&apos;envoi de l&apos;email.</p>
+              </div>
+              <div className="rounded-2xl bg-[#F4F7FB] px-3 py-1 text-xs font-semibold text-[#2D7D7D]">
+                {requests.length} suivi(s)
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {requests.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-3 text-sm text-[#6B7682]">
+                  Aucune demande d&apos;abonnement enregistree pour le moment.
+                </div>
+              ) : (
+                requests.map((request) => (
+                  <div key={request.id} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-[#1A3636]">
+                            {getPlanDefinition(request.requestedPlan).name}
+                          </span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_REQUEST_STATUS_STYLES[request.status]}`}>
+                            {SUBSCRIPTION_REQUEST_STATUS_LABELS[request.status]}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-[#5C6B73]">
+                          Ref {getSubscriptionRequestReference(request.id)} · Depuis {getPlanDefinition(request.currentPlan).name}
+                        </p>
+                        <p className="mt-1 text-xs text-[#5C6B73]">
+                          Envoyee le {formatSubscriptionDate(request.createdAt) ?? 'date indisponible'}
+                          {request.activatedAt ? ` · Activee le ${formatSubscriptionDate(request.activatedAt)}` : ''}
+                        </p>
+                      </div>
+                      {request.requestedByEmail && (
+                        <div className="text-xs text-[#6B7682]">
+                          {request.requestedByEmail}
+                        </div>
+                      )}
+                    </div>
+                    {(request.supportNote || request.notes) && (
+                      <div className="mt-3 rounded-2xl border border-[#2D7D7D]/10 bg-white px-3 py-2 text-xs text-[#5C6B73]">
+                        {request.supportNote || request.notes}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </Card>
       </div>
+
+      {(supportAccess || supportError) && (
+        <Card className="p-4 sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-[#1A3636]">Console support XELLTEKK</h3>
+              <p className="mt-1 text-sm text-[#6B7682]">
+                Suivi interne des demandes d&apos;abonnement avec prise en charge et activation manuelle.
+              </p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => void loadSupportQueue()} disabled={supportLoading}>
+              <RefreshCw size={15} />
+              Actualiser la file
+            </Button>
+          </div>
+
+          {supportFeedback && (
+            <div
+              className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
+                supportFeedback.type === 'success'
+                  ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700'
+                  : 'border-red-500/20 bg-red-500/10 text-red-700'
+              }`}
+            >
+              {supportFeedback.msg}
+            </div>
+          )}
+
+          {supportError && (
+            <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
+              {supportError}
+            </div>
+          )}
+
+          {supportAccess && !supportError && (
+            <div className="mt-4 space-y-3">
+              {supportLoading ? (
+                <div className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+                  Chargement de la file support...
+                </div>
+              ) : supportQueue.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+                  Aucune demande support a traiter pour le moment.
+                </div>
+              ) : (
+                supportQueue.map((request) => {
+                  const isBusy = supportActionTarget === request.id
+                  const canProcess = request.status === 'sent'
+                  const canActivate = request.status === 'sent' || request.status === 'in_progress'
+                  const canCancel = request.status === 'sent' || request.status === 'in_progress'
+
+                  return (
+                    <div key={request.id} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-base font-semibold text-[#1A3636]">
+                              {request.businessName || 'Boutique sans nom'}
+                            </span>
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_REQUEST_STATUS_STYLES[request.status]}`}>
+                              {SUBSCRIPTION_REQUEST_STATUS_LABELS[request.status]}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm text-[#1A3636]">
+                            {getPlanDefinition(request.currentPlan).name} vers {getPlanDefinition(request.requestedPlan).name}
+                          </p>
+                          <p className="mt-1 text-xs text-[#6B7682]">
+                            Ref {getSubscriptionRequestReference(request.id)} · {request.requestedByEmail || 'email indisponible'}
+                          </p>
+                          <p className="mt-1 text-xs text-[#6B7682]">
+                            Creee le {formatSubscriptionDate(request.createdAt) ?? 'date indisponible'}
+                            {request.activatedAt ? ` · Activee le ${formatSubscriptionDate(request.activatedAt)}` : ''}
+                          </p>
+                          {(request.supportNote || request.notes) && (
+                            <div className="mt-3 rounded-2xl border border-[#2D7D7D]/10 bg-white px-3 py-2 text-xs text-[#5C6B73]">
+                              {request.supportNote || request.notes}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 lg:w-[330px] lg:justify-end">
+                          {canProcess && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void handleSupportAction(request.id, 'mark_in_progress')}
+                              disabled={isBusy}
+                            >
+                              Prendre en charge
+                            </Button>
+                          )}
+                          {canActivate && (
+                            <Button
+                              variant="teal"
+                              size="sm"
+                              onClick={() => void handleSupportAction(request.id, 'activate')}
+                              disabled={isBusy}
+                            >
+                              Activer le plan
+                            </Button>
+                          )}
+                          {canCancel && (
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              onClick={() => void handleSupportAction(request.id, 'cancel')}
+                              disabled={isBusy}
+                            >
+                              Annuler
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          )}
+        </Card>
+      )}
 
       <Card className="p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -439,10 +735,14 @@ export function SubscriptionCenter() {
                       variant={plan.popular ? 'primary' : 'outline'}
                       fullWidth
                       size="sm"
-                      disabled={!isAdmin}
-                      onClick={() => { window.location.href = buildSubscriptionRequestMailto(plan.id as SubscriptionPlan, overview) }}
+                      disabled={!isAdmin || requestingPlan !== null}
+                      onClick={() => void handleRequestPlan(plan.id as SubscriptionPlan)}
                     >
-                      {isAdmin ? plan.cta : 'Admin requis'}
+                      {!isAdmin
+                        ? 'Admin requis'
+                        : requestingPlan === plan.id
+                          ? 'Envoi...'
+                          : plan.cta}
                     </Button>
                   )}
                 </div>
