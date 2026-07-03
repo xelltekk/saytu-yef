@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "node scripts/dev-local.mjs",
     "dev:raw": "next dev",
+    "demo:seed": "node scripts/seed-demo-account.mjs",
     "build": "next build",
     "start": "next start",
     "start:vps": "next start -H 127.0.0.1 -p 3000",

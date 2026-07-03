@@ -35,8 +35,8 @@ export function getRequestOrigin(request: Request): string {
     return `${proto}://${host}`
   }
 
-  if (requestOrigin) return requestOrigin
   if (configuredOrigin) return configuredOrigin
+  if (requestOrigin) return requestOrigin
 
   return 'http://localhost:3000'
 }
