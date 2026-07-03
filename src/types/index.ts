@@ -1,3 +1,7 @@
+export type SubscriptionPlan = 'free' | 'starter' | 'pro' | 'enterprise'
+export type SubscriptionStatus = 'free' | 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled' | 'expired'
+export type BillingCycle = 'monthly' | 'quarterly' | 'yearly' | 'manual'
+
 export interface User {
   id: string
   email: string
@@ -5,7 +9,11 @@ export interface User {
   business_name: string
   avatar_url?: string
   role: 'admin' | 'employee'
-  subscription_plan: 'free' | 'starter' | 'pro' | 'enterprise'
+  subscription_plan: SubscriptionPlan
+  subscription_status?: SubscriptionStatus
+  billing_cycle?: BillingCycle
+  trial_ends_at?: string | null
+  current_period_ends_at?: string | null
   created_at: string
 }
 
@@ -155,7 +163,7 @@ export interface TopProduct {
   revenue: number
 }
 
-export interface SubscriptionPlan {
+export interface SubscriptionCatalogPlan {
   id: string
   name: string
   price_monthly: number
