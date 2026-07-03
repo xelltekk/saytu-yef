@@ -747,10 +747,10 @@ export function ProductTable({
                 {/* Carte tactile mobile */}
                 <article className="relative rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3 shadow-[0_3px_12px_rgba(26,54,54,0.04)] sm:hidden">
                   <div className="flex items-start gap-3">
-                    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB]">
+                    <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F8FAFD] p-1">
                       {product.image_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
+                        <img src={product.image_url} alt={product.name} className="h-full w-full object-contain object-center" />
                       ) : (
                         <Package size={18} className="text-[#6B7682]" />
                       )}
@@ -864,10 +864,10 @@ export function ProductTable({
 
                 {/* Ligne compacte tablette et bureau */}
                 <div className="group relative hidden h-14 w-full items-center gap-3 rounded-xl border border-[#2D7D7D]/[0.08] bg-white px-4 transition-all hover:border-[#6C5CE7]/30 hover:shadow-[0_4px_14px_rgba(26,54,54,0.06)] sm:flex">
-                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#2D7D7D]/[0.08] bg-[#F4F7FB]">
+                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#2D7D7D]/[0.08] bg-[#F8FAFD] p-1">
                     {product.image_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
+                      <img src={product.image_url} alt={product.name} className="h-full w-full object-contain object-center" />
                     ) : (
                       <Package size={15} className="text-[#6B7682]" />
                     )}

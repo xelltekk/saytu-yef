@@ -515,10 +515,14 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
                         <span className="text-[9px] font-bold text-white">{inCart.quantity}</span>
                       </div>
                     )}
-                    <div className="mb-2 flex h-20 w-full items-center justify-center overflow-hidden rounded-xl bg-[#E8F4F2] min-[420px]:h-16">
+                    <div className="mb-2 flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F8FAFD] p-2">
                       {product.image_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" />
+                        <img
+                          src={product.image_url}
+                          alt={product.name}
+                          className="h-full w-full object-contain object-center"
+                        />
                       ) : (
                         <span className="text-lg">📦</span>
                       )}
