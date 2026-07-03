@@ -139,6 +139,10 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
       list.findIndex((candidate) => candidate.value === preset.value) === index
     ))
   }, [amountDue])
+  const paymentProgress = useMemo(() => {
+    if (!sale || sale.total <= 0) return 0
+    return Math.max(0, Math.min(100, Math.round((amountPaid / sale.total) * 100)))
+  }, [amountPaid, sale])
 
   const handleSave = async () => {
     if (!sale) return
@@ -399,6 +403,19 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                     </p>
                   </div>
                 </div>
+
+                <div className="mt-4 rounded-2xl bg-white px-3 py-3">
+                  <div className="flex items-center justify-between gap-3 text-[11px] font-medium text-[#5C6B73]">
+                    <span>Progression d&apos;encaissement</span>
+                    <span>{paymentProgress}%</span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#F4F7FB]">
+                    <div
+                      className={`h-full rounded-full ${amountDue > 0 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                      style={{ width: `${paymentProgress}%` }}
+                    />
+                  </div>
+                </div>
               </div>
 
               {amountDue > 0 && computedStatus !== 'cancelled' && computedStatus !== 'refunded' && (
@@ -411,10 +428,10 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                     <p className="shrink-0 text-sm font-bold text-amber-700">{formatCurrency(amountDue)}</p>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
                     <Button
                       variant={showPaymentForm ? 'ghost' : 'teal'}
-                      className="w-full"
+                      className="col-span-2 w-full sm:col-span-1"
                       onClick={() => {
                         setShowPaymentForm((current) => !current)
                         setPaymentError('')
@@ -440,7 +457,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                         </a>
                       </>
                     ) : (
-                      <div className="rounded-xl border border-amber-500/20 bg-white px-3 py-3 text-xs text-amber-700 sm:col-span-2">
+                      <div className="col-span-2 rounded-xl border border-amber-500/20 bg-white px-3 py-3 text-xs text-amber-700 sm:col-span-2">
                         Ajoutez le numero du client pour pouvoir le relancer rapidement.
                       </div>
                     )}
@@ -491,6 +508,22 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                         {paymentError}
                       </div>
                     )}
+                    <div className="rounded-2xl bg-white px-3 py-3">
+                      <div className="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">
+                        <span>Encaissement client</span>
+                        <span>{paymentProgress}% deja regle</span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="rounded-xl bg-[#F4F7FB] px-3 py-2.5">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Paye</p>
+                          <p className="mt-1 text-sm font-semibold text-emerald-600">{formatCurrency(amountPaid)}</p>
+                        </div>
+                        <div className="rounded-xl bg-[#F4F7FB] px-3 py-2.5">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Reste du</p>
+                          <p className="mt-1 text-sm font-semibold text-amber-700">{formatCurrency(amountDue)}</p>
+                        </div>
+                      </div>
+                    </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <Input
                         label="Montant du versement"
@@ -550,7 +583,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                 ) : (
                   <div className="space-y-2">
                     {payments.map((payment) => (
-                      <div key={payment.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#F4F7FB] px-3 py-3">
+                      <div key={payment.id} className="flex flex-col gap-3 rounded-xl bg-[#F4F7FB] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-[#1A3636]">{formatCurrency(payment.amount)}</p>
                           <p className="text-xs text-[#6B7682]">
@@ -560,9 +593,12 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                             <p className="mt-0.5 truncate text-xs text-[#6B7682]">{payment.note}</p>
                           )}
                         </div>
-                        <Badge variant={SALE_METHOD_VARIANTS[payment.payment_method]}>
-                          {SALE_METHOD_LABELS[payment.payment_method]}
-                        </Badge>
+                        <div className="flex items-center justify-between gap-3 sm:block">
+                          <span className="text-[11px] font-medium text-[#6B7682] sm:hidden">{formatDate(payment.created_at)}</span>
+                          <Badge variant={SALE_METHOD_VARIANTS[payment.payment_method]}>
+                            {SALE_METHOD_LABELS[payment.payment_method]}
+                          </Badge>
+                        </div>
                       </div>
                     ))}
                   </div>

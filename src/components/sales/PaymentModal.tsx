@@ -84,7 +84,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
           { label: 'Total', value: Math.round(total) },
           { label: '50%', value: Math.round(total / 2) },
           { label: '25%', value: Math.round(total / 4) },
-          { label: '0', value: 0 },
+          { label: '0 maintenant', value: 0 },
         ]
 
     return presets.filter((preset, index, list) => (
@@ -382,6 +382,42 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
             />
           </div>
 
+          <p className="text-xs font-medium text-[#6B7682] uppercase tracking-wider">Mode de paiement</p>
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            {PAYMENT_METHODS.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => {
+                  setPaymentMethod(m.id as 'wave' | 'orange_money' | 'cash' | 'card')
+                  setError('')
+                }}
+                className={`flex flex-col items-center gap-2 rounded-2xl border p-3 text-center transition-all sm:p-4 ${paymentMethod === m.id ? 'border-[#6C5CE7] bg-[#6C5CE7]/10' : 'border-[#2D7D7D]/[0.1] bg-[#F4F7FB] hover:border-[#2D7D7D]/[0.2]'}`}
+              >
+                <span
+                  className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white"
+                  style={{ backgroundColor: m.color }}
+                >
+                  {m.icon}
+                </span>
+                <span className="text-sm font-medium text-[#1A3636]">{m.label}</span>
+                <span className="hidden text-[10px] text-[#6B7682] sm:block">{m.description}</span>
+              </button>
+            ))}
+          </div>
+
+          {requiresPhone && (
+            <div className="rounded-xl border border-[#0ea5e9]/20 bg-[#0ea5e9]/5 px-3 py-2.5 text-xs text-[#0ea5e9]">
+              Ajoutez ou verifiez le numero client avant de confirmer ce versement mobile.
+            </div>
+          )}
+
+          {hasOutstandingDebt && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700">
+              La vente sera enregistree avec un solde restant a encaisser plus tard.
+            </div>
+          )}
+
           <Input
             label="Montant verse maintenant"
             type="number"
@@ -450,36 +486,6 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
               )}
             </div>
           </div>
-
-          <p className="text-xs font-medium text-[#6B7682] uppercase tracking-wider">Mode de paiement</p>
-          <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            {PAYMENT_METHODS.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => {
-                  setPaymentMethod(m.id as 'wave' | 'orange_money' | 'cash' | 'card')
-                  setError('')
-                }}
-                className={`flex flex-col items-center gap-2 rounded-2xl border p-3 text-center transition-all sm:p-4 ${paymentMethod === m.id ? 'border-[#6C5CE7] bg-[#6C5CE7]/10' : 'border-[#2D7D7D]/[0.1] bg-[#F4F7FB] hover:border-[#2D7D7D]/[0.2]'}`}
-              >
-                <span
-                  className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white"
-                  style={{ backgroundColor: m.color }}
-                >
-                  {m.icon}
-                </span>
-                <span className="text-sm font-medium text-[#1A3636]">{m.label}</span>
-                <span className="hidden text-[10px] text-[#6B7682] sm:block">{m.description}</span>
-              </button>
-            ))}
-          </div>
-
-          {hasOutstandingDebt && (
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700">
-              La vente sera enregistree avec un solde restant a encaisser plus tard.
-            </div>
-          )}
         </div>
       )}
 

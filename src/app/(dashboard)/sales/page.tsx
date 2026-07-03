@@ -6,7 +6,7 @@ import { PaymentModal } from '@/components/sales/PaymentModal'
 import { SaleDetailModal } from '@/components/sales/SaleDetailModal'
 import { Badge } from '@/components/ui/Badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { AlertCircle, CheckCircle2, Download, ShoppingCart, Clock, RefreshCw, Search } from 'lucide-react'
+import { AlertCircle, ArrowRight, CheckCircle2, Download, ShoppingCart, Clock, RefreshCw, Search } from 'lucide-react'
 import { getSales } from '@/lib/supabase/queries'
 import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, SALE_METHOD_LABELS, SALE_METHOD_VARIANTS, SALE_STATUS_LABELS, SALE_STATUS_VARIANTS } from '@/lib/sales'
 import type { Sale } from '@/types'
@@ -410,6 +410,9 @@ export default function SalesPage() {
                       const amountDue = getSaleAmountDue(sale)
                       const amountPaid = getSaleAmountPaid(sale)
                       const paymentCount = sale.payments?.length ?? 0
+                      const paymentProgress = sale.total > 0
+                        ? Math.max(0, Math.min(100, Math.round((amountPaid / sale.total) * 100)))
+                        : 0
 
                       return (
                         <button
@@ -449,16 +452,33 @@ export default function SalesPage() {
                             )}
                           </div>
 
-                          <div className="mt-3 flex items-end justify-between gap-3 text-xs">
-                            <div className="space-y-1 text-[#6B7682]">
-                              <p>{sale.items?.length ?? 0} article(s)</p>
-                              <p>{paymentCount} versement(s)</p>
+                          <div className="mt-3 rounded-2xl bg-[#F4F7FB] px-3 py-3">
+                            <div className="flex items-center justify-between gap-3 text-[11px] font-medium text-[#5C6B73]">
+                              <span>Paye {formatCurrency(amountPaid)}</span>
+                              <span>{paymentProgress}%</span>
                             </div>
-                            {amountDue > 0 ? (
-                              <span className="font-medium text-amber-700">Reste: {formatCurrency(amountDue)}</span>
-                            ) : (
-                              <span className="font-medium text-emerald-600">Solde regle</span>
-                            )}
+                            <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
+                              <div
+                                className={`h-full rounded-full ${amountDue > 0 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                style={{ width: `${paymentProgress}%` }}
+                              />
+                            </div>
+                            <div className="mt-3 flex items-end justify-between gap-3 text-xs">
+                              <div className="space-y-1 text-[#6B7682]">
+                                <p>{sale.items?.length ?? 0} article(s)</p>
+                                <p>{paymentCount} versement(s)</p>
+                              </div>
+                              {amountDue > 0 ? (
+                                <span className="font-medium text-amber-700">Reste: {formatCurrency(amountDue)}</span>
+                              ) : (
+                                <span className="font-medium text-emerald-600">Solde regle</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="mt-3 flex items-center justify-end gap-1 text-xs font-semibold text-[#6C5CE7]">
+                            <span>Voir detail</span>
+                            <ArrowRight size={14} />
                           </div>
                         </button>
                       )

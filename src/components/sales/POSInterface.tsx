@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
-import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
+import { cn, formatCurrency, formatCurrencyCompact } from '@/lib/utils'
 import { useSalesStore } from '@/store/salesStore'
 import { getProducts } from '@/lib/supabase/queries'
 import { useUser } from '@/hooks/useUser'
@@ -165,7 +165,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   }
 
   const renderCartContent = (mode: 'desktop' | 'mobile') => (
-    <>
+    <div className={cn('flex flex-col gap-3', mode === 'mobile' && 'min-h-[min(72dvh,34rem)]')}>
       {mode === 'desktop' && (
         <div className="flex items-center gap-2">
           <ShoppingCart size={16} className="text-[#6C5CE7]" />
@@ -220,7 +220,17 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         </div>
       </div>
 
-      <div className={mode === 'mobile' ? 'max-h-[38dvh] space-y-2 overflow-y-auto pr-1' : 'flex-1 space-y-2 overflow-y-auto'}>
+      {mode === 'mobile' && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] px-3 py-2.5">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Articles du panier</p>
+            <p className="text-xs text-[#6B7682]">Ajustez les quantites avant encaissement.</p>
+          </div>
+          <Badge variant="purple">{itemCount} article(s)</Badge>
+        </div>
+      )}
+
+      <div className={mode === 'mobile' ? 'min-h-0 flex-1 space-y-2 overflow-y-auto pr-1' : 'flex-1 space-y-2 overflow-y-auto'}>
         {activeCart.length === 0 ? (
           <div className="flex h-32 flex-col items-center justify-center text-[#6B7682]">
             <ShoppingCart size={28} className="mb-2 opacity-40" />
@@ -322,27 +332,32 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         )}
       </div>
 
-      {mode === 'mobile' && activeCart.length > 0 && (
-        <button type="button" onClick={requestClearCart} className="min-h-10 text-xs font-semibold text-red-600">
-          Vider tout le panier
-        </button>
-      )}
+      <div
+        className={cn(
+          'space-y-3 border-t border-[#2D7D7D]/[0.07] pt-3',
+          mode === 'mobile' && 'mt-auto rounded-[24px] bg-white pb-[calc(env(safe-area-inset-bottom)+0.35rem)]'
+        )}
+      >
+        {mode === 'mobile' && activeCart.length > 0 && (
+          <button type="button" onClick={requestClearCart} className="min-h-10 text-xs font-semibold text-red-600">
+            Vider tout le panier
+          </button>
+        )}
 
-      <div className="flex items-center gap-2">
-        <Tag size={14} className="flex-shrink-0 text-[#6B7682]" />
-        <input
-          type="number"
-          min="0"
-          max="100"
-          placeholder="Remise %"
-          value={activeDiscount || ''}
-          onChange={(event) => setDiscount(Number(event.target.value))}
-          aria-label="Remise en pourcentage"
-          className="h-9 flex-1 rounded-full border border-[#2D7D7D]/[0.14] bg-white px-3 text-xs text-[#1A3636] placeholder:text-[#6B7682] transition-all focus:border-[#6C5CE7]/60"
-        />
-      </div>
+        <div className="flex items-center gap-2">
+          <Tag size={14} className="flex-shrink-0 text-[#6B7682]" />
+          <input
+            type="number"
+            min="0"
+            max="100"
+            placeholder="Remise %"
+            value={activeDiscount || ''}
+            onChange={(event) => setDiscount(Number(event.target.value))}
+            aria-label="Remise en pourcentage"
+            className="h-9 flex-1 rounded-full border border-[#2D7D7D]/[0.14] bg-white px-3 text-xs text-[#1A3636] placeholder:text-[#6B7682] transition-all focus:border-[#6C5CE7]/60"
+          />
+        </div>
 
-      <div className="space-y-1.5 border-t border-[#2D7D7D]/[0.07] pt-3">
         {cartSummaryPills.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pb-1">
             {cartSummaryPills.map((pill) => (
@@ -355,38 +370,40 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
             ))}
           </div>
         )}
-        <div className="flex justify-between text-xs text-[#5C6B73]">
-          <span>Sous-total</span>
-          <span>{formatCurrency(subtotal)}</span>
-        </div>
-        {activeDiscount > 0 && (
-          <div className="flex justify-between text-xs text-emerald-600">
-            <span>Remise ({activeDiscount}%)</span>
-            <span>-{formatCurrency(discountAmount)}</span>
-          </div>
-        )}
-        {taxRate > 0 && (
+        <div className="space-y-1.5 rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] px-3 py-3">
           <div className="flex justify-between text-xs text-[#5C6B73]">
-            <span>TVA ({taxRate}%)</span>
-            <span>+{formatCurrency(taxAmount)}</span>
+            <span>Sous-total</span>
+            <span>{formatCurrency(subtotal)}</span>
           </div>
-        )}
-        <div className="flex justify-between pt-1 text-sm font-bold text-[#1A3636]">
-          <span>Total</span>
-          <span className="text-[#6C5CE7]">{formatCurrency(total)}</span>
+          {activeDiscount > 0 && (
+            <div className="flex justify-between text-xs text-emerald-600">
+              <span>Remise ({activeDiscount}%)</span>
+              <span>-{formatCurrency(discountAmount)}</span>
+            </div>
+          )}
+          {taxRate > 0 && (
+            <div className="flex justify-between text-xs text-[#5C6B73]">
+              <span>TVA ({taxRate}%)</span>
+              <span>+{formatCurrency(taxAmount)}</span>
+            </div>
+          )}
+          <div className="flex justify-between pt-1 text-sm font-bold text-[#1A3636]">
+            <span>Total</span>
+            <span className="text-[#6C5CE7]">{formatCurrency(total)}</span>
+          </div>
         </div>
-      </div>
 
-      <Button
-        variant="primary"
-        fullWidth
-        size="lg"
-        disabled={activeCart.length === 0}
-        onClick={handleCheckout}
-      >
-        Encaisser
-      </Button>
-    </>
+        <Button
+          variant="primary"
+          fullWidth
+          size="lg"
+          disabled={activeCart.length === 0}
+          onClick={handleCheckout}
+        >
+          Encaisser
+        </Button>
+      </div>
+    </div>
   )
 
   return (
