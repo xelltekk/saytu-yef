@@ -4,14 +4,22 @@ import { InstallPrompt } from '@/components/pwa/InstallPrompt'
 import { BusinessOnboarding } from '@/components/onboarding/BusinessOnboarding'
 import { SessionBootstrap } from '@/components/auth/SessionBootstrap'
 import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
+  const [{ data: sessionData }, { data: userData }] = await Promise.all([
+    supabase.auth.getSession(),
+    supabase.auth.getUser(),
+  ])
+  const session = sessionData.session
+  const user = userData.user
+
+  if (!session || !user) {
+    redirect('/login')
+  }
 
   return (
     <SessionBootstrap

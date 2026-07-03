@@ -92,7 +92,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
       list.findIndex((candidate) => candidate.value === preset.value) === index
     ))
   }, [paymentMethod, total])
-  const salePreviewItems = useMemo(() => cart.slice(0, 3), [cart])
+  const salePreviewItems = useMemo(() => cart.slice(0, 2), [cart])
 
   useEffect(() => {
     if (!isOpen) return
@@ -249,12 +249,50 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
       : 'Enregistrer la dette'
     : 'Valider le paiement'
 
+  const footer = step === 'method'
+    ? (
+        <>
+          <Button variant="ghost" className="w-full sm:w-auto" onClick={handleClose}>Annuler</Button>
+          <Button variant="primary" className="w-full sm:w-auto" onClick={handleConfirmStep}>
+            Confirmer
+          </Button>
+        </>
+      )
+    : step === 'confirm'
+      ? (
+          <>
+            <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setStep('method')}>Retour</Button>
+            <Button variant="primary" className="w-full sm:w-auto" isLoading={isProcessing} onClick={handlePayment}>
+              {isProcessing ? 'Enregistrement...' : actionLabel}
+            </Button>
+          </>
+        )
+      : step === 'success'
+        ? (
+            <>
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                leftIcon={<Printer size={15} />}
+                onClick={() => receipt && printReceipt(receipt)}
+                disabled={!receipt}
+              >
+                Imprimer recu
+              </Button>
+              <Button variant="primary" className="w-full sm:w-auto" onClick={handleClose}>
+                {hasOutstandingDebt ? 'Terminer' : 'Nouvelle vente'}
+              </Button>
+            </>
+          )
+        : undefined
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
       title={step === 'success' ? undefined : 'Encaissement'}
       size="md"
+      footer={footer}
     >
       {step === 'method' && (
         <div className="space-y-4">
@@ -265,15 +303,15 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
             </div>
           )}
 
-          <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-4">
+          <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3 sm:p-4">
             <div className="text-center">
               <p className="text-xs text-[#6B7682] mb-1">Total de la vente</p>
-              <p className="text-3xl font-bold text-[#1A3636]">{formatCurrency(total)}</p>
+              <p className="text-2xl font-bold text-[#1A3636] sm:text-3xl">{formatCurrency(total)}</p>
               <p className="text-xs text-[#6B7682] mt-1">{cart.length} article(s)</p>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-3 text-center">
-              <div className="rounded-2xl bg-white px-3 py-3">
+            <div className="mt-3 grid grid-cols-2 gap-2 text-center sm:mt-4 sm:gap-3">
+              <div className="rounded-2xl bg-white px-3 py-2.5 sm:py-3">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">
                   {hasCashChange ? 'Recu' : 'Verse'}
                 </p>
@@ -281,7 +319,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
                   {formatCurrency(hasCashChange ? enteredAmount : paidNow)}
                 </p>
               </div>
-              <div className={`rounded-2xl px-3 py-3 ${
+              <div className={`rounded-2xl px-3 py-2.5 sm:py-3 ${
                 hasCashChange
                   ? 'bg-[#6C5CE7]/10 text-[#6C5CE7]'
                   : hasOutstandingDebt
@@ -295,7 +333,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
               </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap gap-1.5 sm:mt-4 sm:gap-2">
               <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-[#5C6B73]">
                 Mode {method.label}
               </span>
@@ -375,7 +413,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
                   setAmountPaid(String(preset.value))
                   setError('')
                 }}
-                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+                className={`min-h-10 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
                   paidNow === preset.value
                     ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7]'
                     : 'border-[#2D7D7D]/[0.14] bg-white text-[#5C6B73] hover:border-[#6C5CE7]/35 hover:text-[#1A3636]'
@@ -442,13 +480,6 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
               La vente sera enregistree avec un solde restant a encaisser plus tard.
             </div>
           )}
-
-          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row">
-            <Button variant="ghost" fullWidth onClick={handleClose}>Annuler</Button>
-            <Button variant="primary" fullWidth onClick={handleConfirmStep}>
-              Confirmer
-            </Button>
-          </div>
         </div>
       )}
 
@@ -552,13 +583,6 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
               Cette vente restera visible dans l&apos;historique avec le solde a recouvrer.
             </div>
           )}
-
-          <div className="flex flex-col-reverse gap-3 sm:flex-row">
-            <Button variant="ghost" fullWidth onClick={() => setStep('method')}>Retour</Button>
-            <Button variant="primary" fullWidth isLoading={isProcessing} onClick={handlePayment}>
-              {isProcessing ? 'Enregistrement...' : actionLabel}
-            </Button>
-          </div>
         </div>
       )}
 
@@ -578,20 +602,6 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
                   ? `${formatCurrency(enteredAmount)} recus, ${formatCurrency(changeDue)} rendus, vente comptee pour ${formatCurrency(total)}.`
                   : `${formatCurrency(total)} encaisses via ${method.label}.`}
             </p>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Button
-              variant="outline"
-              fullWidth
-              leftIcon={<Printer size={15} />}
-              onClick={() => receipt && printReceipt(receipt)}
-              disabled={!receipt}
-            >
-              Imprimer recu
-            </Button>
-            <Button variant="primary" fullWidth onClick={handleClose}>
-              {hasOutstandingDebt ? 'Terminer' : 'Nouvelle vente'}
-            </Button>
           </div>
         </div>
       )}

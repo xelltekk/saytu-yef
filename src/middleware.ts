@@ -5,6 +5,20 @@ import { getRequestOrigin } from '@/lib/requestOrigin'
 import { clearSupabaseAuthCookies } from '@/lib/supabase/authCookies'
 
 const PUBLIC_ROUTES = ['/', '/login', '/signup', '/forgot-password', '/auth/callback', '/auth/reset-password']
+const SECURITY_HEADERS = {
+  'X-Frame-Options': 'DENY',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+} as const
+
+function applySecurityHeaders(response: NextResponse) {
+  Object.entries(SECURITY_HEADERS).forEach(([name, value]) => {
+    response.headers.set(name, value)
+  })
+
+  return response
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -15,7 +29,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/api') ||
     pathname.includes('.')
   ) {
-    return NextResponse.next()
+    return applySecurityHeaders(NextResponse.next())
   }
 
   let response = NextResponse.next({
@@ -92,10 +106,10 @@ export async function middleware(request: NextRequest) {
       request.cookies.getAll().map(({ name }) => name),
       (name) => redirectResponse.cookies.set(name, '', { path: '/', maxAge: 0 })
     )
-    return redirectResponse
+    return applySecurityHeaders(redirectResponse)
   }
 
-  return response
+  return applySecurityHeaders(response)
 }
 
 export const config = {
@@ -106,5 +120,8 @@ export const config = {
     '/reports/:path*',
     '/settings/:path*',
     '/abroad/:path*',
+    '/clients/:path*',
+    '/suppliers/:path*',
+    '/team/:path*',
   ],
 }

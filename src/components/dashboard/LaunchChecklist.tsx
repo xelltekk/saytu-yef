@@ -189,7 +189,7 @@ export function LaunchChecklist({ refreshKey = 0 }: { refreshKey?: number }) {
     setState((current) => ({ ...current, pwaTested: true }))
   }
 
-  if (!loading && progress >= 100) {
+  if (loading || progress >= 100) {
     return null
   }
 

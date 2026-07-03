@@ -26,6 +26,7 @@ const PAYMENT_METHOD_CHIPS = [
 export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   const { user } = useUser()
   const restoredDraftNoticeShown = useRef(false)
+  const [isDraftReady, setIsDraftReady] = useState(false)
   const [search, setSearch] = useState('')
   const [showMobileCart, setShowMobileCart] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
@@ -55,6 +56,10 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
     setDraftOwner,
     clearCart,
   } = useSalesStore()
+
+  useEffect(() => {
+    setIsDraftReady(true)
+  }, [])
 
   useEffect(() => {
     if (!user?.id) return
@@ -117,16 +122,22 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
     (product.sku?.toLowerCase() ?? '').includes(search.toLowerCase())
   )
 
-  const subtotal = getSubtotal()
-  const total = getTotal()
-  const discountAmount = subtotal * discount / 100
+  const activeCart = isDraftReady ? cart : []
+  const activeDiscount = isDraftReady ? discount : 0
+  const activeCustomerName = isDraftReady ? customerName : ''
+  const activeCustomerPhone = isDraftReady ? customerPhone : ''
+  const activePaymentMethod = isDraftReady ? paymentMethod : 'cash'
+  const subtotal = isDraftReady ? getSubtotal() : 0
+  const total = isDraftReady ? getTotal() : 0
+  const discountAmount = subtotal * activeDiscount / 100
   const taxAmount = (subtotal - discountAmount) * taxRate / 100
-  const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0)
-  const selectedPaymentMethod = PAYMENT_METHOD_CHIPS.find((option) => option.id === paymentMethod) ?? PAYMENT_METHOD_CHIPS[0]
+  const itemCount = activeCart.reduce((sum, item) => sum + item.quantity, 0)
+  const selectedPaymentMethod = PAYMENT_METHOD_CHIPS.find((option) => option.id === activePaymentMethod) ?? PAYMENT_METHOD_CHIPS[0]
+  const hasCartContext = itemCount > 0 || activeCustomerName.trim() || activeCustomerPhone.trim() || activeDiscount > 0
   const cartSummaryPills = [
     itemCount > 0 ? `${itemCount} article(s)` : '',
-    customerName.trim() || customerPhone.trim() ? (customerName.trim() || customerPhone.trim()) : '',
-    discount > 0 ? `Remise ${discount}%` : '',
+    activeCustomerName.trim() || activeCustomerPhone.trim() ? (activeCustomerName.trim() || activeCustomerPhone.trim()) : '',
+    activeDiscount > 0 ? `Remise ${activeDiscount}%` : '',
     `Mode ${selectedPaymentMethod.label}`,
   ].filter(Boolean)
 
@@ -159,8 +170,8 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         <div className="flex items-center gap-2">
           <ShoppingCart size={16} className="text-[#6C5CE7]" />
           <h3 className="text-sm font-semibold text-[#1A3636]">Panier</h3>
-          <Badge variant="purple">{cart.length} article(s)</Badge>
-          {cart.length > 0 && (
+          <Badge variant="purple">{activeCart.length} article(s)</Badge>
+          {activeCart.length > 0 && (
             <button type="button" onClick={requestClearCart} className="ml-auto text-[11px] font-semibold text-red-600 hover:text-red-700">
               Vider
             </button>
@@ -171,8 +182,8 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
       <div className="grid gap-3">
         <Input
           placeholder="Nom du client (optionnel)"
-          value={customerName}
-          onChange={(event) => setCustomer(event.target.value, customerPhone)}
+          value={activeCustomerName}
+          onChange={(event) => setCustomer(event.target.value, activeCustomerPhone)}
           leftAddon={<User size={14} />}
         />
         <Input
@@ -180,8 +191,8 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           type="tel"
           inputMode="tel"
           autoComplete="tel"
-          value={customerPhone}
-          onChange={(event) => setCustomer(customerName, event.target.value)}
+          value={activeCustomerPhone}
+          onChange={(event) => setCustomer(activeCustomerName, event.target.value)}
           leftAddon={<Phone size={14} />}
         />
       </div>
@@ -198,7 +209,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
               type="button"
               onClick={() => setPaymentMethod(option.id)}
               className={`min-h-10 rounded-2xl border px-3 text-xs font-semibold transition-all ${
-                paymentMethod === option.id
+                activePaymentMethod === option.id
                   ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7]'
                   : 'border-[#2D7D7D]/[0.1] bg-[#F4F7FB] text-[#5C6B73] hover:border-[#6C5CE7]/30 hover:text-[#1A3636]'
               }`}
@@ -210,13 +221,13 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
       </div>
 
       <div className={mode === 'mobile' ? 'max-h-[38dvh] space-y-2 overflow-y-auto pr-1' : 'flex-1 space-y-2 overflow-y-auto'}>
-        {cart.length === 0 ? (
+        {activeCart.length === 0 ? (
           <div className="flex h-32 flex-col items-center justify-center text-[#6B7682]">
             <ShoppingCart size={28} className="mb-2 opacity-40" />
             <p className="text-xs">Selectionnez des produits</p>
           </div>
         ) : (
-          cart.map((item) => mode === 'mobile' ? (
+          activeCart.map((item) => mode === 'mobile' ? (
             <article key={item.product_id} className="rounded-xl bg-[#F4F7FB] p-3">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-white">
@@ -311,7 +322,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         )}
       </div>
 
-      {mode === 'mobile' && cart.length > 0 && (
+      {mode === 'mobile' && activeCart.length > 0 && (
         <button type="button" onClick={requestClearCart} className="min-h-10 text-xs font-semibold text-red-600">
           Vider tout le panier
         </button>
@@ -324,7 +335,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           min="0"
           max="100"
           placeholder="Remise %"
-          value={discount || ''}
+          value={activeDiscount || ''}
           onChange={(event) => setDiscount(Number(event.target.value))}
           aria-label="Remise en pourcentage"
           className="h-9 flex-1 rounded-full border border-[#2D7D7D]/[0.14] bg-white px-3 text-xs text-[#1A3636] placeholder:text-[#6B7682] transition-all focus:border-[#6C5CE7]/60"
@@ -348,9 +359,9 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           <span>Sous-total</span>
           <span>{formatCurrency(subtotal)}</span>
         </div>
-        {discount > 0 && (
+        {activeDiscount > 0 && (
           <div className="flex justify-between text-xs text-emerald-600">
-            <span>Remise ({discount}%)</span>
+            <span>Remise ({activeDiscount}%)</span>
             <span>-{formatCurrency(discountAmount)}</span>
           </div>
         )}
@@ -370,7 +381,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         variant="primary"
         fullWidth
         size="lg"
-        disabled={cart.length === 0}
+        disabled={activeCart.length === 0}
         onClick={handleCheckout}
       >
         Encaisser
@@ -381,7 +392,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   return (
     <>
       <div className="flex flex-col gap-4 lg:h-[calc(100dvh-8rem)] lg:flex-row">
-        <div className="flex min-w-0 flex-1 flex-col gap-4 pb-24 lg:min-h-0 lg:pb-0">
+        <div className="flex min-w-0 flex-1 flex-col gap-4 pb-28 lg:min-h-0 lg:pb-0">
           <div className="relative">
             <Search size={16} className="absolute left-4 top-1/2 z-10 -translate-y-1/2 text-[#6B7682]" />
             <input
@@ -394,27 +405,49 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
             />
           </div>
 
-          {(itemCount > 0 || customerName.trim() || customerPhone.trim() || discount > 0) && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-3 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Panier</p>
-                <p className="mt-1 text-sm font-bold text-[#1A3636]">{itemCount} article(s)</p>
+          {hasCartContext && (
+            <>
+              <div className="flex flex-wrap gap-2 sm:hidden">
+                <span className="rounded-full border border-[#2D7D7D]/[0.08] bg-white px-3 py-1.5 text-xs font-semibold text-[#1A3636]">
+                  {itemCount} article(s)
+                </span>
+                <span className="rounded-full border border-[#6C5CE7]/10 bg-[#6C5CE7]/[0.04] px-3 py-1.5 text-xs font-semibold text-[#6C5CE7]">
+                  {formatCurrencyCompact(total)}
+                </span>
+                <span className="max-w-full truncate rounded-full border border-[#2D7D7D]/[0.08] bg-white px-3 py-1.5 text-xs font-semibold text-[#1A3636]">
+                  {activeCustomerName.trim() || activeCustomerPhone.trim() || 'Client comptoir'}
+                </span>
+                <span className="rounded-full border border-[#2D7D7D]/[0.08] bg-white px-3 py-1.5 text-xs font-semibold text-[#5C6B73]">
+                  {selectedPaymentMethod.label}
+                </span>
+                {activeDiscount > 0 && (
+                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                    Remise {activeDiscount}%
+                  </span>
+                )}
               </div>
-              <div className="rounded-2xl border border-[#6C5CE7]/10 bg-[#6C5CE7]/[0.04] px-3 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Total</p>
-                <p className="mt-1 text-sm font-bold text-[#6C5CE7]">{formatCurrency(total)}</p>
+
+              <div className="hidden grid-cols-2 gap-2 sm:grid sm:grid-cols-4">
+                <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Panier</p>
+                  <p className="mt-1 text-sm font-bold text-[#1A3636]">{itemCount} article(s)</p>
+                </div>
+                <div className="rounded-2xl border border-[#6C5CE7]/10 bg-[#6C5CE7]/[0.04] px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Total</p>
+                  <p className="mt-1 text-sm font-bold text-[#6C5CE7]">{formatCurrency(total)}</p>
+                </div>
+                <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Client</p>
+                  <p className="mt-1 truncate text-sm font-semibold text-[#1A3636]">
+                    {activeCustomerName.trim() || activeCustomerPhone.trim() || 'Comptoir'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Mode</p>
+                  <p className="mt-1 truncate text-sm font-semibold text-[#1A3636]">{selectedPaymentMethod.label}</p>
+                </div>
               </div>
-              <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-3 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Client</p>
-                <p className="mt-1 truncate text-sm font-semibold text-[#1A3636]">
-                  {customerName.trim() || customerPhone.trim() || 'Comptoir'}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-3 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Mode</p>
-                <p className="mt-1 truncate text-sm font-semibold text-[#1A3636]">{selectedPaymentMethod.label}</p>
-              </div>
-            </div>
+            </>
           )}
 
           {productsError && (
@@ -448,7 +481,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           ) : (
             <div className="grid flex-1 grid-cols-2 gap-3 overflow-y-auto pr-1 min-[420px]:grid-cols-3 sm:grid-cols-4 lg:grid-cols-5">
               {filtered.map((product) => {
-                const inCart = cart.find((current) => current.product_id === product.id)
+                const inCart = activeCart.find((current) => current.product_id === product.id)
                 const remaining = Math.max(0, product.quantity - (inCart?.quantity ?? 0))
 
                 return (
@@ -500,7 +533,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         </div>
       </div>
 
-      {cart.length > 0 && (
+      {activeCart.length > 0 && (
         <div className="sticky bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-20 -mt-2 lg:hidden">
           <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-[28px] border border-[#2D7D7D]/[0.08] bg-white/95 p-3 shadow-[0_12px_28px_rgba(26,54,54,0.12)] backdrop-blur">
             <button
@@ -516,7 +549,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-[#1A3636]">{itemCount} article(s)</p>
                   <p className="truncate text-xs text-[#6B7682]">
-                    {customerName.trim() || customerPhone.trim() || 'Client comptoir'} · {selectedPaymentMethod.label}
+                    {activeCustomerName.trim() || activeCustomerPhone.trim() || 'Client comptoir'} · {selectedPaymentMethod.label}
                   </p>
                 </div>
               </div>

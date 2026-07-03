@@ -44,7 +44,7 @@ export async function getProducts(): Promise<Product[]> {
   await ensureBrowserSupabaseSession(supabase)
   const { data, error } = await supabase
     .from('products')
-    .select('*, category:categories(id,name,color,user_id,created_at), supplier:suppliers(id,name,country,user_id,created_at)')
+    .select('*, category:categories(id,name,color,user_id,created_at), supplier:suppliers(id,name,contact_name,phone,email,country,user_id,created_at)')
     .order('created_at', { ascending: false })
 
   if (error) throw error
@@ -734,7 +734,7 @@ export async function getReportsData(months = 6) {
   const [salesResult, productsResult] = await Promise.all([
     supabase
       .from('sales')
-      .select('total, tax, created_at, items:sale_items(product_id, product_name, quantity, unit_price, total)')
+      .select('total, tax, amount_paid, amount_due, payment_status, created_at, items:sale_items(product_id, product_name, quantity, unit_price, total)')
       .gte('created_at', start.toISOString())
       .in('payment_status', ['completed', 'partial', 'pending'])
       .order('created_at'),
@@ -754,6 +754,12 @@ export async function getReportsData(months = 6) {
   // Données mensuelles
   const monthlyMap: Record<string, { month: string; revenue: number; profit: number }> = {}
   const productSales: Record<string, { name: string; sold: number; revenue: number; profit: number }> = {}
+  let totalInvoiced = 0
+  let totalCollected = 0
+  let totalDue = 0
+  let completedCount = 0
+  let partialCount = 0
+  let pendingCount = 0
 
   for (let index = 0; index < monthCount; index += 1) {
     const date = new Date(start.getFullYear(), start.getMonth() + index, 1)
@@ -770,6 +776,19 @@ export async function getReportsData(months = 6) {
     const monthKey = `${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`
     const month = monthlyMap[monthKey]
     if (!month) return
+
+    const grossSaleRevenue = Number(sale.total)
+    const collectedAmount = Number(sale.amount_paid ?? Math.max(0, grossSaleRevenue - Number(sale.amount_due ?? 0)))
+    const dueAmount = Number(sale.amount_due ?? Math.max(0, grossSaleRevenue - collectedAmount))
+
+    totalInvoiced += grossSaleRevenue
+    totalCollected += Math.max(0, collectedAmount)
+    totalDue += Math.max(0, dueAmount)
+
+    if (sale.payment_status === 'completed') completedCount += 1
+    if (sale.payment_status === 'partial') partialCount += 1
+    if (sale.payment_status === 'pending') pendingCount += 1
+
     const netSaleRevenue = Math.max(0, Number(sale.total) - Number(sale.tax ?? 0))
     month.revenue += netSaleRevenue
 
@@ -800,12 +819,32 @@ export async function getReportsData(months = 6) {
   const totalSold = allProductSales.reduce((sum, product) => sum + product.sold, 0)
   const totalProductRevenue = allProductSales.reduce((sum, product) => sum + product.revenue, 0)
   const totalProductProfit = allProductSales.reduce((sum, product) => sum + product.profit, 0)
+  const monthlyData = Object.values(monthlyMap)
+  const bestMonth = monthlyData
+    .filter((month) => month.revenue > 0 || month.profit > 0)
+    .sort((a, b) => b.revenue - a.revenue || b.profit - a.profit)[0] ?? null
+  const bestProductByUnits = [...allProductSales]
+    .sort((a, b) => b.sold - a.sold || b.revenue - a.revenue)[0] ?? null
+  const bestProductByProfit = [...allProductSales]
+    .sort((a, b) => b.profit - a.profit || b.revenue - a.revenue)[0] ?? null
 
   return {
-    monthlyData: Object.values(monthlyMap),
+    monthlyData,
     allProducts: allProductSales,
     topProducts: allProductSales.slice(0, 10),
     totalSold,
     avgMargin: totalProductRevenue > 0 ? (totalProductProfit / totalProductRevenue) * 100 : 0,
+    totalInvoiced,
+    totalCollected,
+    totalDue,
+    salesCount: sales.length,
+    averageTicket: sales.length > 0 ? totalInvoiced / sales.length : 0,
+    collectionRate: totalInvoiced > 0 ? (totalCollected / totalInvoiced) * 100 : 0,
+    completedCount,
+    partialCount,
+    pendingCount,
+    bestMonth,
+    bestProductByUnits,
+    bestProductByProfit,
   }
 }

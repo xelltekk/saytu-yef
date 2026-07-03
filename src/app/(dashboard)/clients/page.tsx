@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ChevronDown,
+  Copy,
   Download,
   MessageCircle,
   Phone,
@@ -17,11 +18,12 @@ import { Header } from '@/components/layout/Header'
 import { Card, MetricCard } from '@/components/ui/Card'
 import { SaleDetailModal } from '@/components/sales/SaleDetailModal'
 import { getSales } from '@/lib/supabase/queries'
-import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus } from '@/lib/sales'
+import { SALE_STATUS_LABELS, getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus } from '@/lib/sales'
 import { formatCurrency, formatCurrencyCompact, formatDate } from '@/lib/utils'
 import type { Sale } from '@/types'
 
-type ClientFilter = 'all' | 'debt'
+type ClientFilter = 'all' | 'debt' | 'follow_up' | 'settled' | 'missing_phone'
+type ClientSort = 'priority' | 'recent' | 'purchases' | 'name'
 
 interface ClientSummary {
   id: string
@@ -46,6 +48,90 @@ function getClientDebtSales(client: ClientSummary): Sale[] {
   return client.sales
     .filter((sale) => getSaleAmountDue(sale) > 0)
     .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime())
+}
+
+function getDaysSince(dateLike: string): number {
+  const timestamp = new Date(dateLike).getTime()
+  if (Number.isNaN(timestamp)) return 0
+  return Math.max(0, Math.floor((Date.now() - timestamp) / (1000 * 60 * 60 * 24)))
+}
+
+function getClientOldestDebtSale(client: ClientSummary): Sale | null {
+  const debtSales = getClientDebtSales(client)
+  return debtSales[debtSales.length - 1] ?? null
+}
+
+function getClientRecentSales(client: ClientSummary): Sale[] {
+  return [...client.sales].sort((left, right) => (
+    new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+  ))
+}
+
+function getClientRecoveryRate(client: ClientSummary): number {
+  if (client.totalPurchases <= 0) return 100
+  return Math.max(0, Math.min(100, Math.round((client.totalPaid / client.totalPurchases) * 100)))
+}
+
+function getSaleStatusClasses(status: Sale['payment_status']): string {
+  switch (status) {
+    case 'completed':
+      return 'bg-emerald-500/10 text-emerald-700'
+    case 'partial':
+      return 'bg-amber-500/10 text-amber-700'
+    case 'pending':
+      return 'bg-slate-500/10 text-slate-700'
+    case 'refunded':
+      return 'bg-sky-500/10 text-sky-700'
+    case 'cancelled':
+    default:
+      return 'bg-red-500/10 text-red-600'
+  }
+}
+
+function getDebtAgeBadge(days: number): { label: string; className: string } {
+  if (days >= 30) {
+    return {
+      label: `${days} j · urgent`,
+      className: 'bg-red-500/10 text-red-600',
+    }
+  }
+
+  if (days >= 8) {
+    return {
+      label: `${days} j · a suivre`,
+      className: 'bg-amber-500/10 text-amber-700',
+    }
+  }
+
+  return {
+    label: `${days} j · recent`,
+    className: 'bg-emerald-500/10 text-emerald-700',
+  }
+}
+
+async function copyText(value: string): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('copy_unavailable')
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', 'true')
+  textarea.style.position = 'absolute'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  document.body.removeChild(textarea)
+
+  if (!copied) {
+    throw new Error('copy_failed')
+  }
 }
 
 function buildClientSummaries(sales: Sale[]): ClientSummary[] {
@@ -104,6 +190,7 @@ export default function ClientsPage() {
   const [notice, setNotice] = useState('')
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<ClientFilter>('all')
+  const [sort, setSort] = useState<ClientSort>('priority')
   const [expandedClientId, setExpandedClientId] = useState<string | null>(null)
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
 
@@ -129,18 +216,64 @@ export default function ClientsPage() {
 
   const filteredClients = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('fr')
-    return clients.filter((client) => {
-      if (filter === 'debt' && client.totalDue <= 0) return false
-      if (!normalizedQuery) return true
-      return `${client.name} ${client.phone}`.toLocaleLowerCase('fr').includes(normalizedQuery)
-    })
-  }, [clients, filter, query])
+    return clients
+      .filter((client) => {
+        const hasPhone = normalizePhone(client.phone).length > 0
+
+        if (filter === 'debt' && client.totalDue <= 0) return false
+        if (filter === 'follow_up' && (client.totalDue <= 0 || !hasPhone)) return false
+        if (filter === 'settled' && client.totalDue > 0) return false
+        if (filter === 'missing_phone' && (client.totalDue <= 0 || hasPhone)) return false
+        if (!normalizedQuery) return true
+
+        return `${client.name} ${client.phone}`.toLocaleLowerCase('fr').includes(normalizedQuery)
+      })
+      .sort((left, right) => {
+        if (sort === 'recent') {
+          return new Date(right.lastPurchase).getTime() - new Date(left.lastPurchase).getTime()
+        }
+
+        if (sort === 'purchases') {
+          return right.totalPurchases - left.totalPurchases
+        }
+
+        if (sort === 'name') {
+          return left.name.localeCompare(right.name, 'fr')
+        }
+
+        return (
+          right.totalDue - left.totalDue
+          || getClientDebtSales(right).length - getClientDebtSales(left).length
+          || new Date(right.lastPurchase).getTime() - new Date(left.lastPurchase).getTime()
+        )
+      })
+  }, [clients, filter, query, sort])
 
   const totals = useMemo(() => clients.reduce((summary, client) => ({
     purchases: summary.purchases + client.totalPurchases,
     due: summary.due + client.totalDue,
     debtors: summary.debtors + (client.totalDue > 0 ? 1 : 0),
   }), { purchases: 0, due: 0, debtors: 0 }), [clients])
+
+  const filteredTotals = useMemo(() => filteredClients.reduce((summary, client) => ({
+    due: summary.due + client.totalDue,
+    debtors: summary.debtors + (client.totalDue > 0 ? 1 : 0),
+    followUps: summary.followUps + (client.totalDue > 0 && normalizePhone(client.phone).length > 0 ? 1 : 0),
+    missingPhones: summary.missingPhones + (client.totalDue > 0 && normalizePhone(client.phone).length === 0 ? 1 : 0),
+    urgent: summary.urgent + (() => {
+      const oldestDebtSale = getClientOldestDebtSale(client)
+      return oldestDebtSale && getDaysSince(oldestDebtSale.created_at) >= 30 ? 1 : 0
+    })(),
+    medium: summary.medium + (() => {
+      const oldestDebtSale = getClientOldestDebtSale(client)
+      const age = oldestDebtSale ? getDaysSince(oldestDebtSale.created_at) : 0
+      return oldestDebtSale && age >= 8 && age < 30 ? 1 : 0
+    })(),
+    recent: summary.recent + (() => {
+      const oldestDebtSale = getClientOldestDebtSale(client)
+      return oldestDebtSale && getDaysSince(oldestDebtSale.created_at) < 8 ? 1 : 0
+    })(),
+  }), { due: 0, debtors: 0, followUps: 0, missingPhones: 0, urgent: 0, medium: 0, recent: 0 }), [filteredClients])
 
   const exportCsv = () => {
     if (filteredClients.length === 0) return
@@ -177,18 +310,29 @@ export default function ClientsPage() {
     void loadClients(true)
   }
 
+  const handleCopyReminder = useCallback(async (clientName: string, reminder: string) => {
+    setError('')
+
+    try {
+      await copyText(reminder)
+      setNotice(`Message de relance copié pour ${clientName}.`)
+    } catch {
+      setError("Impossible de copier le message de relance pour le moment.")
+    }
+  }, [])
+
   return (
     <div className="min-h-screen">
       <Header title="Clients & dettes" subtitle="Suivi centralisé des achats et créances" />
       <div className="space-y-4 p-3 sm:p-4 lg:space-y-6 lg:p-6">
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 lg:grid-cols-4">
           <MetricCard title="Clients identifiés" value={loading ? '…' : String(clients.length)} change="Nom ou téléphone" changeType="neutral" icon={<Users size={20} />} color="#2D7D7D" />
           <MetricCard title="Clients débiteurs" value={loading ? '…' : String(totals.debtors)} change="Solde restant" changeType={totals.debtors > 0 ? 'down' : 'neutral'} icon={<UserRound size={20} />} color="#F59E0B" />
           <MetricCard title="Total des dettes" value={loading ? '…' : <><span className="sm:hidden">{formatCurrencyCompact(totals.due)}</span><span className="hidden sm:inline">{formatCurrency(totals.due)}</span></>} change="À recouvrer" changeType={totals.due > 0 ? 'down' : 'neutral'} icon={<WalletCards size={20} />} color="#EF4444" />
           <MetricCard title="Achats cumulés" value={loading ? '…' : <><span className="sm:hidden">{formatCurrencyCompact(totals.purchases)}</span><span className="hidden sm:inline">{formatCurrency(totals.purchases)}</span></>} change="Ventes actives" changeType="up" icon={<WalletCards size={20} />} color="#6C5CE7" />
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_auto_auto]">
+        <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_180px_180px_auto_auto]">
           <label className="relative block">
             <span className="sr-only">Rechercher un client</span>
             <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#6B7682]" />
@@ -204,18 +348,71 @@ export default function ClientsPage() {
             value={filter}
             onChange={(event) => setFilter(event.target.value as ClientFilter)}
             aria-label="Filtrer les clients"
-            className="h-11 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-sm text-[#1A3636]"
+            className="h-11 w-full rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-sm text-[#1A3636]"
           >
             <option value="all">Tous les clients</option>
             <option value="debt">Avec une dette</option>
+            <option value="follow_up">À relancer</option>
+            <option value="missing_phone">Dette sans numéro</option>
+            <option value="settled">Soldés</option>
           </select>
-          <button type="button" onClick={exportCsv} disabled={filteredClients.length === 0} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-4 text-xs font-semibold text-[#2D7D7D] disabled:opacity-50">
+          <select
+            value={sort}
+            onChange={(event) => setSort(event.target.value as ClientSort)}
+            aria-label="Trier les clients"
+            className="h-11 w-full rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-sm text-[#1A3636]"
+          >
+            <option value="priority">Priorité recouvrement</option>
+            <option value="recent">Derniers achats</option>
+            <option value="purchases">Plus gros clients</option>
+            <option value="name">Nom A-Z</option>
+          </select>
+          <button type="button" onClick={exportCsv} disabled={filteredClients.length === 0} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-4 text-xs font-semibold text-[#2D7D7D] disabled:opacity-50">
             <Download size={14} /> Exporter
           </button>
-          <button type="button" onClick={() => void loadClients(true)} disabled={refreshing} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-4 text-xs font-semibold text-[#2D7D7D] disabled:opacity-50">
+          <button type="button" onClick={() => void loadClients(true)} disabled={refreshing} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-4 text-xs font-semibold text-[#2D7D7D] disabled:opacity-50">
             <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Actualiser
           </button>
         </div>
+
+        {!loading && filteredClients.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-[#5C6B73]">
+              {filteredClients.length} client(s) affiché(s)
+            </span>
+            <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${filteredTotals.debtors > 0 ? 'bg-amber-500/10 text-amber-700' : 'bg-emerald-500/10 text-emerald-700'}`}>
+              {filteredTotals.debtors} débiteur(s)
+            </span>
+            <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${filteredTotals.due > 0 ? 'bg-red-500/10 text-red-600' : 'bg-emerald-500/10 text-emerald-700'}`}>
+              {filteredTotals.due > 0 ? `${formatCurrencyCompact(filteredTotals.due)} à recouvrer` : 'Aucune dette restante'}
+            </span>
+            {filteredTotals.followUps > 0 && (
+              <span className="rounded-full bg-[#2D7D7D]/10 px-3 py-1 text-[11px] font-semibold text-[#2D7D7D]">
+                {filteredTotals.followUps} prêt(s) à relancer
+              </span>
+            )}
+            {filteredTotals.missingPhones > 0 && (
+              <span className="rounded-full bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-700">
+                {filteredTotals.missingPhones} sans numéro
+              </span>
+            )}
+            {filteredTotals.urgent > 0 && (
+              <span className="rounded-full bg-red-500/10 px-3 py-1 text-[11px] font-semibold text-red-600">
+                {filteredTotals.urgent} urgent(s) 30j+
+              </span>
+            )}
+            {filteredTotals.medium > 0 && (
+              <span className="rounded-full bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-700">
+                {filteredTotals.medium} a suivre 8-29j
+              </span>
+            )}
+            {filteredTotals.recent > 0 && (
+              <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                {filteredTotals.recent} recent(s) 0-7j
+              </span>
+            )}
+          </div>
+        )}
 
         {notice && <div role="status" className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-700">{notice}</div>}
         {error && <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">{error}</div>}
@@ -229,7 +426,15 @@ export default function ClientsPage() {
             {filteredClients.map((client) => {
               const contactPhone = normalizePhone(client.phone)
               const debtSales = getClientDebtSales(client)
+              const recentSales = getClientRecentSales(client)
+              const latestDebtSale = debtSales[0] ?? null
+              const latestSale = recentSales[0] ?? null
+              const oldestDebtSale = getClientOldestDebtSale(client)
               const isExpanded = expandedClientId === client.id
+              const recoveryRate = getClientRecoveryRate(client)
+              const latestActionSale = latestDebtSale ?? latestSale
+              const oldestDebtAgeDays = oldestDebtSale ? getDaysSince(oldestDebtSale.created_at) : 0
+              const debtAgeBadge = oldestDebtSale ? getDebtAgeBadge(oldestDebtAgeDays) : null
               const reminder = `Bonjour ${client.name}, nous vous rappelons qu’il reste ${formatCurrency(client.totalDue)} à régler chez Saytu Yef. Merci.`
 
               return (
@@ -255,12 +460,81 @@ export default function ClientsPage() {
                     </div>
                   </div>
 
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-full bg-[#F4F7FB] px-2.5 py-1 text-[11px] font-medium text-[#5C6B73]">
+                      Versé {formatCurrencyCompact(client.totalPaid)}
+                    </span>
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${debtSales.length > 0 ? 'bg-amber-500/10 text-amber-700' : 'bg-emerald-500/10 text-emerald-700'}`}>
+                      {debtSales.length > 0 ? `${debtSales.length} dette(s) ouverte(s)` : 'Compte soldé'}
+                    </span>
+                    <span className="rounded-full bg-[#2D7D7D]/10 px-2.5 py-1 text-[11px] font-medium text-[#2D7D7D]">
+                      {recoveryRate}% recouvré
+                    </span>
+                    {debtAgeBadge && (
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${debtAgeBadge.className}`}>
+                        {debtAgeBadge.label}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="mb-1 flex items-center justify-between text-[11px] text-[#6B7682]">
+                      <span>Progression du recouvrement</span>
+                      <span>{recoveryRate}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-[#2D7D7D]/10">
+                      <div
+                        className="h-full rounded-full bg-[#2D7D7D] transition-all"
+                        style={{ width: `${Math.max(recoveryRate, client.totalPaid > 0 ? 6 : 0)}%` }}
+                      />
+                    </div>
+                  </div>
+
                   <div className="mt-3 flex items-center justify-between text-xs text-[#6B7682]">
                     <span>{client.saleCount} vente(s)</span>
                     <span>{formatDate(client.lastPurchase)}</span>
                   </div>
 
+                  {latestDebtSale && (
+                    <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="font-medium text-[#5C6B73]">Dernière dette ouverte</span>
+                        <span className="font-bold text-amber-700">{formatCurrencyCompact(getSaleAmountDue(latestDebtSale))}</span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-amber-700">
+                        Reçu {latestDebtSale.id.slice(0, 8).toUpperCase()} · {formatDate(latestDebtSale.created_at)}
+                      </p>
+                      {oldestDebtSale && (
+                        <p className="mt-1 text-[11px] text-[#5C6B73]">
+                          Dette la plus ancienne: {oldestDebtAgeDays} jour(s)
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <div className="mt-3 grid gap-2 border-t border-[#2D7D7D]/[0.07] pt-3">
+                    {latestDebtSale && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSale(latestDebtSale)}
+                        className="flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#2D7D7D] px-3 text-xs font-semibold text-white"
+                      >
+                        <WalletCards size={14} />
+                        Encaisser maintenant
+                      </button>
+                    )}
+
+                    {client.totalDue > 0 && !contactPhone && latestActionSale && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSale(latestActionSale)}
+                        className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 text-xs font-semibold text-amber-700"
+                      >
+                        <Phone size={14} />
+                        Ajouter le téléphone client
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => setExpandedClientId(isExpanded ? null : client.id)}
@@ -281,24 +555,69 @@ export default function ClientsPage() {
                         </a>
                       </div>
                     )}
+
+                    {client.totalDue > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyReminder(client.name, reminder)}
+                        className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 px-3 text-xs font-semibold text-[#2D7D7D]"
+                      >
+                        <Copy size={14} />
+                        Copier le rappel
+                      </button>
+                    )}
                   </div>
 
                   {isExpanded && (
                     <div className="mt-3 space-y-2 rounded-2xl bg-[#F4F7FB] p-2">
                       {debtSales.length === 0 ? (
-                        <p className="px-2 py-3 text-center text-xs text-[#6B7682]">Aucune dette ouverte pour ce client.</p>
+                        <>
+                          <p className="px-2 pt-2 text-xs font-medium text-[#5C6B73]">Aucune dette ouverte. Dernières ventes du client:</p>
+                          {recentSales.slice(0, 3).map((sale) => {
+                            const status = getSaleComputedStatus(sale)
+
+                            return (
+                              <div key={sale.id} className="rounded-xl bg-white p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-semibold text-[#1A3636]">Reçu {sale.id.slice(0, 8).toUpperCase()}</p>
+                                    <p className="mt-0.5 text-[11px] text-[#6B7682]">{formatDate(sale.created_at)} · total {formatCurrencyCompact(Number(sale.total))}</p>
+                                  </div>
+                                  <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${getSaleStatusClasses(status)}`}>
+                                    {SALE_STATUS_LABELS[status]}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedSale(sale)}
+                                  className="mt-3 flex min-h-9 w-full items-center justify-center rounded-lg border border-[#2D7D7D]/15 px-3 text-xs font-semibold text-[#2D7D7D]"
+                                >
+                                  Ouvrir la vente
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </>
                       ) : (
                         debtSales.map((sale) => {
                           const due = getSaleAmountDue(sale)
                           const paid = getSaleAmountPaid(sale)
+                          const status = getSaleComputedStatus(sale)
+                          const ageBadge = getDebtAgeBadge(getDaysSince(sale.created_at))
                           return (
                             <div key={sale.id} className="rounded-xl bg-white p-3">
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <p className="text-xs font-semibold text-[#1A3636]">Reçu {sale.id.slice(0, 8).toUpperCase()}</p>
                                   <p className="mt-0.5 text-[11px] text-[#6B7682]">{formatDate(sale.created_at)} · payé {formatCurrencyCompact(paid)}</p>
+                                  <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${ageBadge.className}`}>
+                                    {ageBadge.label}
+                                  </span>
                                 </div>
                                 <div className="text-right">
+                                  <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${getSaleStatusClasses(status)}`}>
+                                    {SALE_STATUS_LABELS[status]}
+                                  </span>
                                   <p className="text-xs text-[#6B7682]">Reste</p>
                                   <p className="text-sm font-bold text-amber-700">{formatCurrencyCompact(due)}</p>
                                 </div>

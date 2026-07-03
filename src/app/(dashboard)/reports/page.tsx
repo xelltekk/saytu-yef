@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Header } from '@/components/layout/Header'
 import { Card, MetricCard } from '@/components/ui/Card'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
-import { TrendingUp, Package, DollarSign, BarChart3, Download, RefreshCw } from 'lucide-react'
+import { TrendingUp, Package, DollarSign, BarChart3, Download, RefreshCw, Wallet, Receipt, TriangleAlert, Target } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
@@ -18,6 +18,18 @@ interface ReportsData {
   topProducts: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number }[]
   totalSold: number
   avgMargin: number
+  totalInvoiced: number
+  totalCollected: number
+  totalDue: number
+  salesCount: number
+  averageTicket: number
+  collectionRate: number
+  completedCount: number
+  partialCount: number
+  pendingCount: number
+  bestMonth: { month: string; revenue: number; profit: number } | null
+  bestProductByUnits: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number } | null
+  bestProductByProfit: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number } | null
 }
 
 export default function ReportsPage() {
@@ -50,6 +62,19 @@ export default function ReportsPage() {
   const totalProfit = data?.monthlyData.reduce((s, m) => s + m.profit, 0) ?? 0
   const totalSold = data?.totalSold ?? 0
   const avgMargin = data?.avgMargin ?? 0
+  const totalInvoiced = data?.totalInvoiced ?? 0
+  const totalCollected = data?.totalCollected ?? 0
+  const totalDue = data?.totalDue ?? 0
+  const salesCount = data?.salesCount ?? 0
+  const averageTicket = data?.averageTicket ?? 0
+  const collectionRate = data?.collectionRate ?? 0
+  const completedCount = data?.completedCount ?? 0
+  const partialCount = data?.partialCount ?? 0
+  const pendingCount = data?.pendingCount ?? 0
+  const bestMonth = data?.bestMonth ?? null
+  const bestProductByUnits = data?.bestProductByUnits ?? null
+  const bestProductByProfit = data?.bestProductByProfit ?? null
+  const collectionFollowUpCount = partialCount + pendingCount
   const rangeLabel = rangeMonths === 1 ? 'mois en cours' : `${rangeMonths} derniers mois`
   const rangeSentence = rangeMonths === 1 ? 'du mois en cours' : `des ${rangeMonths} derniers mois`
 
@@ -88,7 +113,18 @@ export default function ReportsPage() {
       return `"${safeText.replace(/"/g, '""')}"`
     }
     const rows: Array<Array<string | number>> = [
-      ['Rapport Saytu Yëf', rangeLabel],
+      ['Rapport Saytu Yef', rangeLabel],
+      [],
+      ['Pilotage'],
+      ['Ventes', data.salesCount],
+      ['Montant facture (FCFA)', Math.round(data.totalInvoiced)],
+      ['Montant encaisse (FCFA)', Math.round(data.totalCollected)],
+      ['Solde client (FCFA)', Math.round(data.totalDue)],
+      ['Ticket moyen (FCFA)', Math.round(data.averageTicket)],
+      ['Taux d encaissement (%)', data.collectionRate.toFixed(2)],
+      ['Ventes reglees', data.completedCount],
+      ['Ventes partielles', data.partialCount],
+      ['Ventes en attente', data.pendingCount],
       [],
       ['Synthèse mensuelle'],
       ['Mois', 'Revenus HT (FCFA)', 'Bénéfice brut (FCFA)'],
@@ -195,6 +231,86 @@ export default function ReportsPage() {
           />
         </div>
 
+        <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
+          <Card className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[#5C6B73]">Taux d&apos;encaissement</p>
+                <p className="mt-2 text-2xl font-bold text-[#1A3636]">{loading ? '...' : `${collectionRate.toFixed(0)}%`}</p>
+                <p className="mt-1 text-xs text-[#6B7682]">
+                  {loading ? 'Chargement...' : `${formatCurrencyCompact(totalCollected)} encaisses sur ${formatCurrencyCompact(totalInvoiced)}`}
+                </p>
+              </div>
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
+                <Wallet size={18} />
+              </div>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#2D7D7D]/[0.08]">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all"
+                style={{ width: `${Math.max(0, Math.min(100, collectionRate))}%` }}
+              />
+            </div>
+            <p className="mt-2 text-[11px] text-[#6B7682]">
+              {loading ? '...' : `${completedCount} reglees, ${collectionFollowUpCount} a suivre`}
+            </p>
+          </Card>
+
+          <Card className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[#5C6B73]">Dettes clients</p>
+                <p className="mt-2 text-2xl font-bold text-[#1A3636]">{loading ? '...' : renderResponsiveCurrency(totalDue)}</p>
+                <p className="mt-1 text-xs text-[#6B7682]">
+                  {loading ? 'Chargement...' : `${partialCount} vente(s) partielle(s), ${pendingCount} en attente`}
+                </p>
+              </div>
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
+                <TriangleAlert size={18} />
+              </div>
+            </div>
+            <p className="mt-4 text-[11px] text-[#6B7682]">
+              {loading ? '...' : totalDue > 0 ? 'Encaissements clients encore ouverts sur la periode.' : 'Aucun solde client ouvert sur la periode.'}
+            </p>
+          </Card>
+
+          <Card className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[#5C6B73]">Ticket moyen</p>
+                <p className="mt-2 text-2xl font-bold text-[#1A3636]">{loading ? '...' : renderResponsiveCurrency(averageTicket)}</p>
+                <p className="mt-1 text-xs text-[#6B7682]">
+                  {loading ? 'Chargement...' : `${salesCount} vente(s) sur ${rangeLabel}`}
+                </p>
+              </div>
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#6C5CE7]/10 text-[#6C5CE7]">
+                <Receipt size={18} />
+              </div>
+            </div>
+            <p className="mt-4 text-[11px] text-[#6B7682]">
+              {loading ? '...' : salesCount > 0 ? 'Mesure utile pour ajuster panier moyen et remises.' : 'Le ticket moyen apparaitra apres vos premieres ventes.'}
+            </p>
+          </Card>
+
+          <Card className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.07em] text-[#5C6B73]">Meilleure periode</p>
+                <p className="mt-2 text-2xl font-bold text-[#1A3636]">{loading ? '...' : bestMonth?.month ?? 'Aucune'}</p>
+                <p className="mt-1 text-xs text-[#6B7682]">
+                  {loading ? 'Chargement...' : bestMonth ? `${formatCurrencyCompact(bestMonth.revenue)} de revenus HT` : 'Pas encore assez de ventes pour comparer.'}
+                </p>
+              </div>
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-600">
+                <Target size={18} />
+              </div>
+            </div>
+            <p className="mt-4 text-[11px] text-[#6B7682]">
+              {loading ? '...' : bestMonth ? `${formatCurrencyCompact(bestMonth.profit)} de benefice brut sur cette periode.` : 'Le meilleur mois apparaitra automatiquement avec l historique.'}
+            </p>
+          </Card>
+        </div>
+
         {/* Charts */}
         <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-3">
           <Card className="p-4 sm:p-5 lg:col-span-2">
@@ -261,6 +377,26 @@ export default function ReportsPage() {
                       <span className="flex-shrink-0 font-medium text-[#1A3636]">{cat.percentage}%</span>
                     </div>
                   ))}
+                </div>
+                <div className="mt-4 grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+                  <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+                    <p className="text-[10px] uppercase tracking-[0.07em] text-[#6B7682]">Produit rentable</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-[#1A3636]">
+                      {bestProductByProfit?.name ?? 'Aucun produit'}
+                    </p>
+                    <p className="mt-1 text-xs text-emerald-600">
+                      {bestProductByProfit ? formatCurrencyCompact(bestProductByProfit.profit) : 'Pas encore de benefice'}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+                    <p className="text-[10px] uppercase tracking-[0.07em] text-[#6B7682]">Meilleur volume</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-[#1A3636]">
+                      {bestProductByUnits?.name ?? 'Aucun produit'}
+                    </p>
+                    <p className="mt-1 text-xs text-[#6C5CE7]">
+                      {bestProductByUnits ? `${bestProductByUnits.sold} unite(s) vendue(s)` : 'Pas encore de volume'}
+                    </p>
+                  </div>
                 </div>
               </>
             ) : (
