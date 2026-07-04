@@ -2,6 +2,7 @@ export type SubscriptionPlan = 'free' | 'starter' | 'pro' | 'enterprise'
 export type SubscriptionStatus = 'free' | 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled' | 'expired'
 export type BillingCycle = 'monthly' | 'quarterly' | 'yearly' | 'manual'
 export type SubscriptionRequestStatus = 'sent' | 'in_progress' | 'activated' | 'cancelled'
+export type SubscriptionRequestType = 'activation' | 'upgrade' | 'renewal' | 'reactivation' | 'downgrade'
 
 export interface User {
   id: string
@@ -184,6 +185,7 @@ export interface SubscriptionRequest {
   business_name?: string | null
   current_plan: SubscriptionPlan
   requested_plan: SubscriptionPlan
+  request_type: SubscriptionRequestType
   status: SubscriptionRequestStatus
   notes?: string | null
   support_note?: string | null

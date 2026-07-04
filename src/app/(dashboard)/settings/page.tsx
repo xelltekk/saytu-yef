@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Header } from '@/components/layout/Header'
 import { SubscriptionCenter } from '@/components/settings/SubscriptionCenter'
 import { Button } from '@/components/ui/Button'
@@ -13,6 +14,18 @@ import { AlertCircle, Bell, Building, Check, CreditCard, Shield, User } from 'lu
 type SettingsTab = 'profile' | 'business' | 'billing' | 'notifications' | 'security'
 
 const NOTIFICATION_SETTINGS_KEY = 'saytu-yef:notification-preferences'
+
+function getSettingsTabFromQuery(value: string | null): SettingsTab | null {
+  if (value === 'profile' || value === 'business' || value === 'billing' || value === 'notifications' || value === 'security') {
+    return value
+  }
+
+  if (value === 'subscription') {
+    return 'billing'
+  }
+
+  return null
+}
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
   return (
@@ -40,6 +53,7 @@ function Feedback({ state }: { state: { type: 'success' | 'error'; msg: string }
 }
 
 export default function SettingsPage() {
+  const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
   const { user, loading } = useUser()
 
@@ -58,6 +72,13 @@ export default function SettingsPage() {
   const [pwd, setPwd] = useState({ next: '', confirm: '' })
   const [savingPwd, setSavingPwd] = useState(false)
   const [pwdMsg, setPwdMsg] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+
+  useEffect(() => {
+    const requestedTab = getSettingsTabFromQuery(searchParams.get('tab'))
+    if (requestedTab) {
+      setActiveTab(requestedTab)
+    }
+  }, [searchParams])
 
   useEffect(() => {
     if (!user) return

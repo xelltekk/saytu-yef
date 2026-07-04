@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS public.subscription_requests (
   business_name TEXT,
   current_plan TEXT NOT NULL CHECK (current_plan IN ('free', 'starter', 'pro', 'enterprise')),
   requested_plan TEXT NOT NULL CHECK (requested_plan IN ('free', 'starter', 'pro', 'enterprise')),
+  request_type TEXT NOT NULL DEFAULT 'activation' CHECK (request_type IN ('activation', 'upgrade', 'renewal', 'reactivation', 'downgrade')),
   status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent', 'in_progress', 'activated', 'cancelled')),
   notes TEXT,
   support_note TEXT,

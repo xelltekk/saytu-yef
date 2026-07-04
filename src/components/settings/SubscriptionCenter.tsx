@@ -3,11 +3,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { Textarea } from '@/components/ui/Input'
 import { useAccountRole } from '@/hooks/useAccountRole'
 import {
   applySupportSubscriptionRequestAction,
   BILLING_CYCLE_LABELS,
   SUBSCRIPTION_PLANS,
+  SUBSCRIPTION_REQUEST_TYPE_LABELS,
+  SUBSCRIPTION_REQUEST_TYPE_STYLES,
   getSupportSubscriptionRequests,
   SUBSCRIPTION_REQUEST_STATUS_LABELS,
   SUBSCRIPTION_REQUEST_STATUS_STYLES,
@@ -19,10 +22,15 @@ import {
   getPlanDefinition,
   getRecommendedPlan,
   getRemainingDays,
+  getSubscriptionRequestButtonLabel,
   getSubscriptionHeadline,
   getSubscriptionOverview,
   getSubscriptionRequestReference,
+  getSubscriptionRequestSummary,
+  getSubscriptionRequestTitle,
+  getSubscriptionRequestType,
   getSubscriptionRequests,
+  getSupportActionLabel,
   getUsageLimit,
   getUsageRatio,
   submitSubscriptionRequest,
@@ -119,6 +127,7 @@ export function SubscriptionCenter() {
   const [supportError, setSupportError] = useState('')
   const [supportFeedback, setSupportFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [supportActionTarget, setSupportActionTarget] = useState<string | null>(null)
+  const [supportNotes, setSupportNotes] = useState<Record<string, string>>({})
 
   const loadOverview = useCallback(async () => {
     setLoading(true)
@@ -170,6 +179,21 @@ export function SubscriptionCenter() {
     return getRecommendedPlan(overview.plan, overview.usage)
   }, [overview])
 
+  const primaryRequestPlan = useMemo<SubscriptionPlan>(() => {
+    if (!overview) return 'starter'
+
+    if (overview.plan !== 'free' && (overview.status === 'active' || overview.status === 'past_due' || overview.status === 'expired' || overview.status === 'suspended' || overview.status === 'cancelled')) {
+      return overview.plan
+    }
+
+    return recommendation ?? 'starter'
+  }, [overview, recommendation])
+
+  const primaryRequestType = useMemo(() => {
+    if (!overview) return 'activation'
+    return getSubscriptionRequestType(overview.plan, primaryRequestPlan, overview.status)
+  }, [overview, primaryRequestPlan])
+
   const handleRequestPlan = useCallback(async (plan: SubscriptionPlan) => {
     if (!overview || !isAdmin) return
 
@@ -184,11 +208,12 @@ export function SubscriptionCenter() {
           .sort((left, right) => new Date(right.createdAt ?? 0).getTime() - new Date(left.createdAt ?? 0).getTime())
           .slice(0, 5)
       })
+      const requestLabel = SUBSCRIPTION_REQUEST_TYPE_LABELS[result.request.requestType].toLowerCase()
       setRequestFeedback({
         type: 'success',
         msg: result.mode === 'existing'
-          ? 'Une demande de ce type est deja en cours. Le mail a ete prepare avec la meme reference.'
-          : 'Demande enregistree dans la base. Le mail de suivi va s ouvrir.',
+          ? `Une demande de ${requestLabel} est deja en cours. Le mail a ete prepare avec la meme reference.`
+          : `Demande de ${requestLabel} enregistree dans la base. Le mail de suivi va s ouvrir.`,
       })
       window.location.href = buildSubscriptionRequestMailto(plan, overview, result.request)
     } catch (requestError) {
@@ -201,21 +226,35 @@ export function SubscriptionCenter() {
     }
   }, [isAdmin, overview])
 
+  const handleSupportNoteChange = useCallback((requestId: string, value: string) => {
+    setSupportNotes((current) => ({
+      ...current,
+      [requestId]: value,
+    }))
+  }, [])
+
   const handleSupportAction = useCallback(async (requestId: string, action: SupportSubscriptionRequestAction) => {
     setSupportActionTarget(requestId)
     setSupportFeedback(null)
 
     try {
-      const updatedRequest = await applySupportSubscriptionRequestAction(requestId, action)
+      const supportNote = supportNotes[requestId] ?? ''
+      const updatedRequest = await applySupportSubscriptionRequestAction(requestId, action, supportNote)
       setSupportQueue((current) => current.map((entry) => (entry.id === updatedRequest.id ? updatedRequest : entry)))
       setRequests((current) => current.map((entry) => (entry.id === updatedRequest.id ? updatedRequest : entry)))
+      setSupportNotes((current) => {
+        if (!(requestId in current)) return current
+        const next = { ...current }
+        delete next[requestId]
+        return next
+      })
       setSupportFeedback({
         type: 'success',
         msg:
           action === 'activate'
-            ? 'La demande a ete activee et le profil a ete mis a jour.'
+            ? `${getSubscriptionRequestTitle(updatedRequest.requestType, updatedRequest.requestedPlan)} traitee et profil mis a jour.`
             : action === 'mark_in_progress'
-              ? 'La demande est maintenant en cours.'
+              ? `La demande de ${SUBSCRIPTION_REQUEST_TYPE_LABELS[updatedRequest.requestType].toLowerCase()} est maintenant en cours.`
               : 'La demande a ete annulee.',
       })
       void loadOverview()
@@ -228,7 +267,7 @@ export function SubscriptionCenter() {
     } finally {
       setSupportActionTarget(null)
     }
-  }, [loadOverview, loadSupportQueue])
+  }, [loadOverview, loadSupportQueue, supportNotes])
 
   if (loading) {
     return (
@@ -340,17 +379,18 @@ export function SubscriptionCenter() {
           <div className="flex w-full flex-col gap-3 lg:w-[260px]">
             <Button
               variant="primary"
-              onClick={() => void handleRequestPlan(recommendation ?? 'starter')}
+              onClick={() => void handleRequestPlan(primaryRequestPlan)}
               disabled={!isAdmin || requestingPlan !== null}
               fullWidth
             >
               <CreditCard size={16} />
-              {requestingPlan === (recommendation ?? 'starter')
+              {requestingPlan === primaryRequestPlan
                 ? 'Envoi en cours...'
-                : recommendation
-                  ? `Demander ${getPlanDefinition(recommendation).name}`
-                  : 'Demander une activation'}
+                : getSubscriptionRequestButtonLabel(primaryRequestType, primaryRequestPlan)}
             </Button>
+            <div className="rounded-2xl border border-[#2D7D7D]/10 bg-white/70 px-3 py-2 text-xs text-[#5C6B73]">
+              Action preparee: {getSubscriptionRequestSummary(primaryRequestType, overview.plan, primaryRequestPlan)}
+            </div>
             <Button
               variant="outline"
               onClick={() => { window.location.href = '/support' }}
@@ -508,18 +548,21 @@ export function SubscriptionCenter() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-[#1A3636]">
-                            {getPlanDefinition(request.requestedPlan).name}
+                            {getSubscriptionRequestTitle(request.requestType, request.requestedPlan)}
+                          </span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_REQUEST_TYPE_STYLES[request.requestType]}`}>
+                            {SUBSCRIPTION_REQUEST_TYPE_LABELS[request.requestType]}
                           </span>
                           <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_REQUEST_STATUS_STYLES[request.status]}`}>
                             {SUBSCRIPTION_REQUEST_STATUS_LABELS[request.status]}
                           </span>
                         </div>
                         <p className="mt-1 text-xs text-[#5C6B73]">
-                          Ref {getSubscriptionRequestReference(request.id)} · Depuis {getPlanDefinition(request.currentPlan).name}
+                          Ref {getSubscriptionRequestReference(request.id)} - {getSubscriptionRequestSummary(request.requestType, request.currentPlan, request.requestedPlan)}
                         </p>
                         <p className="mt-1 text-xs text-[#5C6B73]">
                           Envoyee le {formatSubscriptionDate(request.createdAt) ?? 'date indisponible'}
-                          {request.activatedAt ? ` · Activee le ${formatSubscriptionDate(request.activatedAt)}` : ''}
+                          {request.activatedAt ? ` - Activee le ${formatSubscriptionDate(request.activatedAt)}` : ''}
                         </p>
                       </div>
                       {request.requestedByEmail && (
@@ -599,25 +642,37 @@ export function SubscriptionCenter() {
                             <span className="text-base font-semibold text-[#1A3636]">
                               {request.businessName || 'Boutique sans nom'}
                             </span>
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_REQUEST_TYPE_STYLES[request.requestType]}`}>
+                              {SUBSCRIPTION_REQUEST_TYPE_LABELS[request.requestType]}
+                            </span>
                             <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_REQUEST_STATUS_STYLES[request.status]}`}>
                               {SUBSCRIPTION_REQUEST_STATUS_LABELS[request.status]}
                             </span>
                           </div>
                           <p className="mt-2 text-sm text-[#1A3636]">
-                            {getPlanDefinition(request.currentPlan).name} vers {getPlanDefinition(request.requestedPlan).name}
+                            {getSubscriptionRequestSummary(request.requestType, request.currentPlan, request.requestedPlan)}
                           </p>
                           <p className="mt-1 text-xs text-[#6B7682]">
-                            Ref {getSubscriptionRequestReference(request.id)} · {request.requestedByEmail || 'email indisponible'}
+                            Ref {getSubscriptionRequestReference(request.id)} - {request.requestedByEmail || 'email indisponible'}
                           </p>
                           <p className="mt-1 text-xs text-[#6B7682]">
                             Creee le {formatSubscriptionDate(request.createdAt) ?? 'date indisponible'}
-                            {request.activatedAt ? ` · Activee le ${formatSubscriptionDate(request.activatedAt)}` : ''}
+                            {request.activatedAt ? ` - Activee le ${formatSubscriptionDate(request.activatedAt)}` : ''}
                           </p>
                           {(request.supportNote || request.notes) && (
                             <div className="mt-3 rounded-2xl border border-[#2D7D7D]/10 bg-white px-3 py-2 text-xs text-[#5C6B73]">
                               {request.supportNote || request.notes}
                             </div>
                           )}
+                          <div className="mt-3">
+                            <Textarea
+                              rows={3}
+                              value={supportNotes[request.id] ?? ''}
+                              onChange={(event) => handleSupportNoteChange(request.id, event.target.value)}
+                              placeholder="Reference paiement, note support, prochaine echeance..."
+                              hint="Cette note sera enregistree sur la demande et recopiee dans le profil lors de l'activation."
+                            />
+                          </div>
                         </div>
 
                         <div className="flex flex-wrap gap-2 lg:w-[330px] lg:justify-end">
@@ -638,7 +693,7 @@ export function SubscriptionCenter() {
                               onClick={() => void handleSupportAction(request.id, 'activate')}
                               disabled={isBusy}
                             >
-                              Activer le plan
+                              {getSupportActionLabel(request.requestType, request.requestedPlan)}
                             </Button>
                           )}
                           {canCancel && (

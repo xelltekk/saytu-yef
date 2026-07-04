@@ -1,5 +1,11 @@
 import { createClient, ensureBrowserSupabaseSession } from '@/lib/supabase/client'
-import type { BillingCycle, SubscriptionPlan, SubscriptionRequestStatus, SubscriptionStatus } from '@/types'
+import type {
+  BillingCycle,
+  SubscriptionPlan,
+  SubscriptionRequestStatus,
+  SubscriptionRequestType,
+  SubscriptionStatus,
+} from '@/types'
 
 type PlanLimitKey = 'products' | 'teamMembers' | 'monthlySales'
 
@@ -21,6 +27,7 @@ type RawSubscriptionRequest = {
   id: string
   current_plan?: string | null
   requested_plan?: string | null
+  request_type?: string | null
   status?: string | null
   requested_by_email?: string | null
   business_name?: string | null
@@ -57,6 +64,7 @@ export type SubscriptionRequestRecord = {
   id: string
   currentPlan: SubscriptionPlan
   requestedPlan: SubscriptionPlan
+  requestType: SubscriptionRequestType
   status: SubscriptionRequestStatus
   requestedByEmail?: string | null
   businessName?: string | null
@@ -73,6 +81,13 @@ export type SubmitSubscriptionRequestResult = {
 }
 
 export type SupportSubscriptionRequestAction = 'mark_in_progress' | 'activate' | 'cancel'
+
+const PLAN_LEVELS: Record<SubscriptionPlan, number> = {
+  free: 0,
+  starter: 1,
+  pro: 2,
+  enterprise: 3,
+}
 
 export const SUBSCRIPTION_PLANS: Array<{
   id: SubscriptionPlan
@@ -169,6 +184,22 @@ export const SUBSCRIPTION_REQUEST_STATUS_STYLES: Record<SubscriptionRequestStatu
   cancelled: 'bg-slate-500/10 text-slate-700 border border-slate-500/15',
 }
 
+export const SUBSCRIPTION_REQUEST_TYPE_LABELS: Record<SubscriptionRequestType, string> = {
+  activation: 'Activation',
+  upgrade: 'Upgrade',
+  renewal: 'Renouvellement',
+  reactivation: 'Reactivation',
+  downgrade: 'Ajustement',
+}
+
+export const SUBSCRIPTION_REQUEST_TYPE_STYLES: Record<SubscriptionRequestType, string> = {
+  activation: 'bg-[#2D7D7D]/10 text-[#2D7D7D] border border-[#2D7D7D]/15',
+  upgrade: 'bg-[#6C5CE7]/10 text-[#6C5CE7] border border-[#6C5CE7]/15',
+  renewal: 'bg-sky-500/10 text-sky-700 border border-sky-500/15',
+  reactivation: 'bg-amber-500/10 text-amber-700 border border-amber-500/15',
+  downgrade: 'bg-slate-500/10 text-slate-700 border border-slate-500/15',
+}
+
 function normalizePlan(value: string | null | undefined): SubscriptionPlan {
   return SUBSCRIPTION_PLANS.some((plan) => plan.id === value)
     ? (value as SubscriptionPlan)
@@ -195,6 +226,13 @@ function normalizeRequestStatus(value: string | null | undefined): SubscriptionR
     return value
   }
   return 'sent'
+}
+
+function normalizeRequestType(value: string | null | undefined): SubscriptionRequestType | null {
+  if (value === 'activation' || value === 'upgrade' || value === 'renewal' || value === 'reactivation' || value === 'downgrade') {
+    return value
+  }
+  return null
 }
 
 function isMissingSubscriptionRequestTable(error: unknown): boolean {
@@ -228,10 +266,14 @@ function isMissingSupportRpc(error: unknown): boolean {
 }
 
 function mapSubscriptionRequest(row: RawSubscriptionRequest): SubscriptionRequestRecord {
+  const currentPlan = normalizePlan(row.current_plan)
+  const requestedPlan = normalizePlan(row.requested_plan)
+
   return {
     id: row.id,
-    currentPlan: normalizePlan(row.current_plan),
-    requestedPlan: normalizePlan(row.requested_plan),
+    currentPlan,
+    requestedPlan,
+    requestType: getSubscriptionRequestType(currentPlan, requestedPlan, 'active', row.request_type),
     status: normalizeRequestStatus(row.status),
     requestedByEmail: row.requested_by_email ?? null,
     businessName: row.business_name ?? null,
@@ -245,6 +287,122 @@ function mapSubscriptionRequest(row: RawSubscriptionRequest): SubscriptionReques
 
 export function getSubscriptionRequestReference(requestId: string): string {
   return requestId.slice(0, 8).toUpperCase()
+}
+
+export function getSubscriptionRequestType(
+  currentPlan: SubscriptionPlan,
+  requestedPlan: SubscriptionPlan,
+  currentStatus: SubscriptionStatus = 'active',
+  explicitType?: string | null
+): SubscriptionRequestType {
+  const normalizedExplicitType = normalizeRequestType(explicitType)
+  if (normalizedExplicitType) {
+    return normalizedExplicitType
+  }
+
+  if (requestedPlan === currentPlan) {
+    if (requestedPlan === 'free') {
+      return 'activation'
+    }
+    if (currentStatus === 'past_due' || currentStatus === 'expired' || currentStatus === 'suspended' || currentStatus === 'cancelled') {
+      return 'reactivation'
+    }
+    return 'renewal'
+  }
+
+  if (currentPlan === 'free' || currentStatus === 'trial') {
+    return 'activation'
+  }
+
+  return PLAN_LEVELS[requestedPlan] > PLAN_LEVELS[currentPlan] ? 'upgrade' : 'downgrade'
+}
+
+export function getSubscriptionRequestTitle(type: SubscriptionRequestType, requestedPlan: SubscriptionPlan): string {
+  const planName = getPlanDefinition(requestedPlan).name
+
+  switch (type) {
+    case 'renewal':
+      return `Renouvellement ${planName}`
+    case 'reactivation':
+      return `Reactivation ${planName}`
+    case 'upgrade':
+      return `Upgrade vers ${planName}`
+    case 'downgrade':
+      return `Ajustement vers ${planName}`
+    default:
+      return `Activation ${planName}`
+  }
+}
+
+export function getSubscriptionRequestSummary(
+  type: SubscriptionRequestType,
+  currentPlan: SubscriptionPlan,
+  requestedPlan: SubscriptionPlan
+): string {
+  const currentLabel = getPlanDefinition(currentPlan).name
+  const requestedLabel = getPlanDefinition(requestedPlan).name
+
+  switch (type) {
+    case 'renewal':
+      return `Renouvellement du plan ${requestedLabel}`
+    case 'reactivation':
+      return `Reactivation du plan ${requestedLabel}`
+    case 'upgrade':
+      return `${currentLabel} vers ${requestedLabel}`
+    case 'downgrade':
+      return `${currentLabel} vers ${requestedLabel}`
+    default:
+      return `Activation du plan ${requestedLabel}`
+  }
+}
+
+export function getSubscriptionRequestButtonLabel(type: SubscriptionRequestType, requestedPlan: SubscriptionPlan): string {
+  const planName = getPlanDefinition(requestedPlan).name
+
+  switch (type) {
+    case 'renewal':
+      return 'Demander le renouvellement'
+    case 'reactivation':
+      return 'Demander la reactivation'
+    case 'upgrade':
+      return `Demander ${planName}`
+    case 'downgrade':
+      return `Demander ${planName}`
+    default:
+      return `Demander ${planName}`
+  }
+}
+
+export function getSupportActionLabel(type: SubscriptionRequestType, requestedPlan: SubscriptionPlan): string {
+  const planName = getPlanDefinition(requestedPlan).name
+
+  switch (type) {
+    case 'renewal':
+      return 'Renouveler 30 jours'
+    case 'reactivation':
+      return `Reactiver ${planName}`
+    case 'upgrade':
+      return `Valider ${planName}`
+    case 'downgrade':
+      return `Appliquer ${planName}`
+    default:
+      return `Activer ${planName}`
+  }
+}
+
+function getSubscriptionRequestNote(type: SubscriptionRequestType): string {
+  switch (type) {
+    case 'renewal':
+      return "Renouvellement demande depuis le centre d'abonnement."
+    case 'reactivation':
+      return "Reactivation demandee depuis le centre d'abonnement."
+    case 'upgrade':
+      return "Upgrade demande depuis le centre d'abonnement."
+    case 'downgrade':
+      return "Changement de formule demande depuis le centre d'abonnement."
+    default:
+      return "Activation demandee depuis le centre d'abonnement."
+  }
 }
 
 function inferStatus(plan: SubscriptionPlan, createdAt?: string | null, trialEndsAt?: string | null): SubscriptionStatus {
@@ -367,22 +525,49 @@ export function buildSubscriptionRequestMailto(
 ): string {
   const targetPlan = getPlanDefinition(plan)
   const currentPlan = getPlanDefinition(overview.plan)
+  const requestType = getSubscriptionRequestType(
+    overview.plan,
+    plan,
+    overview.status,
+    request?.requestType ?? null
+  )
+
+  const firstLine = (() => {
+    switch (requestType) {
+      case 'renewal':
+        return `Je souhaite renouveler mon plan ${targetPlan.name} pour la prochaine periode.`
+      case 'reactivation':
+        return `Je souhaite reactiver mon plan ${targetPlan.name}.`
+      case 'upgrade':
+        return `Je souhaite passer ma boutique du plan ${currentPlan.name} au plan ${targetPlan.name}.`
+      case 'downgrade':
+        return `Je souhaite ajuster ma boutique vers le plan ${targetPlan.name}.`
+      default:
+        return `Je souhaite activer le plan ${targetPlan.name} pour ma boutique.`
+    }
+  })()
+
   const body = [
     'Bonjour equipe Saytu Yef,',
     '',
-    `Je souhaite passer ma boutique sur le plan ${targetPlan.name}.`,
+    firstLine,
     request ? `Reference de demande: ${getSubscriptionRequestReference(request.id)}` : null,
     overview.businessName ? `Boutique: ${overview.businessName}` : null,
     `Plan actuel: ${currentPlan.name}`,
     `Statut actuel: ${SUBSCRIPTION_STATUS_LABELS[overview.status]}`,
+    overview.currentPeriodEndsAt ? `Echeance actuelle: ${formatSubscriptionDate(overview.currentPeriodEndsAt)}` : null,
     `Produits actifs: ${overview.usage.products}`,
     `Membres d'equipe: ${overview.usage.teamMembers}`,
     `Ventes ce mois: ${overview.usage.monthlySales}`,
     '',
-    'Merci de me confirmer les prochaines etapes d activation.',
+    requestType === 'renewal'
+      ? 'Merci de me confirmer le renouvellement et la prochaine echeance.'
+      : requestType === 'reactivation'
+        ? 'Merci de me confirmer la reactivation et la reprise du service.'
+        : 'Merci de me confirmer les prochaines etapes d activation.',
   ].filter(Boolean).join('\n')
 
-  const subject = `Demande abonnement Saytu Yef - ${targetPlan.name}`
+  const subject = `Demande abonnement Saytu Yef - ${getSubscriptionRequestTitle(requestType, plan)}`
   return `mailto:contact@xelltekk.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 }
 
@@ -392,7 +577,7 @@ export async function getSubscriptionRequests(limit = 5): Promise<SubscriptionRe
 
   const { error, data } = await supabase
     .from('subscription_requests')
-    .select('id,current_plan,requested_plan,status,requested_by_email,business_name,notes,support_note,activated_at,created_at,updated_at')
+    .select('id,current_plan,requested_plan,request_type,status,requested_by_email,business_name,notes,support_note,activated_at,created_at,updated_at')
     .order('created_at', { ascending: false })
     .limit(limit)
 
@@ -425,7 +610,8 @@ export async function getSupportSubscriptionRequests(limit = 12): Promise<Subscr
 
 export async function applySupportSubscriptionRequestAction(
   requestId: string,
-  action: SupportSubscriptionRequestAction
+  action: SupportSubscriptionRequestAction,
+  supportNote?: string | null
 ): Promise<SubscriptionRequestRecord> {
   const supabase = createClient()
   await ensureBrowserSupabaseSession(supabase)
@@ -433,7 +619,7 @@ export async function applySupportSubscriptionRequestAction(
   const { error, data } = await supabase.rpc('apply_support_subscription_request_action', {
     p_request_id: requestId,
     p_action: action,
-    p_support_note: null,
+    p_support_note: supportNote?.trim() || null,
   })
 
   if (error) {
@@ -465,10 +651,14 @@ export async function submitSubscriptionRequest(
   if (userError) throw userError
   if (!user) throw new Error('Non connecte')
 
+  const requestType = getSubscriptionRequestType(overview.plan, requestedPlan, overview.status)
+
   const existingResult = await supabase
     .from('subscription_requests')
-    .select('id,current_plan,requested_plan,status,requested_by_email,business_name,notes,support_note,activated_at,created_at,updated_at')
+    .select('id,current_plan,requested_plan,request_type,status,requested_by_email,business_name,notes,support_note,activated_at,created_at,updated_at')
+    .eq('current_plan', overview.plan)
     .eq('requested_plan', requestedPlan)
+    .eq('request_type', requestType)
     .in('status', ['sent', 'in_progress'])
     .order('created_at', { ascending: false })
     .limit(1)
@@ -497,10 +687,11 @@ export async function submitSubscriptionRequest(
       business_name: overview.businessName || null,
       current_plan: overview.plan,
       requested_plan: requestedPlan,
+      request_type: requestType,
       status: 'sent',
-      notes: "Demande envoyee depuis le centre d'abonnement.",
+      notes: getSubscriptionRequestNote(requestType),
     })
-    .select('id,current_plan,requested_plan,status,requested_by_email,business_name,notes,support_note,activated_at,created_at,updated_at')
+    .select('id,current_plan,requested_plan,request_type,status,requested_by_email,business_name,notes,support_note,activated_at,created_at,updated_at')
     .single()
 
   if (insertResult.error) {
