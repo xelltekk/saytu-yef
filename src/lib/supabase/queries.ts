@@ -1,5 +1,60 @@
 import { createClient, ensureBrowserSupabaseSession } from './client'
 import type { Product, Category, Supplier, Sale, AbroadProduct, StockMovement, TeamMember } from '@/types'
+import { getPlanDefinition, getSubscriptionOverview, getUsageLimit } from '@/lib/subscriptions'
+
+type SubscriptionLimitKey = 'products' | 'teamMembers' | 'monthlySales'
+
+function getSuggestedUpgradePlan(currentPlan: 'free' | 'starter' | 'pro' | 'enterprise') {
+  if (currentPlan === 'free') return 'starter'
+  if (currentPlan === 'starter') return 'pro'
+  if (currentPlan === 'pro') return 'enterprise'
+  return null
+}
+
+function getCurrentUsageValue(
+  usage: { products: number; teamMembers: number; monthlySales: number },
+  key: SubscriptionLimitKey
+) {
+  if (key === 'products') return usage.products
+  if (key === 'teamMembers') return usage.teamMembers
+  return usage.monthlySales
+}
+
+async function assertSubscriptionCapacity(key: SubscriptionLimitKey, increment = 1) {
+  const overview = await getSubscriptionOverview()
+  const limit = getUsageLimit(overview.plan, key)
+  if (!limit) return
+
+  const currentUsage = getCurrentUsageValue(overview.usage, key)
+  const nextUsage = currentUsage + increment
+  if (nextUsage <= limit) return
+
+  const currentPlanName = getPlanDefinition(overview.plan).name
+  const suggestedPlan = getSuggestedUpgradePlan(overview.plan)
+  const suggestedPlanName = suggestedPlan ? getPlanDefinition(suggestedPlan).name : null
+
+  if (key === 'products') {
+    throw new Error(
+      suggestedPlanName
+        ? `Le plan ${currentPlanName} autorise ${limit} produit(s). Passez au plan ${suggestedPlanName} pour ajouter d'autres produits.`
+        : `Le plan ${currentPlanName} a atteint sa limite de ${limit} produit(s).`
+    )
+  }
+
+  if (key === 'teamMembers') {
+    throw new Error(
+      suggestedPlanName
+        ? `Le plan ${currentPlanName} autorise ${limit} utilisateur(s) au total. Passez au plan ${suggestedPlanName} pour agrandir l'equipe.`
+        : `Le plan ${currentPlanName} a atteint sa limite de ${limit} utilisateur(s).`
+    )
+  }
+
+  throw new Error(
+    suggestedPlanName
+      ? `Le plan ${currentPlanName} autorise ${limit} vente(s) par mois. Passez au plan ${suggestedPlanName} pour continuer a encaisser ce mois-ci.`
+      : `Le plan ${currentPlanName} a atteint sa limite de ${limit} vente(s) par mois.`
+  )
+}
 
 export async function getTeamContext(): Promise<{ current: TeamMember; members: TeamMember[] }> {
   const supabase = createClient()
@@ -18,6 +73,7 @@ export async function getTeamContext(): Promise<{ current: TeamMember; members: 
 }
 
 export async function addTeamMember(email: string, role: TeamMember['role']): Promise<TeamMember> {
+  await assertSubscriptionCapacity('teamMembers')
   const supabase = createClient()
   const { data, error } = await supabase.rpc('add_team_member', { p_email: email, p_role: role })
   if (error) throw error
@@ -52,6 +108,7 @@ export async function getProducts(): Promise<Product[]> {
 }
 
 export async function addProduct(product: Omit<Product, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'category' | 'supplier'>): Promise<Product> {
+  await assertSubscriptionCapacity('products')
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Non connecté')
@@ -453,6 +510,7 @@ async function createSaleLegacy(sale: CreateSaleInput, userId: string): Promise<
 }
 
 export async function createSale(sale: CreateSaleInput): Promise<Sale> {
+  await assertSubscriptionCapacity('monthlySales')
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Non connecté')
@@ -614,6 +672,7 @@ export async function activateAbroadProduct(
   productPayload: Omit<Product, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'category' | 'supplier'>,
   conversion?: Pick<AbroadProduct, 'exchange_rate' | 'converted_purchase_price' | 'rate_source' | 'rate_updated_at'>
 ): Promise<Product> {
+  await assertSubscriptionCapacity('products')
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
