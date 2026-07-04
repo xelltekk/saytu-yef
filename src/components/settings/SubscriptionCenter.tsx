@@ -3,14 +3,17 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { Textarea } from '@/components/ui/Input'
+import { Input, Select, Textarea } from '@/components/ui/Input'
 import { useAccountRole } from '@/hooks/useAccountRole'
 import {
   applySupportSubscriptionRequestAction,
   BILLING_CYCLE_LABELS,
+  doesSubscriptionActivationRequirePayment,
   SUBSCRIPTION_PLANS,
+  SUBSCRIPTION_PAYMENT_METHOD_LABELS,
   SUBSCRIPTION_REQUEST_TYPE_LABELS,
   SUBSCRIPTION_REQUEST_TYPE_STYLES,
+  getSubscriptionExpectedPaymentAmount,
   getSupportSubscriptionRequests,
   SUBSCRIPTION_REQUEST_STATUS_LABELS,
   SUBSCRIPTION_REQUEST_STATUS_STYLES,
@@ -38,7 +41,7 @@ import {
   type SubscriptionRequestRecord,
   type SubscriptionOverview,
 } from '@/lib/subscriptions'
-import type { SubscriptionPlan } from '@/types'
+import type { SubscriptionPaymentMethod, SubscriptionPlan } from '@/types'
 import { AlertCircle, CalendarClock, CheckCircle2, Crown, CreditCard, LifeBuoy, Package2, RefreshCw, ShoppingCart, Sparkles, Users } from 'lucide-react'
 
 function LoadingCard() {
@@ -113,6 +116,21 @@ function getUsageTone(value: number, limit: number | null): 'default' | 'warning
   return 'default'
 }
 
+type SupportPaymentDraft = {
+  method: SubscriptionPaymentMethod | ''
+  amount: string
+  reference: string
+}
+
+const SUBSCRIPTION_PAYMENT_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'wave', label: SUBSCRIPTION_PAYMENT_METHOD_LABELS.wave },
+  { value: 'orange_money', label: SUBSCRIPTION_PAYMENT_METHOD_LABELS.orange_money },
+  { value: 'card', label: SUBSCRIPTION_PAYMENT_METHOD_LABELS.card },
+  { value: 'cash', label: SUBSCRIPTION_PAYMENT_METHOD_LABELS.cash },
+  { value: 'bank_transfer', label: SUBSCRIPTION_PAYMENT_METHOD_LABELS.bank_transfer },
+  { value: 'other', label: SUBSCRIPTION_PAYMENT_METHOD_LABELS.other },
+]
+
 export function SubscriptionCenter() {
   const { isAdmin, loading: roleLoading } = useAccountRole()
   const [overview, setOverview] = useState<SubscriptionOverview | null>(null)
@@ -128,6 +146,7 @@ export function SubscriptionCenter() {
   const [supportFeedback, setSupportFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [supportActionTarget, setSupportActionTarget] = useState<string | null>(null)
   const [supportNotes, setSupportNotes] = useState<Record<string, string>>({})
+  const [supportPayments, setSupportPayments] = useState<Record<string, SupportPaymentDraft>>({})
 
   const loadOverview = useCallback(async () => {
     setLoading(true)
@@ -233,16 +252,52 @@ export function SubscriptionCenter() {
     }))
   }, [])
 
+  const getSupportPaymentDraft = useCallback((request: SubscriptionRequestRecord): SupportPaymentDraft => {
+    return supportPayments[request.id] ?? {
+      method: request.paymentMethod ?? '',
+      amount: request.paymentAmount ? String(request.paymentAmount) : '',
+      reference: request.paymentReference ?? '',
+    }
+  }, [supportPayments])
+
+  const handleSupportPaymentChange = useCallback((
+    request: SubscriptionRequestRecord,
+    field: keyof SupportPaymentDraft,
+    value: string
+  ) => {
+    setSupportPayments((current) => ({
+      ...current,
+      [request.id]: {
+        ...getSupportPaymentDraft(request),
+        [field]: value,
+      },
+    }))
+  }, [getSupportPaymentDraft])
+
   const handleSupportAction = useCallback(async (requestId: string, action: SupportSubscriptionRequestAction) => {
     setSupportActionTarget(requestId)
     setSupportFeedback(null)
 
     try {
       const supportNote = supportNotes[requestId] ?? ''
-      const updatedRequest = await applySupportSubscriptionRequestAction(requestId, action, supportNote)
+      const paymentDraft = supportPayments[requestId]
+      const rawAmount = paymentDraft?.amount?.trim() ?? ''
+      const parsedAmount = rawAmount.length > 0 ? Number(rawAmount) : null
+      const updatedRequest = await applySupportSubscriptionRequestAction(requestId, action, {
+        note: supportNote,
+        paymentMethod: paymentDraft?.method || null,
+        paymentAmount: parsedAmount !== null && Number.isFinite(parsedAmount) ? parsedAmount : null,
+        paymentReference: paymentDraft?.reference ?? null,
+      })
       setSupportQueue((current) => current.map((entry) => (entry.id === updatedRequest.id ? updatedRequest : entry)))
       setRequests((current) => current.map((entry) => (entry.id === updatedRequest.id ? updatedRequest : entry)))
       setSupportNotes((current) => {
+        if (!(requestId in current)) return current
+        const next = { ...current }
+        delete next[requestId]
+        return next
+      })
+      setSupportPayments((current) => {
         if (!(requestId in current)) return current
         const next = { ...current }
         delete next[requestId]
@@ -267,7 +322,7 @@ export function SubscriptionCenter() {
     } finally {
       setSupportActionTarget(null)
     }
-  }, [loadOverview, loadSupportQueue, supportNotes])
+  }, [loadOverview, loadSupportQueue, supportNotes, supportPayments])
 
   if (loading) {
     return (
@@ -576,6 +631,15 @@ export function SubscriptionCenter() {
                         {request.supportNote || request.notes}
                       </div>
                     )}
+                    {(request.paymentReference || request.paymentAmount || request.paymentMethod) && (
+                      <div className="mt-3 rounded-2xl border border-emerald-500/15 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700">
+                        Paiement
+                        {request.paymentAmount ? ` ${request.paymentAmount.toLocaleString('fr-FR')} FCFA` : ''}
+                        {request.paymentMethod ? ` via ${SUBSCRIPTION_PAYMENT_METHOD_LABELS[request.paymentMethod]}` : ''}
+                        {request.paymentReference ? ` - ref ${request.paymentReference}` : ''}
+                        {request.paymentConfirmedAt ? ` - confirme le ${formatSubscriptionDate(request.paymentConfirmedAt)}` : ''}
+                      </div>
+                    )}
                   </div>
                 ))
               )}
@@ -633,6 +697,15 @@ export function SubscriptionCenter() {
                   const canProcess = request.status === 'sent'
                   const canActivate = request.status === 'sent' || request.status === 'in_progress'
                   const canCancel = request.status === 'sent' || request.status === 'in_progress'
+                  const paymentDraft = getSupportPaymentDraft(request)
+                  const expectedPaymentAmount = getSubscriptionExpectedPaymentAmount(request.requestType, request.requestedPlan)
+                  const requiresPaymentProof = doesSubscriptionActivationRequirePayment(request.requestType, request.requestedPlan)
+                  const paymentAmount = paymentDraft.amount.trim().length > 0 ? Number(paymentDraft.amount) : null
+                  const paymentAmountIsValid = paymentAmount !== null && Number.isFinite(paymentAmount) && paymentAmount > 0
+                  const paymentAmountMatchesPlan = expectedPaymentAmount === null || (paymentAmountIsValid && paymentAmount >= expectedPaymentAmount)
+                  const paymentReferenceReady = paymentDraft.reference.trim().length >= 4
+                  const paymentMethodReady = paymentDraft.method !== ''
+                  const activationSecurityReady = !requiresPaymentProof || (paymentReferenceReady && paymentMethodReady && paymentAmountMatchesPlan)
 
                   return (
                     <div key={request.id} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
@@ -664,6 +737,15 @@ export function SubscriptionCenter() {
                               {request.supportNote || request.notes}
                             </div>
                           )}
+                          {(request.paymentReference || request.paymentAmount || request.paymentMethod) && (
+                            <div className="mt-3 rounded-2xl border border-emerald-500/15 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700">
+                              Paiement confirme
+                              {request.paymentAmount ? ` ${request.paymentAmount.toLocaleString('fr-FR')} FCFA` : ''}
+                              {request.paymentMethod ? ` via ${SUBSCRIPTION_PAYMENT_METHOD_LABELS[request.paymentMethod]}` : ''}
+                              {request.paymentReference ? ` - ref ${request.paymentReference}` : ''}
+                              {request.processedByEmail ? ` - valide par ${request.processedByEmail}` : ''}
+                            </div>
+                          )}
                           <div className="mt-3">
                             <Textarea
                               rows={3}
@@ -673,6 +755,35 @@ export function SubscriptionCenter() {
                               hint="Cette note sera enregistree sur la demande et recopiee dans le profil lors de l'activation."
                             />
                           </div>
+                          <div className="mt-3 grid gap-3 md:grid-cols-3">
+                            <Select
+                              value={paymentDraft.method}
+                              onChange={(event) => handleSupportPaymentChange(request, 'method', event.target.value)}
+                              options={[
+                                { value: '', label: 'Mode paiement' },
+                                ...SUBSCRIPTION_PAYMENT_OPTIONS,
+                              ]}
+                              hint={requiresPaymentProof ? 'Requis pour un plan payant' : 'Optionnel pour cette action'}
+                            />
+                            <Input
+                              inputMode="numeric"
+                              value={paymentDraft.amount}
+                              onChange={(event) => handleSupportPaymentChange(request, 'amount', event.target.value)}
+                              placeholder={expectedPaymentAmount ? `${expectedPaymentAmount}` : 'Montant'}
+                              hint={expectedPaymentAmount ? `Attendu >= ${expectedPaymentAmount.toLocaleString('fr-FR')} FCFA` : 'Optionnel'}
+                            />
+                            <Input
+                              value={paymentDraft.reference}
+                              onChange={(event) => handleSupportPaymentChange(request, 'reference', event.target.value)}
+                              placeholder="Reference paiement"
+                              hint={requiresPaymentProof ? 'Reference obligatoire avant activation' : 'Optionnel'}
+                            />
+                          </div>
+                          {requiresPaymentProof && !activationSecurityReady && canActivate && (
+                            <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+                              Activation bloquee tant que le mode, le montant et la reference de paiement ne sont pas renseignes.
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex flex-wrap gap-2 lg:w-[330px] lg:justify-end">
@@ -691,7 +802,7 @@ export function SubscriptionCenter() {
                               variant="teal"
                               size="sm"
                               onClick={() => void handleSupportAction(request.id, 'activate')}
-                              disabled={isBusy}
+                              disabled={isBusy || !activationSecurityReady}
                             >
                               {getSupportActionLabel(request.requestType, request.requestedPlan)}
                             </Button>

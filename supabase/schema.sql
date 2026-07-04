@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS public.subscription_requests (
   status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent', 'in_progress', 'activated', 'cancelled')),
   notes TEXT,
   support_note TEXT,
+  payment_method TEXT CHECK (payment_method IN ('cash', 'wave', 'orange_money', 'card', 'bank_transfer', 'other')),
+  payment_amount NUMERIC(12,2),
+  payment_reference TEXT,
+  payment_confirmed_at TIMESTAMPTZ,
+  processed_by_email TEXT,
   activated_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -53,6 +58,16 @@ CREATE TABLE IF NOT EXISTS public.support_admins (
   email TEXT PRIMARY KEY,
   full_name TEXT,
   active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.subscription_request_audit_logs (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  request_id UUID REFERENCES public.subscription_requests(id) ON DELETE CASCADE NOT NULL,
+  action TEXT NOT NULL,
+  actor_email TEXT,
+  note TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -178,6 +193,7 @@ CREATE TABLE IF NOT EXISTS public.stock_movements (
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_admins ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.subscription_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subscription_request_audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.suppliers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;

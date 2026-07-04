@@ -3,6 +3,7 @@ export type SubscriptionStatus = 'free' | 'trial' | 'active' | 'past_due' | 'sus
 export type BillingCycle = 'monthly' | 'quarterly' | 'yearly' | 'manual'
 export type SubscriptionRequestStatus = 'sent' | 'in_progress' | 'activated' | 'cancelled'
 export type SubscriptionRequestType = 'activation' | 'upgrade' | 'renewal' | 'reactivation' | 'downgrade'
+export type SubscriptionPaymentMethod = 'cash' | 'wave' | 'orange_money' | 'card' | 'bank_transfer' | 'other'
 
 export interface User {
   id: string
@@ -189,6 +190,11 @@ export interface SubscriptionRequest {
   status: SubscriptionRequestStatus
   notes?: string | null
   support_note?: string | null
+  payment_method?: SubscriptionPaymentMethod | null
+  payment_amount?: number | null
+  payment_reference?: string | null
+  payment_confirmed_at?: string | null
+  processed_by_email?: string | null
   activated_at?: string | null
   created_at: string
   updated_at: string

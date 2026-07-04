@@ -2,6 +2,7 @@ import { createClient, ensureBrowserSupabaseSession } from '@/lib/supabase/clien
 import type {
   BillingCycle,
   SubscriptionPlan,
+  SubscriptionPaymentMethod,
   SubscriptionRequestStatus,
   SubscriptionRequestType,
   SubscriptionStatus,
@@ -33,6 +34,11 @@ type RawSubscriptionRequest = {
   business_name?: string | null
   notes?: string | null
   support_note?: string | null
+  payment_method?: string | null
+  payment_amount?: number | string | null
+  payment_reference?: string | null
+  payment_confirmed_at?: string | null
+  processed_by_email?: string | null
   activated_at?: string | null
   created_at?: string | null
   updated_at?: string | null
@@ -70,6 +76,11 @@ export type SubscriptionRequestRecord = {
   businessName?: string | null
   notes?: string | null
   supportNote?: string | null
+  paymentMethod?: SubscriptionPaymentMethod | null
+  paymentAmount?: number | null
+  paymentReference?: string | null
+  paymentConfirmedAt?: string | null
+  processedByEmail?: string | null
   activatedAt?: string | null
   createdAt?: string | null
   updatedAt?: string | null
@@ -81,6 +92,13 @@ export type SubmitSubscriptionRequestResult = {
 }
 
 export type SupportSubscriptionRequestAction = 'mark_in_progress' | 'activate' | 'cancel'
+
+export type SupportSubscriptionRequestActionInput = {
+  note?: string | null
+  paymentMethod?: SubscriptionPaymentMethod | null
+  paymentAmount?: number | null
+  paymentReference?: string | null
+}
 
 const PLAN_LEVELS: Record<SubscriptionPlan, number> = {
   free: 0,
@@ -170,6 +188,15 @@ export const BILLING_CYCLE_LABELS: Record<BillingCycle, string> = {
   manual: 'Activation manuelle',
 }
 
+export const SUBSCRIPTION_PAYMENT_METHOD_LABELS: Record<SubscriptionPaymentMethod, string> = {
+  cash: 'Especes',
+  wave: 'Wave',
+  orange_money: 'Orange Money',
+  card: 'Carte',
+  bank_transfer: 'Virement',
+  other: 'Autre',
+}
+
 export const SUBSCRIPTION_REQUEST_STATUS_LABELS: Record<SubscriptionRequestStatus, string> = {
   sent: 'Envoyee',
   in_progress: 'En cours',
@@ -235,6 +262,13 @@ function normalizeRequestType(value: string | null | undefined): SubscriptionReq
   return null
 }
 
+function normalizeSubscriptionPaymentMethod(value: string | null | undefined): SubscriptionPaymentMethod | null {
+  if (value === 'cash' || value === 'wave' || value === 'orange_money' || value === 'card' || value === 'bank_transfer' || value === 'other') {
+    return value
+  }
+  return null
+}
+
 function isMissingSubscriptionRequestTable(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
 
@@ -263,11 +297,15 @@ function isMissingSupportRpc(error: unknown): boolean {
     || code === 'PGRST202'
     || message.includes('list_support_subscription_requests')
     || message.includes('apply_support_subscription_request_action')
+    || message.includes('submit_subscription_request_secure')
 }
 
 function mapSubscriptionRequest(row: RawSubscriptionRequest): SubscriptionRequestRecord {
   const currentPlan = normalizePlan(row.current_plan)
   const requestedPlan = normalizePlan(row.requested_plan)
+  const parsedPaymentAmount = row.payment_amount === null || row.payment_amount === undefined
+    ? null
+    : Number(row.payment_amount)
 
   return {
     id: row.id,
@@ -279,6 +317,11 @@ function mapSubscriptionRequest(row: RawSubscriptionRequest): SubscriptionReques
     businessName: row.business_name ?? null,
     notes: row.notes ?? null,
     supportNote: row.support_note ?? null,
+    paymentMethod: normalizeSubscriptionPaymentMethod(row.payment_method),
+    paymentAmount: parsedPaymentAmount !== null && Number.isFinite(parsedPaymentAmount) ? parsedPaymentAmount : null,
+    paymentReference: row.payment_reference ?? null,
+    paymentConfirmedAt: row.payment_confirmed_at ?? null,
+    processedByEmail: row.processed_by_email ?? null,
     activatedAt: row.activated_at ?? null,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
@@ -390,19 +433,24 @@ export function getSupportActionLabel(type: SubscriptionRequestType, requestedPl
   }
 }
 
-function getSubscriptionRequestNote(type: SubscriptionRequestType): string {
-  switch (type) {
-    case 'renewal':
-      return "Renouvellement demande depuis le centre d'abonnement."
-    case 'reactivation':
-      return "Reactivation demandee depuis le centre d'abonnement."
-    case 'upgrade':
-      return "Upgrade demande depuis le centre d'abonnement."
-    case 'downgrade':
-      return "Changement de formule demande depuis le centre d'abonnement."
-    default:
-      return "Activation demandee depuis le centre d'abonnement."
+export function getSubscriptionExpectedPaymentAmount(
+  type: SubscriptionRequestType,
+  requestedPlan: SubscriptionPlan
+): number | null {
+  const plan = getPlanDefinition(requestedPlan)
+
+  if (requestedPlan === 'free' || type === 'downgrade' || plan.price <= 0) {
+    return null
   }
+
+  return plan.price
+}
+
+export function doesSubscriptionActivationRequirePayment(
+  type: SubscriptionRequestType,
+  requestedPlan: SubscriptionPlan
+): boolean {
+  return getSubscriptionExpectedPaymentAmount(type, requestedPlan) !== null
 }
 
 function inferStatus(plan: SubscriptionPlan, createdAt?: string | null, trialEndsAt?: string | null): SubscriptionStatus {
@@ -577,7 +625,7 @@ export async function getSubscriptionRequests(limit = 5): Promise<SubscriptionRe
 
   const { error, data } = await supabase
     .from('subscription_requests')
-    .select('id,current_plan,requested_plan,request_type,status,requested_by_email,business_name,notes,support_note,activated_at,created_at,updated_at')
+    .select('id,current_plan,requested_plan,request_type,status,requested_by_email,business_name,notes,support_note,payment_method,payment_amount,payment_reference,payment_confirmed_at,processed_by_email,activated_at,created_at,updated_at')
     .order('created_at', { ascending: false })
     .limit(limit)
 
@@ -611,7 +659,7 @@ export async function getSupportSubscriptionRequests(limit = 12): Promise<Subscr
 export async function applySupportSubscriptionRequestAction(
   requestId: string,
   action: SupportSubscriptionRequestAction,
-  supportNote?: string | null
+  input?: SupportSubscriptionRequestActionInput | null
 ): Promise<SubscriptionRequestRecord> {
   const supabase = createClient()
   await ensureBrowserSupabaseSession(supabase)
@@ -619,7 +667,10 @@ export async function applySupportSubscriptionRequestAction(
   const { error, data } = await supabase.rpc('apply_support_subscription_request_action', {
     p_request_id: requestId,
     p_action: action,
-    p_support_note: supportNote?.trim() || null,
+    p_support_note: input?.note?.trim() || null,
+    p_payment_method: input?.paymentMethod ?? null,
+    p_payment_amount: input?.paymentAmount ?? null,
+    p_payment_reference: input?.paymentReference?.trim() || null,
   })
 
   if (error) {
@@ -647,15 +698,11 @@ export async function submitSubscriptionRequest(
   const supabase = createClient()
   await ensureBrowserSupabaseSession(supabase)
 
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError) throw userError
-  if (!user) throw new Error('Non connecte')
-
   const requestType = getSubscriptionRequestType(overview.plan, requestedPlan, overview.status)
 
   const existingResult = await supabase
     .from('subscription_requests')
-    .select('id,current_plan,requested_plan,request_type,status,requested_by_email,business_name,notes,support_note,activated_at,created_at,updated_at')
+    .select('id,current_plan,requested_plan,request_type,status,requested_by_email,business_name,notes,support_note,payment_method,payment_amount,payment_reference,payment_confirmed_at,processed_by_email,activated_at,created_at,updated_at')
     .eq('current_plan', overview.plan)
     .eq('requested_plan', requestedPlan)
     .eq('request_type', requestType)
@@ -666,7 +713,7 @@ export async function submitSubscriptionRequest(
 
   if (existingResult.error) {
     if (isMissingSubscriptionRequestTable(existingResult.error)) {
-      throw new Error("La migration de suivi d'abonnement n'est pas encore appliquee dans Supabase.")
+      throw new Error("La migration de securisation abonnement n'est pas encore appliquee dans Supabase.")
     }
     throw existingResult.error
   }
@@ -678,32 +725,27 @@ export async function submitSubscriptionRequest(
     }
   }
 
-  const insertResult = await supabase
-    .from('subscription_requests')
-    .insert({
-      user_id: user.id,
-      requested_by_id: user.id,
-      requested_by_email: user.email?.trim().toLowerCase() ?? null,
-      business_name: overview.businessName || null,
-      current_plan: overview.plan,
-      requested_plan: requestedPlan,
-      request_type: requestType,
-      status: 'sent',
-      notes: getSubscriptionRequestNote(requestType),
-    })
-    .select('id,current_plan,requested_plan,request_type,status,requested_by_email,business_name,notes,support_note,activated_at,created_at,updated_at')
-    .single()
+  const { error, data } = await supabase.rpc('submit_subscription_request_secure', {
+    p_requested_plan: requestedPlan,
+  })
 
-  if (insertResult.error) {
-    if (isMissingSubscriptionRequestTable(insertResult.error)) {
-      throw new Error("La migration de suivi d'abonnement n'est pas encore appliquee dans Supabase.")
+  if (error) {
+    if (isMissingSubscriptionRequestTable(error) || isMissingSupportRpc(error)) {
+      throw new Error("La migration de securisation abonnement n'est pas encore appliquee dans Supabase.")
     }
-    throw insertResult.error
+    throw error
   }
+
+  const rows = (data ?? []) as RawSubscriptionRequest[]
+  if (!rows[0]) {
+    throw new Error('Reponse abonnement invalide.')
+  }
+
+  const request = mapSubscriptionRequest(rows[0])
 
   return {
     mode: 'created',
-    request: mapSubscriptionRequest(insertResult.data as RawSubscriptionRequest),
+    request,
   }
 }
 
