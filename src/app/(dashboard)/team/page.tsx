@@ -1,16 +1,21 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Header } from '@/components/layout/Header'
+import { UsageLimitNotice } from '@/components/subscriptions/UsageLimitNotice'
+import { useSubscriptionOverview } from '@/hooks/useSubscriptionOverview'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
+import { getPlanDefinition, getUsageLimit, getUsageRatio } from '@/lib/subscriptions'
 import { addTeamMember, getTeamContext, removeTeamMember, updateTeamMemberRole } from '@/lib/supabase/queries'
 import type { TeamMember } from '@/types'
 import { ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react'
 
 export default function TeamPage() {
+  const { overview } = useSubscriptionOverview()
   const [members, setMembers] = useState<TeamMember[]>([])
   const [current, setCurrent] = useState<TeamMember | null>(null)
   const [loading, setLoading] = useState(true)
@@ -36,6 +41,11 @@ export default function TeamPage() {
   useEffect(() => { void load() }, [load])
   const isAdmin = current?.role === 'admin'
   const ownerId = current?.account_owner_id ?? current?.id
+  const teamLimit = overview ? getUsageLimit(overview.plan, 'teamMembers') : null
+  const teamRatio = overview ? getUsageRatio(members.length, teamLimit) : 0
+  const isTeamLimitReached = !!teamLimit && members.length >= teamLimit
+  const isTeamLimitNear = !isTeamLimitReached && !!teamLimit && teamRatio >= 80
+  const currentPlanName = overview ? getPlanDefinition(overview.plan).name : 'actuel'
 
   const add = async () => {
     if (!email.trim()) return
@@ -69,8 +79,29 @@ export default function TeamPage() {
       <div className="space-y-4 p-3 sm:p-4 lg:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm text-[#6B7682]"><Users size={17} /> {members.length} membre(s)</div>
-          {isAdmin && <Button onClick={() => { setError(''); setOpen(true) }}><UserPlus size={16} /> Ajouter un membre</Button>}
+          {isAdmin && (
+            <Button
+              onClick={() => { setError(''); setOpen(true) }}
+              disabled={isTeamLimitReached}
+              title={isTeamLimitReached ? `Limite atteinte sur le plan ${currentPlanName}` : 'Ajouter un membre'}
+            >
+              <UserPlus size={16} /> Ajouter un membre
+            </Button>
+          )}
         </div>
+        {isTeamLimitReached && (
+          <UsageLimitNotice
+            tone="danger"
+            title="Limite equipe atteinte"
+            detail={`Le plan ${currentPlanName} autorise ${teamLimit} utilisateur(s) au total. Passez a une formule superieure pour agrandir l'equipe.`}
+          />
+        )}
+        {isTeamLimitNear && teamLimit && (
+          <UsageLimitNotice
+            title="Capacite equipe bientot atteinte"
+            detail={`${members.length} utilisateur(s) actifs sur ${teamLimit}. Vous arrivez au plafond du plan ${currentPlanName}.`}
+          />
+        )}
         {notice && <div role="status" className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-700">{notice}</div>}
         {error && <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">{error}</div>}
         {!isAdmin && !loading && <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700">Seul un administrateur peut modifier l&apos;équipe.</div>}
@@ -111,6 +142,11 @@ export default function TeamPage() {
       <Modal isOpen={open} onClose={() => !saving && setOpen(false)} title="Ajouter un membre" footer={<><Button variant="ghost" onClick={() => setOpen(false)} disabled={saving}>Annuler</Button><Button onClick={() => void add()} isLoading={saving} disabled={!email.trim()}>Ajouter</Button></>}>
         <div className="space-y-4">
           <p className="text-xs text-[#6B7682]">L&apos;employé doit d&apos;abord créer gratuitement son compte Saytu Yëf avec cette adresse email.</p>
+          {isTeamLimitReached && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700">
+              Votre formule actuelle a atteint sa limite equipe. Passez par <Link href="/settings?tab=subscription" className="font-semibold underline">Abonnement</Link> avant d&apos;ajouter un nouveau compte.
+            </div>
+          )}
           <Input label="Email du compte" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="employe@exemple.com" />
           <Select label="Rôle" value={role} onChange={(e) => setRole(e.target.value as TeamMember['role'])} options={[{ value: 'employee', label: 'Employé — ventes et stock' }, { value: 'admin', label: 'Administrateur — accès complet' }]} />
           {error && <div role="alert" className="rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-600">{error}</div>}

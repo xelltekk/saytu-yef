@@ -1,0 +1,3 @@
+ALTER TABLE public.products
+  ADD COLUMN IF NOT EXISTS size TEXT,
+  ADD COLUMN IF NOT EXISTS color TEXT;

@@ -32,9 +32,12 @@ export interface TeamMember {
 export interface Product {
   id: string
   user_id: string
+  product_group_id?: string | null
   name: string
   sku: string
   description?: string
+  size?: string
+  color?: string
   category_id: string
   supplier_id?: string
   buying_price: number
@@ -48,6 +51,43 @@ export interface Product {
   updated_at: string
   category?: Category
   supplier?: Supplier
+}
+
+export interface ProductGroup {
+  id: string
+  user_id: string
+  product_group_id?: string | null
+  name: string
+  description?: string
+  category_id: string
+  supplier_id?: string
+  image_url?: string
+  currency: string
+  status: 'active' | 'inactive' | 'pending'
+  created_at: string
+  updated_at: string
+  category?: Category
+  supplier?: Supplier
+  variants: Product[]
+  quantity: number
+  variant_count: number
+  low_variant_count: number
+  out_variant_count: number
+  price_min: number
+  price_max: number
+  sizes: string[]
+  colors: string[]
+}
+
+export interface ProductVariantDraft {
+  id?: string
+  sku: string
+  size?: string
+  color?: string
+  buying_price: number
+  selling_price: number
+  quantity: number
+  min_quantity: number
 }
 
 export interface StockMovement {

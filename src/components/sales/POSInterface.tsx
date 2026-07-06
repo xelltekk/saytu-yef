@@ -1,15 +1,37 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
-import { ArrowRight, Minus, Phone, Plus, Search, ShoppingCart, Tag, Trash2, User } from 'lucide-react'
+
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ArrowRight,
+  Minus,
+  Package,
+  Phone,
+  Plus,
+  Search,
+  ShoppingCart,
+  Tag,
+  Trash2,
+  User,
+} from 'lucide-react'
+import { UsageLimitNotice } from '@/components/subscriptions/UsageLimitNotice'
+import { useSubscriptionOverview } from '@/hooks/useSubscriptionOverview'
+import { getPlanDefinition, getUsageLimit, getUsageRatio } from '@/lib/subscriptions'
+import { buildProductGroups, getProductGroupPriceLabel } from '@/lib/productGroups'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
-import { cn, formatCurrency, formatCurrencyCompact } from '@/lib/utils'
+import {
+  cn,
+  formatCurrency,
+  formatCurrencyCompact,
+  formatProductLabel,
+  getProductVariantSummary,
+} from '@/lib/utils'
 import { useSalesStore } from '@/store/salesStore'
 import { getProducts } from '@/lib/supabase/queries'
 import { useUser } from '@/hooks/useUser'
-import type { CartItem, Product } from '@/types'
+import type { CartItem, Product, ProductGroup } from '@/types'
 
 interface POSInterfaceProps {
   onCheckout: () => void
@@ -23,8 +45,15 @@ const PAYMENT_METHOD_CHIPS = [
   { id: 'card', label: 'Carte' },
 ] as const
 
+function summarizeValues(values: string[]) {
+  if (values.length === 0) return ''
+  if (values.length <= 3) return values.join(' · ')
+  return `${values.slice(0, 2).join(' · ')} +${values.length - 2}`
+}
+
 export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   const { user } = useUser()
+  const { overview } = useSubscriptionOverview()
   const restoredDraftNoticeShown = useRef(false)
   const [isDraftReady, setIsDraftReady] = useState(false)
   const [search, setSearch] = useState('')
@@ -35,6 +64,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   const [stockNotice, setStockNotice] = useState('')
   const [currencyNotice, setCurrencyNotice] = useState('')
   const [showClearCartConfirm, setShowClearCartConfirm] = useState(false)
+  const [variantPickerGroup, setVariantPickerGroup] = useState<ProductGroup | null>(null)
   const {
     draftOwnerId,
     cart,
@@ -91,17 +121,18 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         setProducts(availableProducts)
         setCurrencyNotice(
           excludedCurrencyCount > 0
-            ? `${excludedCurrencyCount} produit(s) hors FCFA masqué(s) pour éviter de mélanger les devises à la caisse.`
+            ? `${excludedCurrencyCount} produit(s) hors FCFA masque(s) pour eviter de melanger les devises a la caisse.`
             : ''
         )
         syncCartStock(availableProducts)
+
         const notices: string[] = []
         if (currentCart.length > 0 && !restoredDraftNoticeShown.current) {
-          notices.push('Votre panier en cours a été restauré.')
+          notices.push('Votre panier en cours a ete restaure.')
           restoredDraftNoticeShown.current = true
         }
-        if (removedCount > 0) notices.push(`${removedCount} article(s) indisponible(s) retiré(s) du panier.`)
-        else if (reducedCount > 0) notices.push(`${reducedCount} quantité(s) ajustée(s) au stock disponible.`)
+        if (removedCount > 0) notices.push(`${removedCount} article(s) indisponible(s) retire(s) du panier.`)
+        else if (reducedCount > 0) notices.push(`${reducedCount} quantite(s) ajustee(s) au stock disponible.`)
         setStockNotice(notices.join(' '))
       })
       .catch((error: unknown) => {
@@ -117,11 +148,6 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
     }
   }, [cart.length])
 
-  const filtered = products.filter((product) =>
-    product.name.toLowerCase().includes(search.toLowerCase()) ||
-    (product.sku?.toLowerCase() ?? '').includes(search.toLowerCase())
-  )
-
   const activeCart = isDraftReady ? cart : []
   const activeDiscount = isDraftReady ? discount : 0
   const activeCustomerName = isDraftReady ? customerName : ''
@@ -134,6 +160,12 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   const itemCount = activeCart.reduce((sum, item) => sum + item.quantity, 0)
   const selectedPaymentMethod = PAYMENT_METHOD_CHIPS.find((option) => option.id === activePaymentMethod) ?? PAYMENT_METHOD_CHIPS[0]
   const hasCartContext = itemCount > 0 || activeCustomerName.trim() || activeCustomerPhone.trim() || activeDiscount > 0
+  const monthlySalesLimit = overview ? getUsageLimit(overview.plan, 'monthlySales') : null
+  const monthlySalesCount = overview?.usage.monthlySales ?? 0
+  const monthlySalesRatio = overview ? getUsageRatio(monthlySalesCount, monthlySalesLimit) : 0
+  const isSalesLimitReached = !!monthlySalesLimit && monthlySalesCount >= monthlySalesLimit
+  const isSalesLimitNear = !isSalesLimitReached && !!monthlySalesLimit && monthlySalesRatio >= 80
+  const currentPlanName = overview ? getPlanDefinition(overview.plan).name : 'actuel'
   const cartSummaryPills = [
     itemCount > 0 ? `${itemCount} article(s)` : '',
     activeCustomerName.trim() || activeCustomerPhone.trim() ? (activeCustomerName.trim() || activeCustomerPhone.trim()) : '',
@@ -141,10 +173,36 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
     `Mode ${selectedPaymentMethod.label}`,
   ].filter(Boolean)
 
+  const getRemainingQuantity = (product: Product) => {
+    const inCart = activeCart.find((item) => item.product_id === product.id)?.quantity ?? 0
+    return Math.max(0, product.quantity - inCart)
+  }
+
+  const groupedProducts = useMemo(() => buildProductGroups(products), [products])
+
+  const filteredGroups = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase('fr')
+
+    return groupedProducts.filter((group) => {
+      if (!query) return true
+
+      return [
+        group.name,
+        group.category?.name,
+        ...group.variants.flatMap((variant) => [variant.sku, variant.size, variant.color]),
+      ]
+        .filter(Boolean)
+        .some((value) => value!.toLocaleLowerCase('fr').includes(query))
+    })
+  }, [groupedProducts, search])
+
   const handleAddToCart = (product: Product) => {
+    const remaining = getRemainingQuantity(product)
+    if (remaining <= 0) return
+
     const item: CartItem = {
       product_id: product.id,
-      product_name: product.name,
+      product_name: formatProductLabel(product),
       unit_price: product.selling_price,
       quantity: 1,
       total: product.selling_price,
@@ -152,6 +210,18 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
       image_url: product.image_url,
     }
     addToCart(item)
+  }
+
+  const handleSelectGroup = (group: ProductGroup) => {
+    const availableVariants = group.variants.filter((variant) => getRemainingQuantity(variant) > 0)
+    if (availableVariants.length === 0) return
+
+    if (availableVariants.length === 1) {
+      handleAddToCart(availableVariants[0])
+      return
+    }
+
+    setVariantPickerGroup(group)
   }
 
   const handleCheckout = () => {
@@ -250,7 +320,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-[#1A3636]">{item.product_name}</p>
-                  <p className="text-xs text-[#6B7682]">{formatCurrency(item.unit_price)} / unité</p>
+                  <p className="text-xs text-[#6B7682]">{formatCurrency(item.unit_price)} / unite</p>
                 </div>
                 <button
                   type="button"
@@ -344,6 +414,23 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           </button>
         )}
 
+        {isSalesLimitReached && (
+          <UsageLimitNotice
+            tone="danger"
+            compact
+            title="Plafond de ventes atteint"
+            detail={`Le plan ${currentPlanName} autorise ${monthlySalesLimit} vente(s) sur le mois. Passez a une formule superieure pour continuer a encaisser.`}
+          />
+        )}
+
+        {isSalesLimitNear && monthlySalesLimit && (
+          <UsageLimitNotice
+            compact
+            title="Plafond de ventes presque atteint"
+            detail={`${monthlySalesCount} vente(s) enregistree(s) ce mois sur ${monthlySalesLimit}. Anticipez la suite depuis Abonnement.`}
+          />
+        )}
+
         <div className="flex items-center gap-2">
           <Tag size={14} className="flex-shrink-0 text-[#6B7682]" />
           <input
@@ -361,15 +448,13 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         {cartSummaryPills.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pb-1">
             {cartSummaryPills.map((pill) => (
-              <span
-                key={pill}
-                className="rounded-full bg-[#F4F7FB] px-2.5 py-1 text-[10px] font-semibold text-[#5C6B73]"
-              >
+              <span key={pill} className="rounded-full bg-[#F4F7FB] px-2.5 py-1 text-[10px] font-semibold text-[#5C6B73]">
                 {pill}
               </span>
             ))}
           </div>
         )}
+
         <div className="space-y-1.5 rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] px-3 py-3">
           <div className="flex justify-between text-xs text-[#5C6B73]">
             <span>Sous-total</span>
@@ -397,8 +482,9 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           variant="primary"
           fullWidth
           size="lg"
-          disabled={activeCart.length === 0}
+          disabled={activeCart.length === 0 || isSalesLimitReached}
           onClick={handleCheckout}
+          title={isSalesLimitReached ? `Limite atteinte sur le plan ${currentPlanName}` : 'Encaisser'}
         >
           Encaisser
         </Button>
@@ -415,7 +501,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
             <input
               type="search"
               aria-label="Rechercher un produit"
-              placeholder="Rechercher un produit..."
+              placeholder="Rechercher un produit, une taille ou une couleur..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               className="h-12 w-full rounded-full border border-[#2D7D7D]/[0.14] bg-white pl-10 pr-4 text-sm text-[#1A3636] placeholder:text-[#6B7682] transition-all focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)]"
@@ -472,12 +558,14 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
               {productsError}
             </div>
           )}
+
           {currencyNotice && (
             <div className="flex items-start justify-between gap-3 rounded-xl border border-[#2D7D7D]/15 bg-[#2D7D7D]/5 px-3 py-2.5 text-xs text-[#2D7D7D]">
               <span>{currencyNotice}</span>
               <button type="button" onClick={() => setCurrencyNotice('')} className="font-semibold">Fermer</button>
             </div>
           )}
+
           {stockNotice && (
             <div className="flex items-start justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700">
               <span>{stockNotice}</span>
@@ -487,9 +575,9 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
 
           {loadingProducts ? (
             <div className="grid grid-cols-2 gap-3 min-[420px]:grid-cols-3 sm:grid-cols-4 lg:grid-cols-5">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((index) => (
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((index) => (
                 <div key={index} className="rounded-xl border border-[#2D7D7D]/[0.07] bg-white p-2 animate-pulse">
-                  <div className="mb-1.5 h-14 w-full rounded-lg bg-[#2D7D7D]/[0.08]" />
+                  <div className="mb-1.5 h-20 w-full rounded-lg bg-[#2D7D7D]/[0.08]" />
                   <div className="mb-1 h-2.5 w-3/4 rounded bg-[#2D7D7D]/[0.08]" />
                   <div className="h-3 w-1/2 rounded bg-[#2D7D7D]/[0.08]" />
                 </div>
@@ -497,49 +585,76 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
             </div>
           ) : (
             <div className="grid flex-1 grid-cols-2 gap-3 overflow-y-auto pr-1 min-[420px]:grid-cols-3 sm:grid-cols-4 lg:grid-cols-5">
-              {filtered.map((product) => {
-                const inCart = activeCart.find((current) => current.product_id === product.id)
-                const remaining = Math.max(0, product.quantity - (inCart?.quantity ?? 0))
+              {filteredGroups.map((group) => {
+                const availableVariants = group.variants.filter((variant) => getRemainingQuantity(variant) > 0)
+                const totalRemaining = availableVariants.reduce((sum, variant) => sum + getRemainingQuantity(variant), 0)
+                const inCartCount = activeCart.reduce((sum, item) => (
+                  sum + (group.variants.some((variant) => variant.id === item.product_id) ? item.quantity : 0)
+                ), 0)
+                const variantHint = [
+                  group.sizes.length > 0 ? `Tailles: ${summarizeValues(group.sizes)}` : '',
+                  group.colors.length > 0 ? `Couleurs: ${summarizeValues(group.colors)}` : '',
+                ].filter(Boolean).join(' · ')
+                const helperText = group.variant_count > 1
+                  ? `${availableVariants.length}/${group.variant_count} variantes dispo · ${totalRemaining} unite(s)`
+                  : totalRemaining === 0
+                    ? 'Stock epuise'
+                    : `Reste: ${totalRemaining}`
 
                 return (
                   <button
-                    key={product.id}
+                    key={group.id}
                     type="button"
-                    onClick={() => handleAddToCart(product)}
-                    disabled={remaining === 0}
-                    aria-label={remaining === 0 ? `${product.name}, stock épuisé` : `Ajouter ${product.name} au panier, ${remaining} disponible(s)`}
+                    onClick={() => handleSelectGroup(group)}
+                    disabled={totalRemaining === 0}
+                    aria-label={
+                      totalRemaining === 0
+                        ? `${group.name}, stock epuise`
+                        : group.variant_count > 1
+                          ? `Choisir une variante pour ${group.name}`
+                          : `Ajouter ${group.name} au panier`
+                    }
                     className="group relative rounded-xl border border-[#2D7D7D]/[0.07] bg-white p-2 text-left transition-all hover:border-[#6C5CE7]/30 hover:bg-[#6C5CE7]/[0.04] hover:shadow-[0_4px_12px_rgba(26,54,54,0.07)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:border-[#2D7D7D]/[0.07] disabled:hover:bg-white disabled:hover:shadow-none"
                   >
-                    {inCart && (
-                      <div className="absolute right-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-[#6C5CE7]">
-                        <span className="text-[9px] font-bold text-white">{inCart.quantity}</span>
+                    {inCartCount > 0 && (
+                      <div className="absolute right-2 top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#6C5CE7] px-1">
+                        <span className="text-[9px] font-bold text-white">{inCartCount}</span>
                       </div>
                     )}
+
                     <div className="mb-2 flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F8FAFD] p-2">
-                      {product.image_url ? (
+                      {group.image_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={product.image_url}
-                          alt={product.name}
-                          className="h-full w-full object-contain object-center"
-                        />
+                        <img src={group.image_url} alt={group.name} className="h-full w-full object-contain object-center" />
                       ) : (
-                        <span className="text-lg">📦</span>
+                        <Package size={20} className="text-[#6B7682]" />
                       )}
                     </div>
-                    <p className="line-clamp-2 text-xs font-semibold leading-tight text-[#1A3636] min-[420px]:text-[11px]">{product.name}</p>
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="line-clamp-2 flex-1 text-xs font-semibold leading-tight text-[#1A3636] min-[420px]:text-[11px]">{group.name}</p>
+                      {group.variant_count > 1 && (
+                        <Badge variant="purple">{group.variant_count} variantes</Badge>
+                      )}
+                    </div>
+
+                    {variantHint && (
+                      <p className="mt-1 line-clamp-2 text-[10px] font-medium text-[#5A4BD4]">
+                        {variantHint}
+                      </p>
+                    )}
+
                     <p className="mt-1 text-sm font-bold text-[#6C5CE7] min-[420px]:text-xs">
-                      <span className="sm:hidden">{formatCurrencyCompact(product.selling_price)}</span>
-                      <span className="hidden sm:inline">{formatCurrency(product.selling_price)}</span>
+                      {getProductGroupPriceLabel(group)}
                     </p>
-                    <p className={`mt-0.5 text-[10px] ${remaining === 0 ? 'text-red-600' : 'text-[#6B7682]'}`}>
-                      {remaining === 0 ? 'Stock epuise' : `Reste: ${remaining}`}
+                    <p className={`mt-0.5 text-[10px] ${totalRemaining === 0 ? 'text-red-600' : 'text-[#6B7682]'}`}>
+                      {helperText}
                     </p>
                   </button>
                 )
               })}
 
-              {filtered.length === 0 && !loadingProducts && (
+              {filteredGroups.length === 0 && !loadingProducts && (
                 <div className="col-span-full py-16 text-center text-[#6B7682]">
                   <ShoppingCart size={32} className="mx-auto mb-3 opacity-40" />
                   <p className="text-sm">Aucun produit disponible</p>
@@ -607,7 +722,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
         onClose={() => setShowClearCartConfirm(false)}
         title="Vider le panier"
         size="sm"
-        footer={
+        footer={(
           <>
             <Button variant="ghost" onClick={() => setShowClearCartConfirm(false)}>Annuler</Button>
             <Button
@@ -620,11 +735,57 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
               Vider le panier
             </Button>
           </>
-        }
+        )}
       >
         <p className="text-sm text-[#5C6B73]">
-          Les {itemCount} article(s) du panier seront retirés. Cette action est irréversible.
+          Les {itemCount} article(s) du panier seront retires. Cette action est irreversible.
         </p>
+      </Modal>
+
+      <Modal
+        isOpen={variantPickerGroup !== null}
+        onClose={() => setVariantPickerGroup(null)}
+        title={variantPickerGroup ? `Choisir une variante · ${variantPickerGroup.name}` : 'Choisir une variante'}
+        size="md"
+      >
+        {variantPickerGroup && (
+          <div className="space-y-3">
+            <p className="text-sm text-[#6B7682]">
+              Selectionnez la taille ou la couleur a encaisser pour utiliser le bon stock.
+            </p>
+
+            <div className="space-y-2">
+              {variantPickerGroup.variants
+                .filter((variant) => getRemainingQuantity(variant) > 0)
+                .map((variant) => (
+                  <button
+                    key={variant.id}
+                    type="button"
+                    onClick={() => {
+                      handleAddToCart(variant)
+                      setVariantPickerGroup(null)
+                    }}
+                    className="w-full rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F8FBFC] px-4 py-3 text-left transition-all hover:border-[#6C5CE7]/25 hover:bg-[#6C5CE7]/[0.04]"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-[#1A3636]">
+                          {getProductVariantSummary(variant) || 'Variante standard'}
+                        </p>
+                        <p className="mt-1 text-xs text-[#6B7682]">
+                          SKU {variant.sku || 'Sans reference'} · Reste {getRemainingQuantity(variant)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-[#6C5CE7]">{formatCurrency(variant.selling_price, variant.currency)}</p>
+                        <p className="mt-1 text-[11px] text-[#5C6B73]">Ajouter au panier</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
       </Modal>
     </>
   )

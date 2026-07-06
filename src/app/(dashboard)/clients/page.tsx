@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  ArrowRight,
   ChevronDown,
   Copy,
   Download,
@@ -35,6 +36,12 @@ interface ClientSummary {
   totalDue: number
   lastPurchase: string
   sales: Sale[]
+}
+
+interface ClientNextAction {
+  label: string
+  detail: string
+  className: string
 }
 
 function normalizePhone(phone: string): string {
@@ -107,6 +114,69 @@ function getDebtAgeBadge(days: number): { label: string; className: string } {
     label: `${days} j · recent`,
     className: 'bg-emerald-500/10 text-emerald-700',
   }
+}
+
+function getClientPriorityScore(client: ClientSummary): number {
+  const oldestDebtSale = getClientOldestDebtSale(client)
+  const oldestDebtAgeDays = oldestDebtSale ? getDaysSince(oldestDebtSale.created_at) : 0
+  const debtCount = getClientDebtSales(client).length
+  const hasPhone = normalizePhone(client.phone).length > 0
+
+  return (
+    oldestDebtAgeDays * 1_000_000
+    + debtCount * 100_000
+    + Math.round(client.totalDue)
+    + (hasPhone ? 10_000 : 50_000)
+  )
+}
+
+function getClientNextAction(client: ClientSummary): ClientNextAction {
+  const debtSales = getClientDebtSales(client)
+  const oldestDebtSale = getClientOldestDebtSale(client)
+  const oldestDebtAgeDays = oldestDebtSale ? getDaysSince(oldestDebtSale.created_at) : 0
+  const hasPhone = normalizePhone(client.phone).length > 0
+
+  if (client.totalDue <= 0 || debtSales.length === 0) {
+    return {
+      label: 'Compte solde',
+      detail: 'Aucune relance necessaire pour ce client.',
+      className: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700',
+    }
+  }
+
+  if (!hasPhone) {
+    return {
+      label: 'Completer le contact',
+      detail: 'Ajouter un numero avant toute relance.',
+      className: 'border-amber-500/20 bg-amber-500/10 text-amber-700',
+    }
+  }
+
+  if (oldestDebtAgeDays >= 30) {
+    return {
+      label: 'Relance urgente',
+      detail: 'Dette de plus de 30 jours : traiter en priorite aujourd hui.',
+      className: 'border-red-500/20 bg-red-500/10 text-red-600',
+    }
+  }
+
+  if (debtSales.length >= 2) {
+    return {
+      label: 'Reglement global a proposer',
+      detail: 'Plusieurs ventes ouvertes, regrouper le recouvrement.',
+      className: 'border-[#2D7D7D]/15 bg-[#2D7D7D]/10 text-[#2D7D7D]',
+    }
+  }
+
+  return {
+    label: 'Relance simple',
+    detail: 'Envoyer le rappel puis enregistrer le paiement a reception.',
+    className: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700',
+  }
+}
+
+function buildDebtReminderMessage(clientName: string, amountDue: number): string {
+  return `Bonjour ${clientName}, il reste ${formatCurrency(amountDue)} a regler chez Saytu Yef. Merci de nous confirmer votre paiement.`
 }
 
 async function copyText(value: string): Promise<void> {
@@ -275,6 +345,17 @@ export default function ClientsPage() {
     })(),
   }), { due: 0, debtors: 0, followUps: 0, missingPhones: 0, urgent: 0, medium: 0, recent: 0 }), [filteredClients])
 
+  const priorityClients = useMemo(() => {
+    return filteredClients
+      .filter((client) => client.totalDue > 0)
+      .sort((left, right) => (
+        getClientPriorityScore(right) - getClientPriorityScore(left)
+        || right.totalDue - left.totalDue
+        || new Date(right.lastPurchase).getTime() - new Date(left.lastPurchase).getTime()
+      ))
+      .slice(0, 4)
+  }, [filteredClients])
+
   const exportCsv = () => {
     if (filteredClients.length === 0) return
     const safeCell = (value: string | number) => {
@@ -417,6 +498,125 @@ export default function ClientsPage() {
         {notice && <div role="status" className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-700">{notice}</div>}
         {error && <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">{error}</div>}
 
+        {!loading && priorityClients.length > 0 && (
+          <Card className="p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-[#1A3636]">Recouvrement prioritaire</h2>
+                <p className="mt-1 text-sm text-[#6B7682]">
+                  Les clients a traiter en premier pour encaisser plus vite.
+                </p>
+              </div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-[#F4F7FB] px-3 py-1.5 text-xs font-semibold text-[#2D7D7D]">
+                {priorityClients.length} action(s) rapides
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 xl:grid-cols-2">
+              {priorityClients.map((client) => {
+                const debtSales = getClientDebtSales(client)
+                const latestDebtSale = debtSales[0] ?? null
+                const oldestDebtSale = getClientOldestDebtSale(client)
+                const oldestDebtAgeDays = oldestDebtSale ? getDaysSince(oldestDebtSale.created_at) : 0
+                const debtAgeBadge = oldestDebtSale ? getDebtAgeBadge(oldestDebtAgeDays) : null
+                const nextAction = getClientNextAction(client)
+                const contactPhone = normalizePhone(client.phone)
+                const reminder = buildDebtReminderMessage(client.name, client.totalDue)
+
+                return (
+                  <div key={`${client.id}-priority`} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-[#1A3636]">{client.name}</p>
+                        <p className="mt-1 text-xs text-[#6B7682]">
+                          {client.phone || 'Numero manquant'} - {client.saleCount} vente(s)
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-[#6B7682]">A recouvrer</p>
+                        <p className="text-base font-bold text-amber-700">{formatCurrencyCompact(client.totalDue)}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#5C6B73]">
+                        {debtSales.length} dette(s) ouverte(s)
+                      </span>
+                      {debtAgeBadge && (
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${debtAgeBadge.className}`}>
+                          {debtAgeBadge.label}
+                        </span>
+                      )}
+                      <span className="rounded-full bg-[#2D7D7D]/10 px-2.5 py-1 text-[11px] font-medium text-[#2D7D7D]">
+                        Verse {formatCurrencyCompact(client.totalPaid)}
+                      </span>
+                    </div>
+
+                    <div className={`mt-3 rounded-2xl border px-3 py-2 text-xs ${nextAction.className}`}>
+                      <p className="font-semibold">{nextAction.label}</p>
+                      <p className="mt-1">{nextAction.detail}</p>
+                    </div>
+
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {latestDebtSale && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSale(latestDebtSale)}
+                          className="flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#2D7D7D] px-3 text-xs font-semibold text-white"
+                        >
+                          <WalletCards size={14} />
+                          Encaisser {formatCurrencyCompact(getSaleAmountDue(latestDebtSale))}
+                        </button>
+                      )}
+
+                      {contactPhone ? (
+                        <a
+                          href={`https://wa.me/${contactPhone}?text=${encodeURIComponent(reminder)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex min-h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white"
+                        >
+                          <MessageCircle size={14} />
+                          Relancer sur WhatsApp
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => latestDebtSale && setSelectedSale(latestDebtSale)}
+                          className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 text-xs font-semibold text-amber-700"
+                        >
+                          <Phone size={14} />
+                          Ajouter le numero
+                        </button>
+                      )}
+
+                      {contactPhone && (
+                        <a
+                          href={`tel:+${contactPhone}`}
+                          className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 px-3 text-xs font-semibold text-[#2D7D7D]"
+                        >
+                          <Phone size={14} />
+                          Appeler
+                        </a>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setExpandedClientId(client.id)}
+                        className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 px-3 text-xs font-semibold text-[#2D7D7D]"
+                      >
+                        <ReceiptText size={14} />
+                        Voir le detail
+                        <ArrowRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+        )}
+
         {loading ? (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{[1, 2, 3, 4, 5, 6].map((item) => <div key={item} className="skeleton h-44 rounded-2xl" />)}</div>
         ) : filteredClients.length === 0 ? (
@@ -435,7 +635,8 @@ export default function ClientsPage() {
               const latestActionSale = latestDebtSale ?? latestSale
               const oldestDebtAgeDays = oldestDebtSale ? getDaysSince(oldestDebtSale.created_at) : 0
               const debtAgeBadge = oldestDebtSale ? getDebtAgeBadge(oldestDebtAgeDays) : null
-              const reminder = `Bonjour ${client.name}, nous vous rappelons qu’il reste ${formatCurrency(client.totalDue)} à régler chez Saytu Yef. Merci.`
+              const reminder = buildDebtReminderMessage(client.name, client.totalDue)
+              const nextAction = getClientNextAction(client)
 
               return (
                 <Card key={client.id} className="p-4">
@@ -495,6 +696,13 @@ export default function ClientsPage() {
                     <span>{formatDate(client.lastPurchase)}</span>
                   </div>
 
+                  {client.totalDue > 0 && (
+                    <div className={`mt-3 rounded-xl border px-3 py-2.5 text-xs ${nextAction.className}`}>
+                      <p className="font-semibold">{nextAction.label}</p>
+                      <p className="mt-1">{nextAction.detail}</p>
+                    </div>
+                  )}
+
                   {latestDebtSale && (
                     <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
                       <div className="flex items-center justify-between gap-3 text-xs">
@@ -520,7 +728,7 @@ export default function ClientsPage() {
                         className="flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#2D7D7D] px-3 text-xs font-semibold text-white"
                       >
                         <WalletCards size={14} />
-                        Encaisser maintenant
+                        Encaisser {formatCurrencyCompact(getSaleAmountDue(latestDebtSale))}
                       </button>
                     )}
 

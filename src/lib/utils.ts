@@ -118,6 +118,25 @@ export function getProfitMargin(buyingPrice: number, sellingPrice: number): numb
   return ((sellingPrice - buyingPrice) / sellingPrice) * 100
 }
 
+type ProductVariantLike = {
+  size?: string | null
+  color?: string | null
+}
+
+type ProductLabelLike = ProductVariantLike & {
+  name: string
+}
+
+export function getProductVariantSummary(product: ProductVariantLike): string {
+  const parts = [product.size?.trim(), product.color?.trim()].filter(Boolean) as string[]
+  return parts.join(' · ')
+}
+
+export function formatProductLabel(product: ProductLabelLike): string {
+  const variant = getProductVariantSummary(product)
+  return variant ? `${product.name} · ${variant}` : product.name
+}
+
 const ABROAD_PRODUCTS_KEY = 'saytu_abroad_products'
 
 export function saveAbroadProductsLocally(products: unknown[]) {

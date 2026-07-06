@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { CartItem, Product, Sale } from '@/types'
+import { formatProductLabel } from '@/lib/utils'
 
 interface SalesState {
   draftOwnerId: string
@@ -78,7 +79,7 @@ export const useSalesStore = create<SalesState>()(
           const quantity = Math.min(item.quantity, product.quantity)
           return [{
             ...item,
-            product_name: product.name,
+            product_name: formatProductLabel(product),
             unit_price: product.selling_price,
             quantity,
             total: quantity * product.selling_price,

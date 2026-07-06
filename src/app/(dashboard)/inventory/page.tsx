@@ -8,14 +8,14 @@ import { ProductTable } from '@/components/inventory/ProductTable'
 import { AddProductModal } from '@/components/inventory/AddProductModal'
 import { AbroadBatchEntry } from '@/components/inventory/AbroadBatchEntry'
 import { useInventoryStore } from '@/store/inventoryStore'
-import type { Product } from '@/types'
+import type { Product, ProductGroup } from '@/types'
 
 type Tab = 'stock' | 'abroad'
 
 export default function InventoryPage() {
   const [tab, setTab] = useState<Tab>('stock')
   const [showAdd, setShowAdd] = useState(false)
-  const [editProduct, setEditProduct] = useState<Product | null>(null)
+  const [editProductGroup, setEditProductGroup] = useState<ProductGroup | null>(null)
   const [activatedProduct, setActivatedProduct] = useState<Product | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [notice, setNotice] = useState('')
@@ -88,7 +88,7 @@ export default function InventoryPage() {
         {tab === 'stock' ? (
           <ProductTable
             onAddProduct={() => setShowAdd(true)}
-            onEditProduct={(product) => setEditProduct(product)}
+            onEditProduct={(productGroup) => setEditProductGroup(productGroup)}
             refreshKey={refreshKey}
             activatedProduct={activatedProduct}
             onActivatedProductMerged={clearActivatedProduct}
@@ -106,12 +106,12 @@ export default function InventoryPage() {
       </div>
 
       <AddProductModal
-        isOpen={showAdd || !!editProduct}
+        isOpen={showAdd || !!editProductGroup}
         onClose={() => {
           setShowAdd(false)
-          setEditProduct(null)
+          setEditProductGroup(null)
         }}
-        product={editProduct}
+        productGroup={editProductGroup}
         onSaved={(message) => {
           setNotice(message ?? 'Le produit a bien été enregistré.')
           setRefreshKey((current) => current + 1)

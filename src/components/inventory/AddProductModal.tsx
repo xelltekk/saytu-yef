@@ -1,18 +1,31 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
-import { Upload, Camera, X, ImageIcon } from 'lucide-react'
+
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Camera, ImageIcon, Plus, Trash2, Upload, Wand2, X } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
-import { generateSKU, getProfitMargin, compressImage } from '@/lib/utils'
-import { addProduct, updateProduct, getCategories, getProducts, getSuppliers } from '@/lib/supabase/queries'
-import type { Product, Category, Supplier } from '@/types'
+import { compressImage, generateSKU, getProfitMargin, getProductVariantSummary } from '@/lib/utils'
+import { createProductGroup, getCategories, getProducts, getSuppliers, updateProductGroup } from '@/lib/supabase/queries'
+import type { Category, Product, ProductGroup, ProductVariantDraft, Supplier } from '@/types'
 
 interface AddProductModalProps {
   isOpen: boolean
   onClose: () => void
-  product?: Product | null
+  productGroup?: ProductGroup | null
   onSaved?: (message?: string) => void
+}
+
+type VariantRow = {
+  key: string
+  id?: string
+  sku: string
+  size: string
+  color: string
+  buying_price: string
+  selling_price: string
+  quantity: string
+  min_quantity: string
 }
 
 const CURRENCIES = [
@@ -23,236 +36,353 @@ const CURRENCIES = [
   { value: 'AED', label: 'Dirham (AED)' },
 ]
 
-export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProductModalProps) {
+function createVariantKey() {
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID()
+  }
+
+  return `variant-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+}
+
+function createEmptyVariant(overrides: Partial<VariantRow> = {}): VariantRow {
+  return {
+    key: createVariantKey(),
+    sku: '',
+    size: '',
+    color: '',
+    buying_price: '',
+    selling_price: '',
+    quantity: '0',
+    min_quantity: '5',
+    ...overrides,
+  }
+}
+
+function mapGroupVariants(productGroup?: ProductGroup | null): VariantRow[] {
+  if (!productGroup) {
+    return [createEmptyVariant()]
+  }
+
+  return productGroup.variants.map((variant) => createEmptyVariant({
+    id: variant.id,
+    sku: variant.sku || '',
+    size: variant.size || '',
+    color: variant.color || '',
+    buying_price: variant.buying_price.toString(),
+    selling_price: variant.selling_price.toString(),
+    quantity: variant.quantity.toString(),
+    min_quantity: variant.min_quantity.toString(),
+  }))
+}
+
+function buildVariantSku(productName: string, variant: VariantRow, index: number) {
+  const seed = [
+    productName.trim(),
+    variant.size.trim(),
+    variant.color.trim(),
+    `V${index + 1}`,
+  ].filter(Boolean).join(' ')
+
+  return generateSKU(seed || productName || `PRD-${index + 1}`)
+}
+
+function buildVariantTitle(variant: VariantRow, index: number) {
+  const summary = getProductVariantSummary(variant)
+  return summary ? `Variante ${index + 1} · ${summary}` : `Variante ${index + 1}`
+}
+
+export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddProductModalProps) {
   const [form, setForm] = useState({
-    name: product?.name || '',
-    sku: product?.sku || '',
-    category_id: product?.category_id || '',
-    supplier_id: product?.supplier_id || '',
-    description: product?.description || '',
-    buying_price: product?.buying_price?.toString() || '',
-    selling_price: product?.selling_price?.toString() || '',
-    quantity: product?.quantity?.toString() || '',
-    min_quantity: product?.min_quantity?.toString() || '5',
-    currency: product?.currency || 'XOF',
+    name: productGroup?.name || '',
+    category_id: productGroup?.category_id || '',
+    supplier_id: productGroup?.supplier_id || '',
+    description: productGroup?.description || '',
+    currency: productGroup?.currency || 'XOF',
   })
+  const [variants, setVariants] = useState<VariantRow[]>(() => mapGroupVariants(productGroup))
   const [categories, setCategories] = useState<Category[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [existingProducts, setExistingProducts] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
-  const [image, setImage] = useState<string>(product?.image_url || '')
+  const [image, setImage] = useState<string>(productGroup?.image_url || '')
   const [imgLoading, setImgLoading] = useState(false)
   const uploadRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
 
-  const handleImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = '' // permet de re-sélectionner le même fichier
-    if (!file) return
-    if (!file.type.startsWith('image/')) { setError('Fichier image invalide'); return }
-    setImgLoading(true)
-    try {
-      const dataUrl = await compressImage(file)
-      setImage(dataUrl)
-    } catch (err) {
-      console.error(err)
-      setError('Impossible de charger l\'image')
-    } finally {
-      setImgLoading(false)
-    }
-  }
-
   useEffect(() => {
     if (!isOpen) return
+
     setError('')
-    setImage(product?.image_url || '')
+    setImage(productGroup?.image_url || '')
+    setForm({
+      name: productGroup?.name || '',
+      category_id: productGroup?.category_id || '',
+      supplier_id: productGroup?.supplier_id || '',
+      description: productGroup?.description || '',
+      currency: productGroup?.currency || 'XOF',
+    })
+    setVariants(mapGroupVariants(productGroup))
+
     getCategories()
       .then(setCategories)
       .catch((loadError: unknown) => {
         console.error(loadError)
-        setError(loadError instanceof Error ? loadError.message : 'Impossible de charger les catégories.')
+        setError(loadError instanceof Error ? loadError.message : 'Impossible de charger les categories.')
       })
-    getProducts()
-      .then(setExistingProducts)
-      .catch((loadError: unknown) => {
-        console.error(loadError)
-        setError(loadError instanceof Error ? loadError.message : 'Impossible de vérifier les références existantes.')
-      })
+
     getSuppliers()
       .then(setSuppliers)
       .catch((loadError: unknown) => {
         console.error(loadError)
         setError(loadError instanceof Error ? loadError.message : 'Impossible de charger les fournisseurs.')
       })
-  }, [isOpen, product])
 
-  // Sync form when product changes (edit vs new)
-  useEffect(() => {
-    if (!isOpen) return
-    if (!product) {
-      setForm({ name: '', sku: '', category_id: '', supplier_id: '', description: '', buying_price: '', selling_price: '', quantity: '', min_quantity: '5', currency: 'XOF' })
-    } else {
-      setForm({
-        name: product.name,
-        sku: product.sku,
-        category_id: product.category_id,
-        supplier_id: product.supplier_id || '',
-        description: product.description || '',
-        buying_price: product.buying_price.toString(),
-        selling_price: product.selling_price.toString(),
-        quantity: product.quantity.toString(),
-        min_quantity: product.min_quantity.toString(),
-        currency: product.currency,
+    getProducts()
+      .then(setExistingProducts)
+      .catch((loadError: unknown) => {
+        console.error(loadError)
+        setError(loadError instanceof Error ? loadError.message : 'Impossible de verifier les references existantes.')
       })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen])
+  }, [isOpen, productGroup])
 
-  const margin = form.buying_price && form.selling_price
-    ? getProfitMargin(Number(form.buying_price), Number(form.selling_price))
-    : 0
-  const previewBuyingPrice = Number(form.buying_price)
-  const previewSellingPrice = Number(form.selling_price)
-  const isLossMaking = form.buying_price !== ''
-    && form.selling_price !== ''
-    && Number.isFinite(previewBuyingPrice)
-    && Number.isFinite(previewSellingPrice)
-    && previewSellingPrice < previewBuyingPrice
+  const currentVariantIds = useMemo(
+    () => new Set(productGroup?.variants.map((variant) => variant.id) ?? []),
+    [productGroup]
+  )
 
   const categoryOptions = [
-    { value: '', label: 'Sélectionner une catégorie' },
-    ...categories.map((c) => ({ value: c.id, label: c.name })),
+    { value: '', label: 'Selectionner une categorie' },
+    ...categories.map((category) => ({ value: category.id, label: category.name })),
   ]
+
   const supplierOptions = [
     { value: '', label: 'Sans fournisseur' },
     ...suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name })),
   ]
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!form.name.trim()) { setError('Le nom est requis'); return }
-
-    const buyingPrice = form.buying_price === '' ? 0 : Number(form.buying_price)
-    const sellingPrice = form.selling_price === '' ? 0 : Number(form.selling_price)
-    const initialQuantity = form.quantity === '' ? 0 : Number(form.quantity)
-    const minQuantity = form.min_quantity === '' ? 5 : Number(form.min_quantity)
-
-    if (!Number.isFinite(buyingPrice) || buyingPrice < 0) {
-      setError("Le prix d'achat doit être positif ou nul")
-      return
-    }
-    if (!Number.isFinite(sellingPrice) || sellingPrice < 0) {
-      setError('Le prix de vente doit être positif ou nul')
-      return
-    }
-    if (sellingPrice <= 0) {
-      setError('Le prix de vente doit être supérieur à zéro pour un produit actif')
-      return
-    }
-    if (!product && (!Number.isInteger(initialQuantity) || initialQuantity < 0)) {
-      setError('La quantité initiale doit être un nombre entier positif ou nul')
-      return
-    }
-    if (!Number.isInteger(minQuantity) || minQuantity < 0) {
-      setError('Le stock minimum doit être un nombre entier positif ou nul')
+  const handleImageFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setError('Fichier image invalide.')
       return
     }
 
-    const requestedSku = form.sku.trim() || generateSKU(form.name)
-    const duplicateSku = existingProducts.some((existingProduct) => (
-      existingProduct.id !== product?.id
-      && existingProduct.sku?.trim().toLocaleLowerCase('fr') === requestedSku.toLocaleLowerCase('fr')
-    ))
-    if (duplicateSku) {
-      setError(`La référence « ${requestedSku} » est déjà utilisée par un autre produit.`)
-      return
-    }
-
-    setIsLoading(true)
-    setError('')
+    setImgLoading(true)
     try {
-      const payload = {
-        name: form.name.trim(),
-        sku: requestedSku,
-        category_id: form.category_id || undefined,
-        supplier_id: form.supplier_id || undefined,
-        description: form.description.trim() || undefined,
-        buying_price: buyingPrice,
-        selling_price: sellingPrice,
-        quantity: product?.quantity ?? initialQuantity,
-        min_quantity: minQuantity,
-        currency: form.currency,
-        image_url: image || undefined,
-        status: 'active' as const,
-      }
-
-      if (product) {
-        await updateProduct(product.id, payload)
-      } else {
-        await addProduct(payload as Parameters<typeof addProduct>[0])
-      }
-
-      onSaved?.(product ? `Le produit « ${payload.name} » a été modifié.` : `Le produit « ${payload.name} » a été ajouté au stock.`)
-      onClose()
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Erreur lors de l\'enregistrement')
+      const dataUrl = await compressImage(file)
+      setImage(dataUrl)
+    } catch (loadError) {
+      console.error(loadError)
+      setError("Impossible de charger l'image.")
     } finally {
-      setIsLoading(false)
+      setImgLoading(false)
     }
   }
 
-  const autoSKU = () => {
-    setForm((f) => ({ ...f, sku: generateSKU(f.name || 'PRD') }))
+  const updateVariant = (key: string, updates: Partial<VariantRow>) => {
+    setVariants((current) => current.map((variant) => (
+      variant.key === key ? { ...variant, ...updates } : variant
+    )))
+  }
+
+  const addVariantRow = () => {
+    setVariants((current) => [
+      ...current,
+      createEmptyVariant({
+        min_quantity: current[0]?.min_quantity || '5',
+      }),
+    ])
+  }
+
+  const removeVariantRow = (key: string) => {
+    setVariants((current) => (
+      current.length > 1 ? current.filter((variant) => variant.key !== key) : current
+    ))
+  }
+
+  const handleGenerateVariantSku = (key: string) => {
+    const targetIndex = variants.findIndex((variant) => variant.key === key)
+    if (targetIndex === -1) return
+
+    updateVariant(key, { sku: buildVariantSku(form.name, variants[targetIndex], targetIndex) })
+  }
+
+  const handleGenerateAllSkus = () => {
+    setVariants((current) => current.map((variant, index) => ({
+      ...variant,
+      sku: variant.sku.trim() || buildVariantSku(form.name, variant, index),
+    })))
+  }
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setError('')
+
+    if (!form.name.trim()) {
+      setError('Le nom du produit est requis.')
+      return
+    }
+
+    if (!variants.length) {
+      setError('Ajoutez au moins une variante.')
+      return
+    }
+
+    const nextVariants: ProductVariantDraft[] = []
+    const usedSkus = new Set<string>()
+
+    for (const [index, variant] of variants.entries()) {
+      const buyingPrice = variant.buying_price === '' ? 0 : Number(variant.buying_price)
+      const sellingPrice = variant.selling_price === '' ? 0 : Number(variant.selling_price)
+      const quantity = variant.quantity === '' ? 0 : Number(variant.quantity)
+      const minQuantity = variant.min_quantity === '' ? 5 : Number(variant.min_quantity)
+      const sku = (variant.sku.trim() || buildVariantSku(form.name, variant, index)).trim()
+
+      if (!Number.isFinite(buyingPrice) || buyingPrice < 0) {
+        setError(`${buildVariantTitle(variant, index)} : prix d'achat invalide.`)
+        return
+      }
+
+      if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
+        setError(`${buildVariantTitle(variant, index)} : le prix de vente doit etre superieur a zero.`)
+        return
+      }
+
+      if (!Number.isInteger(quantity) || quantity < 0) {
+        setError(`${buildVariantTitle(variant, index)} : quantite invalide.`)
+        return
+      }
+
+      if (!Number.isInteger(minQuantity) || minQuantity < 0) {
+        setError(`${buildVariantTitle(variant, index)} : stock minimum invalide.`)
+        return
+      }
+
+      const normalizedSku = sku.toLocaleLowerCase('fr')
+      if (usedSkus.has(normalizedSku)) {
+        setError(`La reference « ${sku} » est dupliquee dans les variantes.`)
+        return
+      }
+      usedSkus.add(normalizedSku)
+
+      const duplicateSku = existingProducts.some((existingProduct) => (
+        existingProduct.sku?.trim().toLocaleLowerCase('fr') === normalizedSku
+        && !currentVariantIds.has(existingProduct.id)
+      ))
+      if (duplicateSku) {
+        setError(`La reference « ${sku} » est deja utilisee par un autre produit.`)
+        return
+      }
+
+      nextVariants.push({
+        id: variant.id,
+        sku,
+        size: variant.size.trim() || undefined,
+        color: variant.color.trim() || undefined,
+        buying_price: buyingPrice,
+        selling_price: sellingPrice,
+        quantity,
+        min_quantity: minQuantity,
+      })
+    }
+
+    setIsLoading(true)
+    try {
+      const payload = {
+        name: form.name.trim(),
+        category_id: form.category_id || undefined,
+        supplier_id: form.supplier_id || undefined,
+        description: form.description.trim() || undefined,
+        image_url: image || undefined,
+        currency: form.currency,
+        status: 'active' as const,
+        variants: nextVariants,
+      }
+
+      if (productGroup) {
+        await updateProductGroup(productGroup, payload)
+      } else {
+        await createProductGroup(payload)
+      }
+
+      const count = nextVariants.length
+      onSaved?.(
+        productGroup
+          ? `Le produit « ${payload.name} » et ses ${count} variante(s) ont ete mis a jour.`
+          : `Le produit « ${payload.name} » a ete cree avec ${count} variante(s).`
+      )
+      onClose()
+    } catch (submitError: unknown) {
+      console.error(submitError)
+      const fallbackMessage = "Erreur lors de l'enregistrement."
+      const message = submitError instanceof Error ? submitError.message : fallbackMessage
+      setError(
+        message.includes("nâ€™a pas encore les colonnes de variantes produit")
+          || message.includes("Could not find the 'color' column of 'products' in the schema cache")
+          || message.includes("Could not find the 'size' column of 'products' in the schema cache")
+          || message.includes("Could not find the 'product_group_id' column of 'products' in the schema cache")
+          ? "La base locale Supabase n'a pas encore les colonnes de variantes produit. Appliquez d'abord les migrations SQL taille/couleur et product_group_id, puis rechargez la page."
+          : message
+      )
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={product ? 'Modifier le produit' : 'Nouveau produit'}
+      title={productGroup ? 'Modifier le produit et ses variantes' : 'Nouveau produit avec variantes'}
       size="lg"
-      footer={
+      footer={(
         <>
           <Button variant="ghost" onClick={onClose}>Annuler</Button>
           <Button variant="primary" isLoading={isLoading} onClick={handleSubmit}>
-            {product ? 'Enregistrer' : 'Ajouter au stock'}
+            {productGroup ? 'Enregistrer' : 'Ajouter au stock'}
           </Button>
         </>
-      }
+      )}
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-5">
         {error && (
-          <div className="px-3 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-600">
+          <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
             {error}
           </div>
         )}
 
-        {/* Photo du produit */}
         <div className="flex items-center gap-4">
-          <div className="relative w-20 h-20 rounded-2xl bg-[#F4F7FB] border border-[#2D7D7D]/[0.1] flex items-center justify-center overflow-hidden flex-shrink-0">
+          <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-2xl border border-[#2D7D7D]/[0.1] bg-[#F4F7FB]">
             {imgLoading ? (
-              <div className="w-5 h-5 border-2 border-[#6C5CE7] border-t-transparent rounded-full animate-spin" />
+              <div className="flex h-full items-center justify-center">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#6C5CE7] border-t-transparent" />
+              </div>
             ) : image ? (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={image} alt="Aperçu produit" className="w-full h-full object-cover" />
+                <img src={image} alt="Apercu produit" className="h-full w-full object-contain object-center p-1.5" />
                 <button
                   type="button"
                   onClick={() => setImage('')}
-                  className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/55 text-white flex items-center justify-center hover:bg-black/75 transition-colors"
+                  className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white"
                   aria-label="Retirer la photo"
                 >
                   <X size={11} />
                 </button>
               </>
             ) : (
-              <ImageIcon size={22} className="text-[#9AA7AE]" />
+              <div className="flex h-full items-center justify-center">
+                <ImageIcon size={22} className="text-[#9AA7AE]" />
+              </div>
             )}
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73] mb-2">Photo du produit</p>
-            <div className="flex gap-2">
+
+          <div className="min-w-0 flex-1">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Photo du produit</p>
+            <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" leftIcon={<Upload size={14} />} onClick={() => uploadRef.current?.click()}>
                 Charger
               </Button>
@@ -267,124 +397,197 @@ export function AddProductModal({ isOpen, onClose, product, onSaved }: AddProduc
 
         <Input
           label="Nom du produit"
-          placeholder="ex: iPhone 15 Pro 256GB"
+          placeholder="ex: Tee-shirt coton premium"
           value={form.name}
-          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
           required
         />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Input
-              label="SKU / Référence"
-              placeholder="ex: IPH-A8F2"
-              value={form.sku}
-              onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))}
-            />
-            <button
-              type="button"
-              onClick={autoSKU}
-              className="text-xs text-[#6C5CE7] hover:text-[#5A4BD4] transition-colors"
-            >
-              Générer automatiquement
-            </button>
-          </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Select
-            label="Catégorie"
+            label="Categorie"
             options={categoryOptions}
             value={form.category_id}
-            onChange={(e) => setForm((f) => ({ ...f, category_id: e.target.value }))}
+            onChange={(event) => setForm((current) => ({ ...current, category_id: event.target.value }))}
+          />
+          <Select
+            label="Fournisseur (optionnel)"
+            options={supplierOptions}
+            value={form.supplier_id}
+            onChange={(event) => setForm((current) => ({ ...current, supplier_id: event.target.value }))}
           />
         </div>
 
-        <Select
-          label="Fournisseur (optionnel)"
-          options={supplierOptions}
-          value={form.supplier_id}
-          onChange={(e) => setForm((f) => ({ ...f, supplier_id: e.target.value }))}
-        />
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_220px]">
+          <Textarea
+            label="Description (optionnel)"
+            placeholder="Description commune a toutes les variantes..."
+            value={form.description}
+            onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+            rows={3}
+          />
           <Select
             label="Devise"
             options={CURRENCIES}
             value={form.currency}
-            onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+            onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))}
           />
-          <Input
-            label="Prix d'achat"
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="any"
-            placeholder="0"
-            value={form.buying_price}
-            onChange={(e) => setForm((f) => ({ ...f, buying_price: e.target.value }))}
-          />
-          <div>
-            <Input
-              label="Prix de vente"
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="any"
-              placeholder="0"
-              value={form.selling_price}
-              onChange={(e) => setForm((f) => ({ ...f, selling_price: e.target.value }))}
-            />
-            {form.buying_price !== '' && form.selling_price !== '' && previewSellingPrice > 0 && (
-              <p className={`text-xs mt-1 font-medium ${margin > 20 ? 'text-emerald-600' : margin >= 0 ? 'text-amber-600' : 'text-red-600'}`}>
-                {margin < 0 ? 'Perte' : 'Marge'} : {margin.toFixed(1)}%
+        </div>
+
+        <div className="rounded-[28px] border border-[#2D7D7D]/[0.08] bg-[#F8FBFC] p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-[#1A3636]">Variantes du produit</p>
+              <p className="mt-1 text-xs text-[#6B7682]">
+                Un seul produit parent, puis un stock distinct par taille et couleur.
               </p>
-            )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                leftIcon={<Wand2 size={14} />}
+                onClick={handleGenerateAllSkus}
+              >
+                Generer les references
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                leftIcon={<Plus size={14} />}
+                onClick={addVariantRow}
+              >
+                Ajouter une variante
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {variants.map((variant, index) => {
+              const buyingPrice = Number(variant.buying_price)
+              const sellingPrice = Number(variant.selling_price)
+              const margin = Number.isFinite(buyingPrice) && Number.isFinite(sellingPrice) && sellingPrice > 0
+                ? getProfitMargin(buyingPrice, sellingPrice)
+                : null
+
+              return (
+                <div key={variant.key} className="rounded-[24px] border border-[#2D7D7D]/[0.08] bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[#1A3636]">{buildVariantTitle(variant, index)}</p>
+                      <p className="mt-1 text-xs text-[#6B7682]">
+                        {variant.id
+                          ? "Stock actuel conserve. Utilisez 'Ajuster' depuis l'inventaire pour tracer les mouvements."
+                          : 'Definissez la couleur, la taille, le prix et le stock de depart.'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeVariantRow(variant.key)}
+                      disabled={variants.length === 1}
+                      className="flex h-9 w-9 items-center justify-center rounded-xl text-red-600 transition-colors hover:bg-red-500/10 disabled:opacity-30"
+                      aria-label={`Supprimer ${buildVariantTitle(variant, index)}`}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Input
+                      label="Taille (optionnel)"
+                      placeholder="ex: S, M, L, 42"
+                      value={variant.size}
+                      onChange={(event) => updateVariant(variant.key, { size: event.target.value })}
+                    />
+                    <Input
+                      label="Couleur (optionnel)"
+                      placeholder="ex: Noir, Bleu, Blanc"
+                      value={variant.color}
+                      onChange={(event) => updateVariant(variant.key, { color: event.target.value })}
+                    />
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <Input
+                      label="SKU / Reference"
+                      placeholder="ex: TSH-M-NOIR"
+                      value={variant.sku}
+                      onChange={(event) => updateVariant(variant.key, { sku: event.target.value })}
+                      hint="Unique par variante."
+                    />
+                    <div className="self-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        leftIcon={<Wand2 size={14} />}
+                        onClick={() => handleGenerateVariantSku(variant.key)}
+                      >
+                        Generer
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+                    <Input
+                      label="Prix d'achat"
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="any"
+                      placeholder="0"
+                      value={variant.buying_price}
+                      onChange={(event) => updateVariant(variant.key, { buying_price: event.target.value })}
+                    />
+                    <Input
+                      label="Prix de vente"
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="any"
+                      placeholder="0"
+                      value={variant.selling_price}
+                      onChange={(event) => updateVariant(variant.key, { selling_price: event.target.value })}
+                    />
+                    <Input
+                      label={variant.id ? 'Stock actuel' : 'Stock initial'}
+                      type="number"
+                      inputMode="numeric"
+                      min="0"
+                      step="1"
+                      placeholder="0"
+                      value={variant.quantity}
+                      onChange={(event) => updateVariant(variant.key, { quantity: event.target.value })}
+                      disabled={!!variant.id}
+                      className="disabled:cursor-not-allowed disabled:bg-[#F4F7FB] disabled:text-[#6B7682]"
+                    />
+                    <Input
+                      label="Stock minimum"
+                      type="number"
+                      inputMode="numeric"
+                      min="0"
+                      step="1"
+                      placeholder="5"
+                      value={variant.min_quantity}
+                      onChange={(event) => updateVariant(variant.key, { min_quantity: event.target.value })}
+                    />
+                  </div>
+
+                  {margin !== null && (
+                    <div className="mt-3 rounded-xl bg-[#F4F7FB] px-3 py-2 text-xs text-[#5C6B73]">
+                      Marge estimee :{' '}
+                      <span className={margin < 0 ? 'font-semibold text-red-600' : 'font-semibold text-emerald-600'}>
+                        {margin.toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
-
-        {isLossMaking && (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-700">
-            Attention : le prix de vente est inférieur au prix d’achat. Ce produit sera vendu à perte.
-          </div>
-        )}
-
-        {product && (
-          <div className="rounded-xl bg-[#6C5CE7]/[0.08] px-3 py-2.5 text-xs text-[#5446C8]">
-            Pour conserver un historique fiable, modifiez la quantité avec l&apos;action <strong>Ajuster</strong> depuis la liste des produits.
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            label={product ? 'Quantité actuelle' : 'Quantité initiale'}
-            type="number"
-            inputMode="numeric"
-            min="0"
-            step="1"
-            placeholder="0"
-            value={form.quantity}
-            onChange={(e) => setForm((f) => ({ ...f, quantity: e.target.value }))}
-            disabled={!!product}
-            className="disabled:cursor-not-allowed disabled:bg-[#F4F7FB] disabled:text-[#6B7682]"
-          />
-          <Input
-            label="Stock minimum"
-            type="number"
-            inputMode="numeric"
-            min="0"
-            step="1"
-            placeholder="5"
-            value={form.min_quantity}
-            onChange={(e) => setForm((f) => ({ ...f, min_quantity: e.target.value }))}
-            hint="Alerte stock faible"
-          />
-        </div>
-
-        <Textarea
-          label="Description (optionnel)"
-          placeholder="Détails sur le produit..."
-          value={form.description}
-          onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-          rows={3}
-        />
       </form>
     </Modal>
   )

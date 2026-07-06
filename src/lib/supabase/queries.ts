@@ -1,8 +1,29 @@
 import { createClient, ensureBrowserSupabaseSession } from './client'
-import type { Product, Category, Supplier, Sale, AbroadProduct, StockMovement, TeamMember } from '@/types'
+import type { Product, ProductGroup, ProductVariantDraft, Category, Supplier, Sale, AbroadProduct, StockMovement, TeamMember } from '@/types'
+import { buildProductGroups } from '@/lib/productGroups'
 import { getPlanDefinition, getSubscriptionOverview, getUsageLimit } from '@/lib/subscriptions'
 
 type SubscriptionLimitKey = 'products' | 'teamMembers' | 'monthlySales'
+
+function normalizeSupabaseError(error: unknown, fallback = 'Erreur base de donnees') {
+  const message = typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
+    ? error.message
+    : error instanceof Error
+      ? error.message
+      : fallback
+
+  if (
+    message.includes("Could not find the 'color' column of 'products' in the schema cache")
+    || message.includes("Could not find the 'size' column of 'products' in the schema cache")
+    || message.includes("Could not find the 'product_group_id' column of 'products' in the schema cache")
+  ) {
+    return new Error(
+      'La base locale Supabase n’a pas encore les colonnes de variantes produit. Appliquez d’abord les migrations SQL taille/couleur et product_group_id, puis rechargez la page.'
+    )
+  }
+
+  return error instanceof Error ? error : new Error(message)
+}
 
 function getSuggestedUpgradePlan(currentPlan: 'free' | 'starter' | 'pro' | 'enterprise') {
   if (currentPlan === 'free') return 'starter'
@@ -107,6 +128,172 @@ export async function getProducts(): Promise<Product[]> {
   return (data ?? []) as Product[]
 }
 
+type SaveProductGroupInput = {
+  name: string
+  description?: string
+  category_id?: string
+  supplier_id?: string
+  image_url?: string
+  currency: string
+  status: Product['status']
+  variants: ProductVariantDraft[]
+}
+
+function createProductGroupId(): string {
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID()
+  }
+
+  const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
+  const cryptoObject = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined
+
+  if (cryptoObject?.getRandomValues) {
+    const bytes = cryptoObject.getRandomValues(new Uint8Array(16))
+    bytes[6] = (bytes[6] & 0x0f) | 0x40
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+    return [
+      hex.slice(0, 8),
+      hex.slice(8, 12),
+      hex.slice(12, 16),
+      hex.slice(16, 20),
+      hex.slice(20, 32),
+    ].join('-')
+  }
+
+  return template.replace(/[xy]/g, (char) => {
+    const random = Math.floor(Math.random() * 16)
+    const value = char === 'x' ? random : ((random & 0x3) | 0x8)
+    return value.toString(16)
+  })
+}
+
+function buildGroupedVariantPayload(
+  userId: string,
+  groupId: string,
+  shared: Omit<SaveProductGroupInput, 'variants'>,
+  variant: ProductVariantDraft
+) {
+  return {
+    user_id: userId,
+    product_group_id: groupId,
+    name: shared.name,
+    description: shared.description || undefined,
+    category_id: shared.category_id || undefined,
+    supplier_id: shared.supplier_id || undefined,
+    image_url: shared.image_url || undefined,
+    currency: shared.currency,
+    status: shared.status,
+    sku: variant.sku,
+    size: variant.size?.trim() || undefined,
+    color: variant.color?.trim() || undefined,
+    buying_price: variant.buying_price,
+    selling_price: variant.selling_price,
+    quantity: variant.quantity,
+    min_quantity: variant.min_quantity,
+    updated_at: new Date().toISOString(),
+  }
+}
+
+export async function getProductGroups(): Promise<ProductGroup[]> {
+  const products = await getProducts()
+  return buildProductGroups(products)
+}
+
+export async function createProductGroup(input: SaveProductGroupInput): Promise<ProductGroup> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Non connecté')
+
+  if (!input.variants.length) {
+    throw new Error('Ajoutez au moins une variante.')
+  }
+
+  await assertSubscriptionCapacity('products', input.variants.length)
+
+  const groupId = createProductGroupId()
+  const payload = input.variants.map((variant) => buildGroupedVariantPayload(user.id, groupId, input, variant))
+
+  const { error } = await supabase
+    .from('products')
+    .insert(payload)
+
+  if (error) throw normalizeSupabaseError(error, "Impossible d'enregistrer le produit.")
+
+  const groups = await getProductGroups()
+  const createdGroup = groups.find((group) => group.id === groupId)
+  if (!createdGroup) throw new Error('Produit introuvable après création')
+  return createdGroup
+}
+
+export async function updateProductGroup(group: ProductGroup, input: SaveProductGroupInput): Promise<ProductGroup> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Non connecté')
+
+  if (!input.variants.length) {
+    throw new Error('Ajoutez au moins une variante.')
+  }
+
+  const targetGroupId = group.product_group_id || group.id
+  const currentVariantIds = new Set(group.variants.map((variant) => variant.id))
+  const nextVariantIds = new Set(input.variants.map((variant) => variant.id).filter((id): id is string => !!id))
+  const additionsCount = input.variants.filter((variant) => !variant.id || !currentVariantIds.has(variant.id)).length
+
+  if (additionsCount > 0) {
+    await assertSubscriptionCapacity('products', additionsCount)
+  }
+
+  const removedVariantIds = group.variants
+    .filter((variant) => !nextVariantIds.has(variant.id))
+    .map((variant) => variant.id)
+
+  for (const variant of input.variants) {
+    const payload = buildGroupedVariantPayload(user.id, targetGroupId, input, variant)
+
+    if (variant.id && currentVariantIds.has(variant.id)) {
+      const { error } = await supabase
+        .from('products')
+        .update(payload)
+        .eq('id', variant.id)
+      if (error) throw normalizeSupabaseError(error, "Impossible de mettre a jour la variante.")
+      continue
+    }
+
+    const { error } = await supabase
+      .from('products')
+      .insert(payload)
+    if (error) throw normalizeSupabaseError(error, "Impossible d'ajouter une variante.")
+  }
+
+  if (removedVariantIds.length > 0) {
+    const { error } = await supabase
+      .from('products')
+      .delete()
+      .in('id', removedVariantIds)
+    if (error) throw normalizeSupabaseError(error, "Impossible de supprimer une variante.")
+  }
+
+  const groups = await getProductGroups()
+  const updatedGroup = groups.find((candidate) => candidate.id === targetGroupId)
+  if (!updatedGroup) throw new Error('Produit introuvable après mise à jour')
+  return updatedGroup
+}
+
+export async function deleteProductGroup(group: ProductGroup): Promise<void> {
+  const supabase = createClient()
+  const variantIds = group.variants.map((variant) => variant.id)
+  if (variantIds.length === 0) return
+
+  const { error } = await supabase
+    .from('products')
+    .delete()
+    .in('id', variantIds)
+
+  if (error) throw normalizeSupabaseError(error, "Impossible de supprimer le produit.")
+}
+
 export async function addProduct(product: Omit<Product, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'category' | 'supplier'>): Promise<Product> {
   await assertSubscriptionCapacity('products')
   const supabase = createClient()
@@ -187,6 +374,60 @@ export async function adjustStock(id: string, quantityChange: number, reason?: s
   }
 
   return newQuantity
+}
+
+export async function setStockQuantity(id: string, nextQuantity: number, reason?: string): Promise<number> {
+  if (!Number.isInteger(nextQuantity) || nextQuantity < 0) {
+    throw new Error('Le stock reel doit etre un nombre entier superieur ou egal a zero')
+  }
+
+  const supabase = createClient()
+  const { data: product, error: productError } = await supabase
+    .from('products')
+    .select('quantity')
+    .eq('id', id)
+    .single()
+
+  if (productError) throw productError
+  if (!product) throw new Error('Produit introuvable')
+
+  if (product.quantity === nextQuantity) {
+    return nextQuantity
+  }
+
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError) throw userError
+  if (!user) throw new Error('Non connecte')
+
+  const previousQuantity = product.quantity
+  const movementQuantity = Math.abs(nextQuantity - previousQuantity)
+
+  const { error: updateError } = await supabase
+    .from('products')
+    .update({ quantity: nextQuantity, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (updateError) throw updateError
+
+  const { error: movementError } = await supabase
+    .from('stock_movements')
+    .insert({
+      user_id: user.id,
+      product_id: id,
+      movement_type: 'adjustment',
+      quantity: movementQuantity,
+      previous_quantity: previousQuantity,
+      new_quantity: nextQuantity,
+      reason: reason?.trim() || 'Comptage inventaire',
+    })
+  if (movementError) {
+    await supabase
+      .from('products')
+      .update({ quantity: previousQuantity, updated_at: new Date().toISOString() })
+      .eq('id', id)
+    throw movementError
+  }
+
+  return nextQuantity
 }
 
 export async function getStockMovements(productId: string, currentQuantity: number, limit = 50): Promise<StockMovement[]> {
@@ -789,11 +1030,32 @@ export async function getReportsData(months = 6) {
   const monthCount = Math.max(1, Math.floor(months))
   const now = new Date()
   const start = new Date(now.getFullYear(), now.getMonth() - monthCount + 1, 1)
+  const paymentStats: Record<'cash' | 'wave' | 'orange_money' | 'card', {
+    method: 'cash' | 'wave' | 'orange_money' | 'card'
+    count: number
+    invoiced: number
+    collected: number
+    due: number
+  }> = {
+    cash: { method: 'cash', count: 0, invoiced: 0, collected: 0, due: 0 },
+    wave: { method: 'wave', count: 0, invoiced: 0, collected: 0, due: 0 },
+    orange_money: { method: 'orange_money', count: 0, invoiced: 0, collected: 0, due: 0 },
+    card: { method: 'card', count: 0, invoiced: 0, collected: 0, due: 0 },
+  }
+  const clientSales: Record<string, {
+    key: string
+    name: string
+    phone: string
+    salesCount: number
+    invoiced: number
+    collected: number
+    due: number
+  }> = {}
 
   const [salesResult, productsResult] = await Promise.all([
     supabase
       .from('sales')
-      .select('total, tax, amount_paid, amount_due, payment_status, created_at, items:sale_items(product_id, product_name, quantity, unit_price, total)')
+      .select('customer_name, customer_phone, total, tax, amount_paid, amount_due, payment_status, payment_method, created_at, items:sale_items(product_id, product_name, quantity, unit_price, total)')
       .gte('created_at', start.toISOString())
       .in('payment_status', ['completed', 'partial', 'pending'])
       .order('created_at'),
@@ -844,6 +1106,36 @@ export async function getReportsData(months = 6) {
     totalCollected += Math.max(0, collectedAmount)
     totalDue += Math.max(0, dueAmount)
 
+    const paymentMethod = sale.payment_method as keyof typeof paymentStats
+    if (paymentStats[paymentMethod]) {
+      paymentStats[paymentMethod].count += 1
+      paymentStats[paymentMethod].invoiced += grossSaleRevenue
+      paymentStats[paymentMethod].collected += Math.max(0, collectedAmount)
+      paymentStats[paymentMethod].due += Math.max(0, dueAmount)
+    }
+
+    const clientName = String(sale.customer_name ?? '').trim()
+    const clientPhone = String(sale.customer_phone ?? '').trim()
+    if (clientName || clientPhone) {
+      const clientKey = `${clientName.toLowerCase()}|${clientPhone}`
+      if (!clientSales[clientKey]) {
+        clientSales[clientKey] = {
+          key: clientKey,
+          name: clientName || clientPhone,
+          phone: clientPhone,
+          salesCount: 0,
+          invoiced: 0,
+          collected: 0,
+          due: 0,
+        }
+      }
+
+      clientSales[clientKey].salesCount += 1
+      clientSales[clientKey].invoiced += grossSaleRevenue
+      clientSales[clientKey].collected += Math.max(0, collectedAmount)
+      clientSales[clientKey].due += Math.max(0, dueAmount)
+    }
+
     if (sale.payment_status === 'completed') completedCount += 1
     if (sale.payment_status === 'partial') partialCount += 1
     if (sale.payment_status === 'pending') pendingCount += 1
@@ -886,11 +1178,22 @@ export async function getReportsData(months = 6) {
     .sort((a, b) => b.sold - a.sold || b.revenue - a.revenue)[0] ?? null
   const bestProductByProfit = [...allProductSales]
     .sort((a, b) => b.profit - a.profit || b.revenue - a.revenue)[0] ?? null
+  const topClients = Object.values(clientSales)
+    .map((client) => ({
+      ...client,
+      collectionRate: client.invoiced > 0 ? (client.collected / client.invoiced) * 100 : 0,
+    }))
+    .sort((a, b) => b.invoiced - a.invoiced || b.due - a.due || b.salesCount - a.salesCount)
+  const bestClientByRevenue = topClients[0] ?? null
+  const highestDueClient = [...topClients]
+    .sort((a, b) => b.due - a.due || b.invoiced - a.invoiced)[0] ?? null
 
   return {
     monthlyData,
     allProducts: allProductSales,
     topProducts: allProductSales.slice(0, 10),
+    paymentMethodData: Object.values(paymentStats),
+    topClients: topClients.slice(0, 8),
     totalSold,
     avgMargin: totalProductRevenue > 0 ? (totalProductProfit / totalProductRevenue) * 100 : 0,
     totalInvoiced,
@@ -905,5 +1208,7 @@ export async function getReportsData(months = 6) {
     bestMonth,
     bestProductByUnits,
     bestProductByProfit,
+    bestClientByRevenue,
+    highestDueClient,
   }
 }

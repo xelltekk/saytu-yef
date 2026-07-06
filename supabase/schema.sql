@@ -97,9 +97,12 @@ CREATE TABLE IF NOT EXISTS public.suppliers (
 CREATE TABLE IF NOT EXISTS public.products (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  product_group_id UUID,
   name TEXT NOT NULL,
   sku TEXT,
   description TEXT,
+  size TEXT,
+  color TEXT,
   category_id UUID REFERENCES public.categories(id) ON DELETE SET NULL,
   supplier_id UUID REFERENCES public.suppliers(id) ON DELETE SET NULL,
   buying_price NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -769,6 +772,7 @@ GRANT EXECUTE ON FUNCTION public.reverse_sale_with_stock(UUID, TEXT, TEXT) TO au
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_products_user_id ON public.products(user_id);
+CREATE INDEX IF NOT EXISTS idx_products_group_id ON public.products(product_group_id);
 CREATE INDEX IF NOT EXISTS idx_products_category ON public.products(category_id);
 CREATE INDEX IF NOT EXISTS idx_sales_user_id ON public.sales(user_id);
 CREATE INDEX IF NOT EXISTS idx_sales_created_at ON public.sales(created_at DESC);
