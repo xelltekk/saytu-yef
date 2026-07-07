@@ -3,12 +3,13 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Package, ShoppingCart, BarChart3,
-  Settings, ChevronLeft, ChevronRight, TrendingUp, LogOut,
+  Settings, ChevronLeft, ChevronRight, LogOut,
   Globe, User, Users, Truck, UserRoundCog
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
 import { useUser } from '@/hooks/useUser'
+import { BrandLogo } from '@/components/brand/BrandLogo'
 
 const navItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Tableau de bord' },
@@ -41,9 +42,11 @@ export function Sidebar() {
         'flex items-center gap-3 px-4 h-16 border-b border-[#2D7D7D]/[0.07] flex-shrink-0',
         collapsed && 'justify-center px-0'
       )}>
-        <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-[#2D7D7D] to-[#4FA3A3] flex items-center justify-center shadow-[0_4px_14px_rgba(45,125,125,0.3)]">
-          <TrendingUp size={17} className="text-white" strokeWidth={2.5} />
-        </div>
+        <BrandLogo
+          variant="mark"
+          className="h-10 w-10 flex-shrink-0 drop-shadow-[0_6px_18px_rgba(108,92,231,0.18)]"
+          priority
+        />
         {!collapsed && (
           <div className="min-w-0">
             <p className="text-[15px] font-bold text-[#1A3636] leading-tight tracking-tight truncate">

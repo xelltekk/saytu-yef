@@ -15,8 +15,8 @@ import {
   Smartphone,
   Users,
   WalletCards,
-  Zap,
 } from 'lucide-react'
+import { BrandLogo } from '@/components/brand/BrandLogo'
 
 export const dynamic = 'force-dynamic'
 
@@ -151,9 +151,11 @@ export default async function LandingPage({ searchParams }: LandingPageProps) {
       <nav className="sticky top-0 z-50 border-b border-[#2D7D7D]/[0.08] bg-[#EEF1FA]/85 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 px-3 sm:px-4">
           <Link href="/" className="flex min-w-0 items-center gap-2 text-[15px] sm:text-base">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-[#2D7D7D] to-[#4FA3A3] shadow-lg shadow-[rgba(45,125,125,0.25)]">
-              <Zap size={16} className="text-white" />
-            </div>
+            <BrandLogo
+              variant="mark"
+              className="h-8 w-8 drop-shadow-[0_8px_20px_rgba(108,92,231,0.18)]"
+              priority
+            />
             <span className="truncate font-bold text-[#1A3636]">Saytu Yëf</span>
           </Link>
 
@@ -394,9 +396,7 @@ export default async function LandingPage({ searchParams }: LandingPageProps) {
       <footer className="border-t border-[#2D7D7D]/[0.08] px-4 py-8">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 md:flex-row">
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-gradient-to-br from-[#2D7D7D] to-[#4FA3A3]">
-              <Zap size={14} className="text-white" />
-            </div>
+            <BrandLogo variant="mark" className="h-7 w-7" />
             <span className="text-sm font-bold text-[#1A3636]">Saytu Yëf</span>
             <span className="text-xs text-[#6B7682]">— gestion simple pour boutiques</span>
           </div>

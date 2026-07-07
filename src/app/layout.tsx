@@ -25,14 +25,16 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
+      { url: '/brand/logo-saytu-yef-mark.png', type: 'image/png' },
       { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
       { url: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
     ],
     apple: [
+      { url: '/brand/logo-saytu-yef-mark.png', type: 'image/png' },
       { url: '/icons/icon-152x152.png', sizes: '152x152', type: 'image/png' },
       { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
     ],
-    shortcut: '/icons/icon-96x96.png',
+    shortcut: '/brand/logo-saytu-yef-mark.png',
   },
   robots: { index: true, follow: true },
 }
@@ -57,7 +59,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="format-detection" content="telephone=no" />
         <meta httpEquiv="Content-Language" content="fr" />
         <meta name="google" content="notranslate" />
-        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        <link rel="icon" href="/brand/logo-saytu-yef-mark.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/brand/logo-saytu-yef-mark.png" />
       </head>
       <body className="min-h-full gradient-bg notranslate" translate="no" suppressHydrationWarning>
         {children}

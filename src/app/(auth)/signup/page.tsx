@@ -1,7 +1,9 @@
 'use client'
+
 import { useState } from 'react'
 import Link from 'next/link'
-import { TrendingUp, Mail, Lock, User, Building, Eye, EyeOff, ArrowRight, Check, AlertCircle, CheckCircle } from 'lucide-react'
+import { Mail, Lock, User, Building, Eye, EyeOff, ArrowRight, Check, AlertCircle, CheckCircle } from 'lucide-react'
+import { BrandLogo } from '@/components/brand/BrandLogo'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient, syncServerSessionFromBrowser } from '@/lib/supabase/client'
@@ -11,8 +13,8 @@ const PERKS = [
   'Compte gratuit pour commencer',
   'Sans carte bancaire',
   'Wave & Orange Money inclus',
-  'Saisie hors ligne depuis l\'étranger',
-  'Support en français & Wolof',
+  "Saisie hors ligne depuis l'etranger",
+  'Support en francais & Wolof',
 ]
 
 const PRIVATE_NETWORK_HOST_PATTERN =
@@ -73,14 +75,14 @@ export default function SignupPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })
-      const payload = await response.json() as {
+      const payload = (await response.json()) as {
         error?: string
         requiresEmailConfirmation?: boolean
         redirectTo?: string
       }
 
       if (!response.ok) {
-        setError(payload.error ?? 'Une erreur est survenue. Réessayez.')
+        setError(payload.error ?? 'Une erreur est survenue. Reessayez.')
         return
       }
 
@@ -91,7 +93,7 @@ export default function SignupPage() {
 
       window.location.assign(payload.redirectTo ?? '/dashboard')
     } catch {
-      setError('Impossible de créer le compte pour le moment. Réessayez.')
+      setError('Impossible de creer le compte pour le moment. Reessayez.')
     } finally {
       setIsLoading(false)
     }
@@ -104,12 +106,15 @@ export default function SignupPage() {
           <div className="w-20 h-20 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mx-auto mb-6">
             <CheckCircle size={40} className="text-emerald-500" />
           </div>
-          <h2 className="text-2xl font-bold text-[#1A3636] mb-2">Compte créé !</h2>
+          <h2 className="text-2xl font-bold text-[#1A3636] mb-2">Compte cree !</h2>
           <p className="text-[#5C6B73] mb-6">
-            Vérifiez votre email pour confirmer votre inscription, puis connectez-vous.
+            Verifiez votre email pour confirmer votre inscription, puis connectez-vous.
           </p>
-          <Link href="/login" className="inline-flex items-center gap-2 bg-gradient-to-r from-[#6C5CE7] to-[#8B7DF0] text-white font-semibold px-6 py-3 rounded-full transition-all hover:brightness-105 shadow-[0_6px_18px_rgba(108,92,231,0.3)]">
-            Aller à la connexion <ArrowRight size={16} />
+          <Link
+            href="/login"
+            className="inline-flex items-center gap-2 bg-gradient-to-r from-[#6C5CE7] to-[#8B7DF0] text-white font-semibold px-6 py-3 rounded-full transition-all hover:brightness-105 shadow-[0_6px_18px_rgba(108,92,231,0.3)]"
+          >
+            Aller a la connexion <ArrowRight size={16} />
           </Link>
         </div>
       </div>
@@ -121,19 +126,19 @@ export default function SignupPage() {
       <div className="absolute top-1/4 right-1/4 w-80 h-80 bg-[#6C5CE7]/10 rounded-full blur-[80px] pointer-events-none" />
 
       <div className="w-full max-w-4xl relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
-        {/* Panneau gauche */}
         <div className="hidden lg:block">
-          <div className="inline-flex items-center gap-2.5 mb-8">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#2D7D7D] to-[#4FA3A3] flex items-center justify-center shadow-[0_6px_18px_rgba(45,125,125,0.28)]">
-              <TrendingUp size={22} className="text-white" strokeWidth={2.5} />
-            </div>
-            <span className="font-bold text-xl text-[#1A3636]">Saytu Yëf</span>
-          </div>
+          <Link href="/" className="inline-flex mb-8">
+            <BrandLogo
+              variant="full"
+              className="h-28 w-28 drop-shadow-[0_12px_30px_rgba(108,92,231,0.12)]"
+              priority
+            />
+          </Link>
           <h2 className="text-3xl font-bold text-[#1A3636] mb-4 leading-tight">
-            Gérez votre stock comme un pro
+            Gerez votre stock comme un pro
           </h2>
           <p className="text-[#5C6B73] mb-8 leading-relaxed">
-            La première application de gestion de stock et de ventes conçue pour les commerçants sénégalais.
+            La premiere application de gestion de stock et de ventes concue pour les commercants senegalais.
           </p>
           <ul className="space-y-3">
             {PERKS.map((perk) => (
@@ -147,19 +152,19 @@ export default function SignupPage() {
           </ul>
         </div>
 
-        {/* Panneau droit */}
         <div>
           <div className="text-center mb-6 lg:hidden">
-            <Link href="/" className="inline-flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#2D7D7D] to-[#4FA3A3] flex items-center justify-center">
-                <TrendingUp size={20} className="text-white" strokeWidth={2.5} />
-              </div>
-              <span className="font-bold text-lg text-[#1A3636]">Saytu Yëf</span>
+            <Link href="/" className="inline-flex">
+              <BrandLogo
+                variant="full"
+                className="h-24 w-24 drop-shadow-[0_10px_24px_rgba(108,92,231,0.12)]"
+                priority
+              />
             </Link>
           </div>
 
           <div className="rounded-3xl border border-[#2D7D7D]/[0.08] bg-white p-6 shadow-[0_12px_40px_rgba(26,54,54,0.08)]">
-            <h1 className="text-xl font-bold text-[#1A3636] mb-1">Créer un compte gratuit</h1>
+            <h1 className="text-xl font-bold text-[#1A3636] mb-1">Creer un compte gratuit</h1>
             <p className="text-sm text-[#6B7682] mb-6">Commencez gratuitement, sans carte bancaire</p>
 
             {error && (
@@ -172,7 +177,7 @@ export default function SignupPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Input
-                  label="Prénom & Nom"
+                  label="Prenom & Nom"
                   placeholder="Moussa Diallo"
                   value={form.fullName}
                   onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))}
@@ -200,13 +205,15 @@ export default function SignupPage() {
               />
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-semibold text-[#5C6B73] uppercase tracking-[0.06em] ml-1">Mot de passe</label>
+                <label className="text-[11px] font-semibold text-[#5C6B73] uppercase tracking-[0.06em] ml-1">
+                  Mot de passe
+                </label>
                 <div className="relative flex items-center">
                   <Lock size={14} className="absolute left-4 text-[#6B7682] z-10" />
                   <input
                     type={showPassword ? 'text' : 'password'}
                     autoComplete="new-password"
-                    placeholder="Minimum 8 caractères"
+                    placeholder="Minimum 8 caracteres"
                     value={form.password}
                     onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                     className="w-full h-12 pl-10 pr-11 rounded-full bg-white border border-[#2D7D7D]/[0.14] text-sm text-[#1A3636] placeholder:text-[#6B7682] focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)] hover:border-[#2D7D7D]/[0.24] transition-all"
@@ -224,17 +231,22 @@ export default function SignupPage() {
                 </div>
               </div>
 
-              <p className="text-xs text-[#6B7682]">En créant un compte, vous confirmez que les informations saisies sont exactes.</p>
+              <p className="text-xs text-[#6B7682]">
+                En creant un compte, vous confirmez que les informations saisies sont exactes.
+              </p>
 
               <Button variant="primary" fullWidth size="lg" isLoading={isLoading} type="submit">
-                Créer mon compte <ArrowRight size={16} />
+                Creer mon compte <ArrowRight size={16} />
               </Button>
             </form>
           </div>
 
           <p className="text-center text-sm text-[#6B7682] mt-5">
-            Déjà un compte ?{' '}
-            <Link href="/login" className="text-[#6C5CE7] hover:text-[#5A4BD4] font-semibold transition-colors">
+            Deja un compte ?{' '}
+            <Link
+              href="/login"
+              className="text-[#6C5CE7] hover:text-[#5A4BD4] font-semibold transition-colors"
+            >
               Se connecter
             </Link>
           </p>

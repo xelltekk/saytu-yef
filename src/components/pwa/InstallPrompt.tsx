@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Download, X, Zap } from 'lucide-react'
+import { Download, X } from 'lucide-react'
+import { BrandLogo } from '@/components/brand/BrandLogo'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -79,7 +80,7 @@ export function InstallPrompt() {
       setPrompt(null)
     } catch (error) {
       console.error(error)
-      setInstallError('L’installation n’a pas pu démarrer. Réessayez depuis le menu du navigateur.')
+      setInstallError("L'installation n'a pas pu demarrer. Reessayez depuis le menu du navigateur.")
     }
   }
 
@@ -106,9 +107,11 @@ export function InstallPrompt() {
         </button>
 
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2D7D7D] to-[#4FA3A3] shadow-[0_4px_14px_rgba(45,125,125,0.3)]">
-            <Zap size={18} className="text-white" />
-          </div>
+          <BrandLogo
+            variant="mark"
+            className="h-10 w-10 flex-shrink-0 drop-shadow-[0_4px_14px_rgba(108,92,231,0.18)]"
+            priority
+          />
           <div className="min-w-0 flex-1 pr-4">
             <p className="text-sm font-semibold leading-tight text-[#1A3636]">
               Installer Saytu Yef
@@ -132,8 +135,7 @@ export function InstallPrompt() {
               </p>
             ) : (
               <p className="mt-1 text-xs leading-relaxed text-[#5C6B73]">
-                Accedez rapidement a votre caisse et a votre stock depuis l&apos;ecran
-                d&apos;accueil
+                Accedez rapidement a votre caisse et a votre stock depuis l&apos;ecran d&apos;accueil
               </p>
             )}
           </div>
@@ -141,7 +143,11 @@ export function InstallPrompt() {
 
         {!isIOS && (
           <>
-            {installError && <p role="alert" className="mt-3 text-xs text-red-600">{installError}</p>}
+            {installError && (
+              <p role="alert" className="mt-3 text-xs text-red-600">
+                {installError}
+              </p>
+            )}
             <button
               type="button"
               onClick={() => void handleInstall()}

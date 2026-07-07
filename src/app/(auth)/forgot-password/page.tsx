@@ -1,7 +1,9 @@
 'use client'
+
 import { useState } from 'react'
 import Link from 'next/link'
-import { TrendingUp, Mail, ArrowRight, AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react'
+import { Mail, ArrowRight, AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react'
+import { BrandLogo } from '@/components/brand/BrandLogo'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient } from '@/lib/supabase/client'
@@ -42,15 +44,16 @@ export default function ForgotPasswordPage() {
 
       <div className="w-full max-w-md relative z-10">
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2.5 mb-6">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#2D7D7D] to-[#4FA3A3] flex items-center justify-center shadow-[0_6px_18px_rgba(45,125,125,0.28)]">
-              <TrendingUp size={20} className="text-white" strokeWidth={2.5} />
-            </div>
-            <span className="font-bold text-xl text-[#1A3636]">Saytu Yëf</span>
+          <Link href="/" className="inline-flex mb-6">
+            <BrandLogo
+              variant="full"
+              className="h-28 w-28 drop-shadow-[0_12px_30px_rgba(108,92,231,0.12)]"
+              priority
+            />
           </Link>
-          <h1 className="text-2xl font-bold text-[#1A3636] mb-2">Mot de passe oublié</h1>
+          <h1 className="text-2xl font-bold text-[#1A3636] mb-2">Mot de passe oublie</h1>
           <p className="text-sm text-[#6B7682]">
-            {sent ? 'Vérifiez votre boîte mail' : 'Entrez votre email pour recevoir un lien de réinitialisation'}
+            {sent ? 'Verifiez votre boite mail' : 'Entrez votre email pour recevoir un lien de reinitialisation'}
           </p>
         </div>
 
@@ -61,15 +64,18 @@ export default function ForgotPasswordPage() {
                 <CheckCircle size={32} className="text-emerald-500" />
               </div>
               <div>
-                <p className="text-sm text-[#1A3636] font-medium mb-1">Email envoyé !</p>
+                <p className="text-sm text-[#1A3636] font-medium mb-1">Email envoye !</p>
                 <p className="text-xs text-[#6B7682] leading-relaxed">
-                  Un lien de réinitialisation a été envoyé à{' '}
+                  Un lien de reinitialisation a ete envoye a{' '}
                   <span className="text-[#6C5CE7]">{email}</span>.
-                  Vérifiez vos spams si vous ne le trouvez pas.
+                  Verifiez vos spams si vous ne le trouvez pas.
                 </p>
               </div>
               <button
-                onClick={() => { setSent(false); setEmail('') }}
+                onClick={() => {
+                  setSent(false)
+                  setEmail('')
+                }}
                 className="text-xs text-[#6B7682] hover:text-[#1A3636] transition-colors"
               >
                 Renvoyer avec une autre adresse
@@ -105,8 +111,11 @@ export default function ForgotPasswordPage() {
         </div>
 
         <p className="text-center text-sm text-[#6B7682] mt-6">
-          <Link href="/login" className="inline-flex items-center gap-1.5 text-[#6C5CE7] hover:text-[#5A4BD4] font-semibold transition-colors">
-            <ArrowLeft size={14} /> Retour à la connexion
+          <Link
+            href="/login"
+            className="inline-flex items-center gap-1.5 text-[#6C5CE7] hover:text-[#5A4BD4] font-semibold transition-colors"
+          >
+            <ArrowLeft size={14} /> Retour a la connexion
           </Link>
         </p>
       </div>

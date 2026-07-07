@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { TrendingUp, Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient, syncServerSessionFromBrowser } from '@/lib/supabase/client'
 import { getSafeRedirectPath } from '@/lib/authRedirect'
 import { getLoginErrorMessage } from '@/lib/authErrors'
+import { BrandLogo } from '@/components/brand/BrandLogo'
 
 const GENERIC_LOGIN_ERROR =
   'Impossible de se connecter pour le moment. Verifiez votre connexion et reessayez.'
@@ -121,15 +122,11 @@ export default function LoginPage() {
       <div className="w-full max-w-md relative z-10">
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex flex-col items-center gap-3 mb-4">
-            <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center shadow-[0_8px_24px_rgba(45,125,125,0.18)] border border-[#2D7D7D]/[0.08]">
-              <TrendingUp size={30} className="text-[#2D7D7D]" strokeWidth={2.5} />
-            </div>
-            <div>
-              <span className="block font-bold text-2xl text-[#1A3636]">Saytu Yef</span>
-              <span className="block text-sm text-[#2D7D7D] font-medium mt-0.5">
-                Gestion intelligente
-              </span>
-            </div>
+            <BrandLogo
+              variant="full"
+              className="h-36 w-36 sm:h-40 sm:w-40 drop-shadow-[0_12px_30px_rgba(108,92,231,0.12)]"
+              priority
+            />
           </Link>
           <h1 className="text-xl font-bold text-[#1A3636] mb-1 mt-6">Bon retour !</h1>
           <p className="text-sm text-[#6B7682]">Connectez-vous a votre compte</p>

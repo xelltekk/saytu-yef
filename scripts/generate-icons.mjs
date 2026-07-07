@@ -1,41 +1,49 @@
+import { mkdir } from 'fs/promises'
 import sharp from 'sharp'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const outDir = join(__dirname, '../public/icons')
+const rootDir = join(__dirname, '..')
+const brandDir = join(rootDir, 'public', 'brand')
+const iconsDir = join(rootDir, 'public', 'icons')
+const appDir = join(rootDir, 'src', 'app')
 
-const sizes = [72, 96, 128, 144, 152, 192, 384, 512]
+const sourceLogoPath = join(brandDir, 'logo-saytu-yef.png')
+const markLogoPath = join(brandDir, 'logo-saytu-yef-mark.png')
+const iconSizes = [72, 96, 128, 144, 152, 192, 384, 512]
 
-function makeSVG(size) {
-  const r = Math.round(size * 0.22)
-  const zapSize = Math.round(size * 0.52)
-  const cx = size / 2
-  const cy = Math.round(size / 2 + zapSize * 0.18)
+await mkdir(brandDir, { recursive: true })
+await mkdir(iconsDir, { recursive: true })
+await mkdir(appDir, { recursive: true })
 
-  return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#4f6ef7"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
-    </linearGradient>
-  </defs>
-  <rect width="${size}" height="${size}" rx="${r}" fill="url(#bg)"/>
-  <text x="${cx}" y="${cy}"
-        text-anchor="middle"
-        font-size="${zapSize}"
-        fill="white"
-        font-family="Arial, sans-serif">⚡</text>
-</svg>`)
-}
+const markBuffer = await sharp(sourceLogoPath)
+  .extract({
+    left: 235,
+    top: 95,
+    width: 790,
+    height: 690,
+  })
+  .resize(1024, 1024, {
+    fit: 'contain',
+    background: '#ffffff',
+  })
+  .png()
+  .toBuffer()
 
-for (const size of sizes) {
-  await sharp(makeSVG(size))
+await sharp(markBuffer).toFile(markLogoPath)
+console.log('ok public/brand/logo-saytu-yef-mark.png')
+
+for (const size of iconSizes) {
+  await sharp(markBuffer)
+    .resize(size, size)
     .png()
-    .toFile(join(outDir, `icon-${size}x${size}.png`))
-  console.log(`✓ icon-${size}x${size}.png`)
+    .toFile(join(iconsDir, `icon-${size}x${size}.png`))
+  console.log(`ok icon-${size}x${size}.png`)
 }
 
-// Also generate favicon
-await sharp(makeSVG(32)).png().toFile(join(__dirname, '../public/favicon.ico'))
-console.log('✓ favicon.ico')
+await sharp(markBuffer).resize(192, 192).png().toFile(join(appDir, 'icon.png'))
+console.log('ok src/app/icon.png')
+
+await sharp(markBuffer).resize(180, 180).png().toFile(join(appDir, 'apple-icon.png'))
+console.log('ok src/app/apple-icon.png')
