@@ -3,6 +3,8 @@ import type { Session, SupabaseClient } from '@supabase/supabase-js'
 
 let browserClient: SupabaseClient | null = null
 let browserSessionSync: Promise<boolean> | null = null
+let serverSessionSyncPromise: Promise<boolean> | null = null
+let lastServerSyncedAccessToken: string | null = null
 
 const SESSION_CHECK_TIMEOUT_MS = 1500
 const SESSION_APPLY_TIMEOUT_MS = 2000
@@ -157,6 +159,37 @@ async function pushBrowserSessionToServer(session: Session): Promise<boolean> {
   }
 }
 
+function scheduleServerSessionSync(
+  session: Session
+): Promise<boolean> {
+  if (!session.access_token || !session.refresh_token) {
+    return Promise.resolve(false)
+  }
+
+  if (lastServerSyncedAccessToken === session.access_token) {
+    return Promise.resolve(true)
+  }
+
+  if (!serverSessionSyncPromise) {
+    serverSessionSyncPromise = pushBrowserSessionToServer(session)
+      .then((ok) => {
+        if (ok) {
+          lastServerSyncedAccessToken = session.access_token
+        }
+        return ok
+      })
+      .catch((error) => {
+        console.warn('server_session_sync_failed', error)
+        return false
+      })
+      .finally(() => {
+        serverSessionSyncPromise = null
+      })
+  }
+
+  return serverSessionSyncPromise
+}
+
 export function clearBrowserSupabaseAuthStorage() {
   if (typeof window === 'undefined') return
 
@@ -183,7 +216,10 @@ export async function ensureBrowserSupabaseSession(
   if (typeof window === 'undefined') return true
 
   const currentSession = await getCurrentBrowserSession(supabase)
-  if (currentSession?.access_token) return true
+  if (currentSession?.access_token) {
+    void scheduleServerSessionSync(currentSession)
+    return true
+  }
 
   if (!browserSessionSync) {
     browserSessionSync = hydrateBrowserSessionFromServer(supabase)
@@ -209,7 +245,7 @@ export async function syncServerSessionFromBrowser(
   if (!currentSession?.access_token || !currentSession.refresh_token) return false
 
   try {
-    return await pushBrowserSessionToServer(currentSession)
+    return await scheduleServerSessionSync(currentSession)
   } catch (error) {
     console.warn('server_session_sync_failed', error)
     return false

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
-import { createClient, ensureBrowserSupabaseSession } from '@/lib/supabase/client'
+import { createClient, ensureBrowserSupabaseSession, syncServerSessionFromBrowser } from '@/lib/supabase/client'
 
 type SessionBootstrapProps = {
   children: ReactNode
@@ -32,6 +32,19 @@ export function SessionBootstrap({
     const boot = async () => {
       try {
         const supabase = createClient()
+        const {
+          data: { subscription },
+        } = supabase.auth.onAuthStateChange((event, session) => {
+          if (!active) return
+
+          if (
+            session?.access_token &&
+            session.refresh_token &&
+            (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED')
+          ) {
+            void syncServerSessionFromBrowser(supabase)
+          }
+        })
 
         if (initialAccessToken && initialRefreshToken) {
           markReady()
@@ -40,19 +53,29 @@ export function SessionBootstrap({
           await ensureBrowserSupabaseSession(supabase)
           markReady()
         }
+
+        return () => subscription.unsubscribe()
       } catch (error) {
         console.warn('session_bootstrap_failed', error)
         markReady()
-      } finally {
-        markReady()
       }
+
+      return undefined
     }
 
-    void boot()
+    let cleanup: (() => void) | undefined
+
+    void boot().then((dispose) => {
+      cleanup = dispose
+      markReady()
+    }).finally(() => {
+      markReady()
+    })
 
     return () => {
       active = false
       window.clearTimeout(readyTimeout)
+      cleanup?.()
     }
   }, [hasServerSession, initialAccessToken, initialRefreshToken])
 

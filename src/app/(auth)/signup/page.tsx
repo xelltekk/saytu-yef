@@ -72,6 +72,7 @@ export default function SignupPage() {
 
       const response = await fetch('/auth/signup', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })
