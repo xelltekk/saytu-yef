@@ -11,7 +11,7 @@ export interface User {
   full_name: string
   business_name: string
   avatar_url?: string
-  role: 'admin' | 'employee'
+  role: 'admin' | 'employee' | 'cashier'
   subscription_plan: SubscriptionPlan
   subscription_status?: SubscriptionStatus
   billing_cycle?: BillingCycle
@@ -24,7 +24,7 @@ export interface TeamMember {
   id: string
   email: string
   full_name?: string
-  role: 'admin' | 'employee'
+  role: 'admin' | 'employee' | 'cashier'
   account_owner_id?: string
   created_at: string
 }
@@ -144,6 +144,7 @@ export interface Supplier {
 export interface Sale {
   id: string
   user_id: string
+  seller_id?: string | null
   customer_name?: string
   customer_phone?: string
   items: SaleItem[]
@@ -179,6 +180,7 @@ export interface SalePayment {
   id: string
   sale_id: string
   user_id: string
+  recorded_by_id?: string | null
   amount: number
   payment_method: 'cash' | 'wave' | 'orange_money' | 'card'
   note?: string

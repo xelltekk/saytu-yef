@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   full_name TEXT,
   business_name TEXT,
   avatar_url TEXT,
-  role TEXT DEFAULT 'admin' CHECK (role IN ('admin', 'employee')),
+  role TEXT DEFAULT 'admin' CHECK (role IN ('admin', 'employee', 'cashier')),
   account_owner_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   subscription_plan TEXT DEFAULT 'free' CHECK (subscription_plan IN ('free', 'starter', 'pro', 'enterprise', 'lifetime')),
   subscription_status TEXT DEFAULT 'trial' CHECK (subscription_status IN ('free', 'trial', 'active', 'past_due', 'suspended', 'cancelled', 'expired')),
@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS public.abroad_products (
 CREATE TABLE IF NOT EXISTS public.sales (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  seller_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   customer_name TEXT,
   customer_phone TEXT,
   subtotal NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -173,6 +174,7 @@ CREATE TABLE IF NOT EXISTS public.sale_payments (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   sale_id UUID REFERENCES public.sales(id) ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  recorded_by_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   amount NUMERIC(12,2) NOT NULL CHECK (amount > 0),
   payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'wave', 'orange_money', 'card')),
   note TEXT,
@@ -344,6 +346,7 @@ BEGIN
 
   INSERT INTO public.sales (
     user_id,
+    seller_id,
     customer_name,
     customer_phone,
     subtotal,
@@ -355,6 +358,7 @@ BEGIN
     notes
   )
   VALUES (
+    current_user_id,
     current_user_id,
     NULLIF(BTRIM(p_customer_name), ''),
     NULLIF(BTRIM(p_customer_phone), ''),
@@ -475,6 +479,7 @@ BEGIN
 
   INSERT INTO public.sales (
     user_id,
+    seller_id,
     customer_name,
     customer_phone,
     subtotal,
@@ -488,6 +493,7 @@ BEGIN
     notes
   )
   VALUES (
+    current_user_id,
     current_user_id,
     NULLIF(BTRIM(p_customer_name), ''),
     NULLIF(BTRIM(p_customer_phone), ''),
@@ -545,12 +551,14 @@ BEGIN
     INSERT INTO public.sale_payments (
       sale_id,
       user_id,
+      recorded_by_id,
       amount,
       payment_method,
       note
     )
     VALUES (
       sale_row.id,
+      current_user_id,
       current_user_id,
       normalized_amount_paid,
       p_payment_method,
@@ -627,12 +635,14 @@ BEGIN
   INSERT INTO public.sale_payments (
     sale_id,
     user_id,
+    recorded_by_id,
     amount,
     payment_method,
     note
   )
   VALUES (
     sale_row.id,
+    current_user_id,
     current_user_id,
     p_amount,
     p_payment_method,
@@ -775,8 +785,10 @@ CREATE INDEX IF NOT EXISTS idx_products_user_id ON public.products(user_id);
 CREATE INDEX IF NOT EXISTS idx_products_group_id ON public.products(product_group_id);
 CREATE INDEX IF NOT EXISTS idx_products_category ON public.products(category_id);
 CREATE INDEX IF NOT EXISTS idx_sales_user_id ON public.sales(user_id);
+CREATE INDEX IF NOT EXISTS idx_sales_seller_id_created_at ON public.sales(seller_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sales_created_at ON public.sales(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON public.sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_payments_sale_id ON public.sale_payments(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_payments_user_id ON public.sale_payments(user_id);
+CREATE INDEX IF NOT EXISTS idx_sale_payments_recorded_by_id_created_at ON public.sale_payments(recorded_by_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_abroad_products_user_id ON public.abroad_products(user_id);

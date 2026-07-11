@@ -1,9 +1,39 @@
 import { createClient, ensureBrowserSupabaseSession } from './client'
-import type { Product, ProductGroup, ProductVariantDraft, Category, Supplier, Sale, AbroadProduct, StockMovement, TeamMember, SubscriptionPlan } from '@/types'
+import type { Product, ProductGroup, ProductVariantDraft, Category, Supplier, Sale, AbroadProduct, StockMovement, TeamMember, SubscriptionPlan, User as AppUser } from '@/types'
 import { buildProductGroups } from '@/lib/productGroups'
 import { getPlanDefinition, getSubscriptionOverview, getUsageLimit } from '@/lib/subscriptions'
+import { normalizeAccountRole } from '@/lib/accountRoles'
 
 type SubscriptionLimitKey = 'products' | 'teamMembers' | 'monthlySales'
+
+type AuthActorContext = {
+  userId: string
+  role: AppUser['role']
+}
+
+const CASHIER_SALES_SCOPE_MESSAGE =
+  "La base Supabase n'a pas encore la colonne seller_id pour distinguer les ventes du membre caisse. Appliquez d'abord la migration SQL role caisse / suivi vendeur."
+
+async function getAuthActorContext() {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Non connectÃ©')
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (error) throw error
+
+  return {
+    userId: user.id,
+    role: normalizeAccountRole(profile?.role),
+  } satisfies AuthActorContext
+}
 
 function normalizeSupabaseError(error: unknown, fallback = 'Erreur base de donnees') {
   const message = typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
@@ -580,24 +610,40 @@ export async function deleteSupplier(id: string): Promise<void> {
 export async function getSales(limit = 50, offset = 0): Promise<Sale[]> {
   const supabase = createClient()
   await ensureBrowserSupabaseSession(supabase)
+  const actor = await getAuthActorContext()
   const pageSize = Math.max(1, Math.floor(limit))
   const start = Math.max(0, Math.floor(offset))
   const end = start + pageSize - 1
-  const { data, error } = await supabase
+  let query = supabase
     .from('sales')
     .select('*, items:sale_items(*), payments:sale_payments(*)')
     .order('created_at', { ascending: false })
     .range(start, end)
+  if (actor.role === 'cashier') {
+    query = query.eq('seller_id', actor.userId)
+  }
+  const { data, error } = await query
 
   if (error && isMissingSchemaObject(error, 'sale_payments')) {
-    const fallback = await supabase
+    let fallbackQuery = supabase
       .from('sales')
       .select('*, items:sale_items(*)')
       .order('created_at', { ascending: false })
       .range(start, end)
+    if (actor.role === 'cashier') {
+      fallbackQuery = fallbackQuery.eq('seller_id', actor.userId)
+    }
+    const fallback = await fallbackQuery
 
+    if (fallback.error && actor.role === 'cashier' && isMissingSchemaObject(fallback.error, 'seller_id')) {
+      throw new Error(CASHIER_SALES_SCOPE_MESSAGE)
+    }
     if (fallback.error) throw fallback.error
     return (fallback.data ?? []) as Sale[]
+  }
+
+  if (error && actor.role === 'cashier' && isMissingSchemaObject(error, 'seller_id')) {
+    throw new Error(CASHIER_SALES_SCOPE_MESSAGE)
   }
 
   if (error) throw error
@@ -946,35 +992,52 @@ export async function deleteAbroadProduct(id: string): Promise<void> {
 export async function getDashboardMetrics() {
   const supabase = createClient()
   await ensureBrowserSupabaseSession(supabase)
+  const actor = await getAuthActorContext()
   const activeSaleStatuses: Sale['payment_status'][] = ['completed', 'partial', 'pending']
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-  const [salesToday, salesMonth, products, recentSales] = await Promise.all([
-    supabase
-      .from('sales')
-      .select('total, amount_due')
-      .gte('created_at', today.toISOString())
-      .in('payment_status', activeSaleStatuses),
+  let salesTodayQuery = supabase
+    .from('sales')
+    .select('total, amount_due')
+    .gte('created_at', today.toISOString())
+    .in('payment_status', activeSaleStatuses)
+  let salesMonthQuery = supabase
+    .from('sales')
+    .select('total, amount_due, created_at')
+    .gte('created_at', startOfMonth.toISOString())
+    .in('payment_status', activeSaleStatuses)
+  let recentSalesQuery = supabase
+    .from('sales')
+    .select('*, items:sale_items(*)')
+    .in('payment_status', activeSaleStatuses)
+    .order('created_at', { ascending: false })
+    .limit(5)
 
-    supabase
-      .from('sales')
-      .select('total, amount_due, created_at')
-      .gte('created_at', startOfMonth.toISOString())
-      .in('payment_status', activeSaleStatuses),
+  if (actor.role === 'cashier') {
+    salesTodayQuery = salesTodayQuery.eq('seller_id', actor.userId)
+    salesMonthQuery = salesMonthQuery.eq('seller_id', actor.userId)
+    recentSalesQuery = recentSalesQuery.eq('seller_id', actor.userId)
+  }
+
+  const [salesToday, salesMonth, products, recentSales] = await Promise.all([
+    salesTodayQuery,
+    salesMonthQuery,
 
     supabase
       .from('products')
       .select('id, quantity, min_quantity, buying_price, selling_price, status'),
 
-    supabase
-      .from('sales')
-      .select('*, items:sale_items(*)')
-      .in('payment_status', activeSaleStatuses)
-      .order('created_at', { ascending: false })
-      .limit(5),
+    recentSalesQuery,
   ])
+
+  if (actor.role === 'cashier') {
+    const scopedSalesError = salesToday.error ?? salesMonth.error ?? recentSales.error
+    if (scopedSalesError && isMissingSchemaObject(scopedSalesError, 'seller_id')) {
+      throw new Error(CASHIER_SALES_SCOPE_MESSAGE)
+    }
+  }
 
   const dashboardError = salesToday.error ?? salesMonth.error ?? products.error ?? recentSales.error
   if (dashboardError) throw dashboardError
@@ -1170,6 +1233,7 @@ function resolveReportsRange(input: number | ReportsRangeInput) {
 export async function getReportsData(rangeInput: number | ReportsRangeInput = 6) {
   const supabase = createClient()
   await ensureBrowserSupabaseSession(supabase)
+  const actor = await getAuthActorContext()
   const { start, endExclusive, granularity } = resolveReportsRange(rangeInput)
   const paymentStats: Record<'cash' | 'wave' | 'orange_money' | 'card', {
     method: 'cash' | 'wave' | 'orange_money' | 'card'
@@ -1193,19 +1257,27 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
     due: number
   }> = {}
 
-  const [salesResult, productsResult] = await Promise.all([
-    supabase
+  let salesQuery = supabase
       .from('sales')
       .select('customer_name, customer_phone, total, tax, amount_paid, amount_due, payment_status, payment_method, created_at, items:sale_items(product_id, product_name, quantity, unit_price, total)')
       .gte('created_at', start.toISOString())
       .lt('created_at', endExclusive.toISOString())
       .in('payment_status', ['completed', 'partial', 'pending'])
-      .order('created_at'),
+      .order('created_at')
+  if (actor.role === 'cashier') {
+    salesQuery = salesQuery.eq('seller_id', actor.userId)
+  }
+
+  const [salesResult, productsResult] = await Promise.all([
+    salesQuery,
     supabase
       .from('products')
       .select('id, name, buying_price, selling_price, quantity'),
   ])
 
+  if (salesResult.error && actor.role === 'cashier' && isMissingSchemaObject(salesResult.error, 'seller_id')) {
+    throw new Error(CASHIER_SALES_SCOPE_MESSAGE)
+  }
   if (salesResult.error) throw salesResult.error
   if (productsResult.error) throw productsResult.error
 

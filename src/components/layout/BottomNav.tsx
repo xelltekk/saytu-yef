@@ -3,19 +3,30 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, Package, ShoppingCart, BarChart3, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAccountRole } from '@/hooks/useAccountRole'
+import { isCashierRole } from '@/lib/accountRoles'
 
-const leftItems = [
+const defaultLeftItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Accueil' },
-  { href: '/inventory',  icon: Package,          label: 'Stock' },
+  { href: '/inventory', icon: Package, label: 'Stock' },
 ]
-const rightItems = [
-  { href: '/clients',  icon: Users, label: 'Clients' },
-  { href: '/reports',  icon: BarChart3, label: 'Rapports' },
+
+const cashierLeftItems = [
+  { href: '/inventory', icon: Package, label: 'Stock' },
+]
+
+const defaultRightItems = [
+  { href: '/clients', icon: Users, label: 'Clients' },
+  { href: '/reports', icon: BarChart3, label: 'Rapports' },
 ]
 
 export function BottomNav() {
   const pathname = usePathname()
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/')
+  const { role } = useAccountRole()
+  const isCashier = isCashierRole(role)
+  const leftItems = isCashier ? cashierLeftItems : defaultLeftItems
+  const rightItems = defaultRightItems
+  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`)
 
   const NavItem = ({ href, icon: Icon, label }: { href: string; icon: typeof Package; label: string }) => {
     const active = isActive(href)
@@ -53,7 +64,6 @@ export function BottomNav() {
       <div className="flex items-end justify-around h-16 px-1 relative">
         {leftItems.map((item) => <NavItem key={item.href} {...item} />)}
 
-        {/* Center floating action — Nouvelle vente */}
         <div className="flex-1 flex justify-center">
           <Link
             href="/sales"

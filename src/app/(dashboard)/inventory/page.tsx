@@ -7,6 +7,8 @@ import { Header } from '@/components/layout/Header'
 import { ProductTable } from '@/components/inventory/ProductTable'
 import { AddProductModal } from '@/components/inventory/AddProductModal'
 import { AbroadBatchEntry } from '@/components/inventory/AbroadBatchEntry'
+import { useAccountRole } from '@/hooks/useAccountRole'
+import { canManageInventory, canUseAbroadEntry } from '@/lib/accountRoles'
 import { useInventoryStore } from '@/store/inventoryStore'
 import type { Product, ProductGroup } from '@/types'
 
@@ -19,6 +21,9 @@ export default function InventoryPage() {
   const [activatedProduct, setActivatedProduct] = useState<Product | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [notice, setNotice] = useState('')
+  const { role } = useAccountRole()
+  const inventoryReadOnly = !canManageInventory(role)
+  const canAccessAbroad = canUseAbroadEntry(role)
   const abroadPendingCount = useInventoryStore(
     (state) => state.abroadProducts.filter((product) => !product.activated).length
   )
@@ -30,51 +35,62 @@ export default function InventoryPage() {
     return () => window.clearTimeout(timeout)
   }, [notice])
 
+  useEffect(() => {
+    if (!canAccessAbroad && tab === 'abroad') {
+      setTab('stock')
+    }
+  }, [canAccessAbroad, tab])
+
   return (
     <div className="min-h-screen">
       <Header title="Inventaire" subtitle="Gerez votre stock de produits" />
 
       <div className="space-y-4 p-3 sm:p-4 lg:space-y-6 lg:p-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="grid w-full grid-cols-2 gap-1 rounded-xl border border-[#2D7D7D]/[0.08] bg-[#E9EEF6] p-1 sm:w-fit">
-          <button
-            onClick={() => setTab('stock')}
-            className={`flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-semibold transition-all duration-200 sm:gap-2 sm:px-4 sm:py-2 sm:text-sm ${
-              tab === 'stock'
-                ? 'bg-gradient-to-r from-[#6C5CE7] to-[#8B7DF0] text-white shadow-[0_4px_14px_rgba(108,92,231,0.35)]'
-                : 'text-[#5C6B73] hover:text-[#1A3636]'
-            }`}
-          >
-            <Package size={15} />
-            <span className="truncate">Stock principal</span>
-          </button>
+          <div className={`grid w-full gap-1 rounded-xl border border-[#2D7D7D]/[0.08] bg-[#E9EEF6] p-1 ${canAccessAbroad ? 'grid-cols-2' : 'grid-cols-1'} sm:w-fit`}>
+            <button
+              onClick={() => setTab('stock')}
+              className={`flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-semibold transition-all duration-200 sm:gap-2 sm:px-4 sm:py-2 sm:text-sm ${
+                tab === 'stock'
+                  ? 'bg-gradient-to-r from-[#6C5CE7] to-[#8B7DF0] text-white shadow-[0_4px_14px_rgba(108,92,231,0.35)]'
+                  : 'text-[#5C6B73] hover:text-[#1A3636]'
+              }`}
+            >
+              <Package size={15} />
+              <span className="truncate">Stock principal</span>
+            </button>
 
-          <button
-            onClick={() => setTab('abroad')}
-            className={`flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-semibold transition-all duration-200 sm:gap-2 sm:px-4 sm:py-2 sm:text-sm ${
-              tab === 'abroad'
-                ? 'bg-gradient-to-r from-[#6C5CE7] to-[#8B7DF0] text-white shadow-[0_4px_14px_rgba(108,92,231,0.35)]'
-                : 'text-[#5C6B73] hover:text-[#1A3636]'
-            }`}
-          >
-            <Globe size={15} />
-            <span className="truncate">Saisie étranger</span>
-            {abroadPendingCount > 0 && (
-              <span
-                className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+            {canAccessAbroad && (
+              <button
+                onClick={() => setTab('abroad')}
+                className={`flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-xs font-semibold transition-all duration-200 sm:gap-2 sm:px-4 sm:py-2 sm:text-sm ${
                   tab === 'abroad'
-                    ? 'bg-white/25 text-white'
-                    : 'bg-amber-500/15 text-amber-700'
+                    ? 'bg-gradient-to-r from-[#6C5CE7] to-[#8B7DF0] text-white shadow-[0_4px_14px_rgba(108,92,231,0.35)]'
+                    : 'text-[#5C6B73] hover:text-[#1A3636]'
                 }`}
               >
-                {abroadPendingCount}
-              </span>
+                <Globe size={15} />
+                <span className="truncate">Saisie etranger</span>
+                {abroadPendingCount > 0 && (
+                  <span
+                    className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+                      tab === 'abroad'
+                        ? 'bg-white/25 text-white'
+                        : 'bg-amber-500/15 text-amber-700'
+                    }`}
+                  >
+                    {abroadPendingCount}
+                  </span>
+                )}
+              </button>
             )}
-          </button>
-        </div>
-          <Link href="/suppliers" className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-4 text-xs font-semibold text-[#2D7D7D]">
-            <Truck size={15} /> Fournisseurs
-          </Link>
+          </div>
+
+          {!inventoryReadOnly && (
+            <Link href="/suppliers" className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-4 text-xs font-semibold text-[#2D7D7D]">
+              <Truck size={15} /> Fournisseurs
+            </Link>
+          )}
         </div>
 
         {notice && (
@@ -85,6 +101,12 @@ export default function InventoryPage() {
           </div>
         )}
 
+        {inventoryReadOnly && (
+          <div role="status" className="rounded-2xl border border-[#2D7D7D]/[0.12] bg-[#F4F7FB] px-4 py-3 text-sm text-[#5C6B73]">
+            Mode caisse actif : stock consultable, sans creation produit, reapprovisionnement ou ajustement manuel.
+          </div>
+        )}
+
         {tab === 'stock' ? (
           <ProductTable
             onAddProduct={() => setShowAdd(true)}
@@ -92,12 +114,13 @@ export default function InventoryPage() {
             refreshKey={refreshKey}
             activatedProduct={activatedProduct}
             onActivatedProductMerged={clearActivatedProduct}
+            readOnly={inventoryReadOnly}
           />
         ) : (
           <AbroadBatchEntry
             onTransferred={(product) => {
               setActivatedProduct(product)
-              setNotice(`« ${product.name} » a été transféré vers le stock principal.`)
+              setNotice(`"${product.name}" a ete transfere vers le stock principal.`)
               setRefreshKey((current) => current + 1)
               setTab('stock')
             }}
@@ -106,14 +129,14 @@ export default function InventoryPage() {
       </div>
 
       <AddProductModal
-        isOpen={showAdd || !!editProductGroup}
+        isOpen={!inventoryReadOnly && (showAdd || !!editProductGroup)}
         onClose={() => {
           setShowAdd(false)
           setEditProductGroup(null)
         }}
         productGroup={editProductGroup}
         onSaved={(message) => {
-          setNotice(message ?? 'Le produit a bien été enregistré.')
+          setNotice(message ?? 'Le produit a bien ete enregistre.')
           setRefreshKey((current) => current + 1)
         }}
       />

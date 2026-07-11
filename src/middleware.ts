@@ -3,6 +3,12 @@ import { NextResponse, type NextRequest } from 'next/server'
 import type { User } from '@supabase/supabase-js'
 import { getRequestOrigin } from '@/lib/requestOrigin'
 import { clearSupabaseAuthCookies } from '@/lib/supabase/authCookies'
+import {
+  canCashierAccessPath,
+  getRoleLandingPath,
+  isCashierRestrictedRoute,
+  normalizeAccountRole,
+} from '@/lib/accountRoles'
 
 const PUBLIC_ROUTES = ['/', '/login', '/signup', '/forgot-password', '/auth/callback', '/auth/reset-password']
 const SECURITY_HEADERS = {
@@ -18,6 +24,11 @@ function applySecurityHeaders(response: NextResponse) {
   })
 
   return response
+}
+
+function buildRedirectResponse(request: NextRequest, pathname: string) {
+  const url = new URL(pathname, getRequestOrigin(request))
+  return NextResponse.redirect(url)
 }
 
 export async function middleware(request: NextRequest) {
@@ -106,6 +117,19 @@ export async function middleware(request: NextRequest) {
       request.cookies.getAll().map(({ name }) => name),
       (name) => redirectResponse.cookies.set(name, '', { path: '/', maxAge: 0 })
     )
+    return applySecurityHeaders(redirectResponse)
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  const role = normalizeAccountRole(profile?.role)
+
+  if (role === 'cashier' && (isCashierRestrictedRoute(pathname) || !canCashierAccessPath(pathname))) {
+    const redirectResponse = buildRedirectResponse(request, getRoleLandingPath(role))
     return applySecurityHeaders(redirectResponse)
   }
 

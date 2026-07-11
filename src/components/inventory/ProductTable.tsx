@@ -49,6 +49,7 @@ interface ProductTableProps {
   refreshKey?: number
   activatedProduct?: Product | null
   onActivatedProductMerged?: () => void
+  readOnly?: boolean
 }
 
 interface RestockCandidate {
@@ -152,6 +153,7 @@ export function ProductTable({
   refreshKey,
   activatedProduct,
   onActivatedProductMerged,
+  readOnly = false,
 }: ProductTableProps) {
   const { overview } = useSubscriptionOverview()
   const [search, setSearch] = useState('')
@@ -205,6 +207,12 @@ export function ProductTable({
     const timeout = window.setTimeout(() => setFeedback(null), 5000)
     return () => window.clearTimeout(timeout)
   }, [feedback])
+
+  useEffect(() => {
+    if (readOnly && inventoryView === 'restock') {
+      setInventoryView('products')
+    }
+  }, [inventoryView, readOnly])
 
   const productGroups = useMemo(() => buildProductGroups(products), [products])
 
@@ -573,17 +581,19 @@ export function ProductTable({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              leftIcon={<SlidersHorizontal size={14} />}
-              onClick={() => {
-                setAdjustmentProduct(variant)
-                setActiveGroupMenu(null)
-              }}
-            >
-              Ajuster
-            </Button>
+            {!readOnly && (
+              <Button
+                variant="outline"
+                size="sm"
+                leftIcon={<SlidersHorizontal size={14} />}
+                onClick={() => {
+                  setAdjustmentProduct(variant)
+                  setActiveGroupMenu(null)
+                }}
+              >
+                Ajuster
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -719,26 +729,32 @@ export function ProductTable({
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant={isRestockView ? 'teal' : 'outline'}
-                size="sm"
-                leftIcon={<Truck size={14} />}
-                onClick={() => setInventoryView((current) => current === 'products' ? 'restock' : 'products')}
-              >
-                {isRestockView ? 'Retour aux produits' : 'Plan de reapprovisionnement'}
-              </Button>
+              {!readOnly && (
+                <Button
+                  variant={isRestockView ? 'teal' : 'outline'}
+                  size="sm"
+                  leftIcon={<Truck size={14} />}
+                  onClick={() => setInventoryView((current) => current === 'products' ? 'restock' : 'products')}
+                >
+                  {isRestockView ? 'Retour aux produits' : 'Plan de reapprovisionnement'}
+                </Button>
+              )}
               <Button variant="outline" size="sm" leftIcon={<Download size={14} />} onClick={exportCsv}>
                 Exporter
               </Button>
-              <Button variant="outline" size="sm" leftIcon={<Tags size={14} />} onClick={() => setShowCategories(true)}>
-                Categories
-              </Button>
+              {!readOnly && (
+                <Button variant="outline" size="sm" leftIcon={<Tags size={14} />} onClick={() => setShowCategories(true)}>
+                  Categories
+                </Button>
+              )}
               <Button variant="outline" size="sm" leftIcon={<RefreshCw size={14} />} onClick={() => void load()}>
                 Actualiser
               </Button>
-              <Button variant="primary" size="sm" leftIcon={<Plus size={14} />} onClick={onAddProduct}>
-                Ajouter
-              </Button>
+              {!readOnly && (
+                <Button variant="primary" size="sm" leftIcon={<Plus size={14} />} onClick={onAddProduct}>
+                  Ajouter
+                </Button>
+              )}
             </div>
           </div>
 
@@ -946,14 +962,16 @@ export function ProductTable({
                       )}
                     </div>
 
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <Button variant="outline" size="sm" leftIcon={<SlidersHorizontal size={14} />} onClick={() => setAdjustmentProduct(product)}>
-                        Ajuster
-                      </Button>
-                      <Button variant="ghost" size="sm" leftIcon={<Edit size={14} />} onClick={() => onEditProduct(buildProductGroups([product])[0])}>
-                        Modifier le parent
-                      </Button>
-                    </div>
+                    {!readOnly && (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" leftIcon={<SlidersHorizontal size={14} />} onClick={() => setAdjustmentProduct(product)}>
+                          Ajuster
+                        </Button>
+                        <Button variant="ghost" size="sm" leftIcon={<Edit size={14} />} onClick={() => onEditProduct(buildProductGroups([product])[0])}>
+                          Modifier le parent
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -978,7 +996,7 @@ export function ProductTable({
                 {productGroups.length === 0 ? "Aucun produit dans l'inventaire." : 'Aucun produit ne correspond aux filtres.'}
               </p>
               <div className="mt-4 flex justify-center">
-                {productGroups.length === 0 ? (
+                {productGroups.length === 0 && !readOnly ? (
                   <Button variant="primary" size="sm" onClick={onAddProduct}>Ajouter le premier produit</Button>
                 ) : (
                   <Button variant="ghost" size="sm" onClick={resetFilters}>Reinitialiser les filtres</Button>
@@ -1060,9 +1078,11 @@ export function ProductTable({
                           <p className="mt-1 text-[11px] text-[#6B7682]">{group.quantity} unite(s) · {stockTone.helper}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => onEditProduct(group)}>
-                            Modifier
-                          </Button>
+                          {!readOnly && (
+                            <Button variant="ghost" size="sm" onClick={() => onEditProduct(group)}>
+                              Modifier
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -1120,9 +1140,11 @@ export function ProductTable({
                       </div>
 
                       <div className="flex flex-shrink-0 items-center gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => onEditProduct(group)}>
-                          Modifier
-                        </Button>
+                        {!readOnly && (
+                          <Button variant="ghost" size="sm" onClick={() => onEditProduct(group)}>
+                            Modifier
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -1145,17 +1167,19 @@ export function ProductTable({
                     {activeGroupMenu === group.id && (
                       <div className="relative mt-2">
                         <div className="absolute right-0 top-0 z-20 w-48 rounded-2xl border border-[#2D7D7D]/[0.1] bg-white py-1 shadow-[0_12px_30px_rgba(26,54,54,0.12)]">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onEditProduct(group)
-                              setActiveGroupMenu(null)
-                            }}
-                            className="flex min-h-11 w-full items-center gap-2 px-3 text-sm text-[#1A3636] hover:bg-[#F4F7FB]"
-                          >
-                            <Edit size={14} />
-                            Modifier le parent
-                          </button>
+                          {!readOnly && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onEditProduct(group)
+                                setActiveGroupMenu(null)
+                              }}
+                              className="flex min-h-11 w-full items-center gap-2 px-3 text-sm text-[#1A3636] hover:bg-[#F4F7FB]"
+                            >
+                              <Edit size={14} />
+                              Modifier le parent
+                            </button>
+                          )}
                           {supplierPhone && (
                             <a
                               href={`tel:+${supplierPhone}`}
@@ -1176,18 +1200,20 @@ export function ProductTable({
                             {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                             {isExpanded ? 'Replier' : 'Afficher'}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setDeleteCandidate(group)
-                              setActiveGroupMenu(null)
-                            }}
-                            disabled={deleteInProgress}
-                            className="flex min-h-11 w-full items-center gap-2 px-3 text-sm text-red-600 hover:bg-red-500/5 disabled:opacity-50"
-                          >
-                            <Trash2 size={14} />
-                            {deleteInProgress ? 'Suppression...' : 'Supprimer'}
-                          </button>
+                          {!readOnly && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeleteCandidate(group)
+                                setActiveGroupMenu(null)
+                              }}
+                              disabled={deleteInProgress}
+                              className="flex min-h-11 w-full items-center gap-2 px-3 text-sm text-red-600 hover:bg-red-500/5 disabled:opacity-50"
+                            >
+                              <Trash2 size={14} />
+                              {deleteInProgress ? 'Suppression...' : 'Supprimer'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     )}

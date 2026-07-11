@@ -3,14 +3,21 @@ import { useCallback, useEffect, useState } from 'react'
 import { Header } from '@/components/layout/Header'
 import { Card, MetricCard } from '@/components/ui/Card'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
-import { TrendingUp, Package, DollarSign, BarChart3, Download, RefreshCw, Wallet, Receipt, TriangleAlert, Target } from 'lucide-react'
+import { TrendingUp, Package, DollarSign, BarChart3, Download, RefreshCw, Wallet, Receipt, TriangleAlert, Target, Users, CreditCard, Smartphone } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts'
 import { getReportsData, type ReportsRangeInput, type ReportsRangePreset } from '@/lib/supabase/queries'
+import { useAccountRole } from '@/hooks/useAccountRole'
 
 const COLORS = ['#6C5CE7', '#8b5cf6', '#f97316', '#10b981', '#0ea5e9', '#94a3b8']
+const PAYMENT_METHOD_META = {
+  cash: { label: 'Especes', color: '#10b981', icon: Wallet },
+  wave: { label: 'Wave', color: '#6C5CE7', icon: Smartphone },
+  orange_money: { label: 'Orange Money', color: '#f97316', icon: Smartphone },
+  card: { label: 'Carte', color: '#0ea5e9', icon: CreditCard },
+} as const
 const REPORT_RANGE_OPTIONS: Array<{ value: ReportsRangePreset; label: string }> = [
   { value: 'today', label: "Aujourd'hui" },
   { value: '7d', label: '7 derniers jours' },
@@ -96,6 +103,8 @@ interface ReportsData {
   monthlyData: { month: string; revenue: number; profit: number }[]
   allProducts: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number }[]
   topProducts: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number }[]
+  paymentMethodData: { method: 'cash' | 'wave' | 'orange_money' | 'card'; count: number; invoiced: number; collected: number; due: number }[]
+  topClients: { key: string; name: string; phone: string; salesCount: number; invoiced: number; collected: number; due: number; collectionRate: number }[]
   totalSold: number
   avgMargin: number
   totalInvoiced: number
@@ -110,9 +119,12 @@ interface ReportsData {
   bestMonth: { month: string; revenue: number; profit: number } | null
   bestProductByUnits: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number } | null
   bestProductByProfit: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number } | null
+  bestClientByRevenue: { key: string; name: string; phone: string; salesCount: number; invoiced: number; collected: number; due: number; collectionRate: number } | null
+  highestDueClient: { key: string; name: string; phone: string; salesCount: number; invoiced: number; collected: number; due: number; collectionRate: number } | null
 }
 
 export default function ReportsPage() {
+  const { isCashier } = useAccountRole()
   const [rangePreset, setRangePreset] = useState<ReportsRangePreset>('6m')
   const [customStartDate, setCustomStartDate] = useState(() => {
     const date = new Date()
@@ -165,6 +177,10 @@ export default function ReportsPage() {
   const bestMonth = data?.bestMonth ?? null
   const bestProductByUnits = data?.bestProductByUnits ?? null
   const bestProductByProfit = data?.bestProductByProfit ?? null
+  const paymentMethods = data?.paymentMethodData ?? []
+  const topClients = data?.topClients ?? []
+  const bestClientByRevenue = data?.bestClientByRevenue ?? null
+  const highestDueClient = data?.highestDueClient ?? null
   const collectionFollowUpCount = partialCount + pendingCount
   const rangeLabel = getRangeLabel(rangePreset, customStartDate, customEndDate)
   const rangeSentence = getRangeSentence(rangePreset, customStartDate, customEndDate)
@@ -302,6 +318,12 @@ export default function ReportsPage() {
         {error && (
           <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
             {error}
+          </div>
+        )}
+
+        {isCashier && !error && (
+          <div className="rounded-xl border border-[#2D7D7D]/[0.12] bg-[#F4F7FB] px-3 py-2.5 text-xs text-[#5C6B73]">
+            Rapport personnel caisse : seules vos ventes et vos encaissements associes sont pris en compte ici.
           </div>
         )}
 
@@ -595,6 +617,158 @@ export default function ReportsPage() {
             </>
           )}
         </Card>
+
+        <div className="grid grid-cols-1 gap-3 sm:gap-4 xl:grid-cols-5">
+          <Card className="p-4 sm:p-5 xl:col-span-2">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-[#1A3636]">Modes de paiement</h3>
+                <p className="mt-1 text-xs text-[#6B7682]">Encaissements et restes par canal</p>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#6C5CE7]/10 text-[#6C5CE7]">
+                <CreditCard size={18} />
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="space-y-3">
+                {[1, 2, 3, 4].map((index) => (
+                  <div key={index} className="animate-pulse space-y-2 rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+                    <div className="h-3 w-28 rounded bg-[#2D7D7D]/[0.08]" />
+                    <div className="h-2 w-full rounded bg-[#2D7D7D]/[0.08]" />
+                  </div>
+                ))}
+              </div>
+            ) : paymentMethods.every((method) => method.count === 0 && method.invoiced === 0) ? (
+              <div className="flex h-[220px] items-center justify-center text-center text-sm text-[#6B7682]">
+                Aucun paiement enregistre sur cette periode.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {paymentMethods.map((method) => {
+                  const meta = PAYMENT_METHOD_META[method.method]
+                  const Icon = meta.icon
+                  const fill = method.invoiced > 0 ? Math.max(0, Math.min(100, (method.collected / method.invoiced) * 100)) : 0
+
+                  return (
+                    <article key={method.method} className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: `${meta.color}1A`, color: meta.color }}>
+                            <Icon size={18} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-[#1A3636]">{meta.label}</p>
+                            <p className="mt-0.5 text-xs text-[#6B7682]">{method.count} vente(s)</p>
+                          </div>
+                        </div>
+                        <span className="flex-shrink-0 text-xs font-semibold text-[#1A3636]">{fill.toFixed(0)}%</span>
+                      </div>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#2D7D7D]/[0.08]">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${fill}%`, backgroundColor: meta.color }} />
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <p className="text-[#6B7682]">Facture</p>
+                          <p className="mt-0.5 font-semibold text-[#1A3636]">{formatCurrencyCompact(method.invoiced)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[#6B7682]">Encaisse</p>
+                          <p className="mt-0.5 font-semibold text-emerald-600">{formatCurrencyCompact(method.collected)}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[#6B7682]">Reste</p>
+                          <p className="mt-0.5 font-semibold text-amber-600">{formatCurrencyCompact(method.due)}</p>
+                        </div>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </Card>
+
+          <Card className="p-4 sm:p-5 xl:col-span-3">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-[#1A3636]">Top clients & dettes</h3>
+                <p className="mt-1 text-xs text-[#6B7682]">Qui achete le plus, et qui reste a relancer</p>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
+                <Users size={18} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-2">
+              <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+                <p className="text-[10px] uppercase tracking-[0.07em] text-[#6B7682]">Meilleur client</p>
+                <p className="mt-1 truncate text-sm font-semibold text-[#1A3636]">{bestClientByRevenue?.name ?? 'Aucun client'}</p>
+                <p className="mt-1 text-xs text-emerald-600">{bestClientByRevenue ? formatCurrencyCompact(bestClientByRevenue.invoiced) : 'Pas encore de chiffre'}</p>
+                <p className="mt-1 text-xs text-[#6B7682]">{bestClientByRevenue ? `${bestClientByRevenue.salesCount} vente(s)` : 'Aucune vente client sur la periode'}</p>
+              </div>
+              <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+                <p className="text-[10px] uppercase tracking-[0.07em] text-[#6B7682]">Dette la plus forte</p>
+                <p className="mt-1 truncate text-sm font-semibold text-[#1A3636]">{highestDueClient?.name ?? 'Aucun client'}</p>
+                <p className="mt-1 text-xs text-amber-600">{highestDueClient ? formatCurrencyCompact(highestDueClient.due) : 'Aucun reste client'}</p>
+                <p className="mt-1 text-xs text-[#6B7682]">{highestDueClient && highestDueClient.due > 0 ? `${highestDueClient.collectionRate.toFixed(0)}% deja encaisse` : 'Aucun suivi ouvert actuellement'}</p>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="mt-4 space-y-3">
+                {[1, 2, 3].map((index) => (
+                  <div key={index} className="animate-pulse rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+                    <div className="h-3 w-32 rounded bg-[#2D7D7D]/[0.08]" />
+                    <div className="mt-3 h-2 w-full rounded bg-[#2D7D7D]/[0.08]" />
+                  </div>
+                ))}
+              </div>
+            ) : topClients.length === 0 ? (
+              <div className="mt-4 flex h-[220px] items-center justify-center text-center text-sm text-[#6B7682]">
+                Aucun client remonte sur cette periode.
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {topClients.map((client) => (
+                  <article key={client.key} className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-semibold text-[#1A3636]">{client.name}</p>
+                          <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-[#6B7682]">{client.salesCount} vente(s)</span>
+                        </div>
+                        <p className="mt-1 text-xs text-[#6B7682]">{client.phone || 'Telephone non renseigne'}</p>
+                      </div>
+                      <div className="text-left sm:text-right">
+                        <p className="text-sm font-semibold text-[#1A3636]">{formatCurrencyCompact(client.invoiced)}</p>
+                        <p className="mt-1 text-xs text-[#6B7682]">{client.collectionRate.toFixed(0)}% encaisses</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#2D7D7D]/[0.08]">
+                      <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${Math.max(0, Math.min(100, client.collectionRate))}%` }} />
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <p className="text-[#6B7682]">Facture</p>
+                        <p className="mt-0.5 font-semibold text-[#1A3636]">{formatCurrencyCompact(client.invoiced)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[#6B7682]">Encaisse</p>
+                        <p className="mt-0.5 font-semibold text-emerald-600">{formatCurrencyCompact(client.collected)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[#6B7682]">Reste</p>
+                        <p className="mt-0.5 font-semibold text-amber-600">{formatCurrencyCompact(client.due)}</p>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   )

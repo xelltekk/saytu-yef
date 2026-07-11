@@ -3,6 +3,8 @@ import { Bell, Search, ChevronDown, LogOut, Settings, User, X } from 'lucide-rea
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useUser } from '@/hooks/useUser'
+import { useAccountRole } from '@/hooks/useAccountRole'
+import { canOpenSettings } from '@/lib/accountRoles'
 
 interface HeaderProps {
   title: string
@@ -15,6 +17,7 @@ export function Header({ title, subtitle }: HeaderProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const { displayName, businessName, initials, email, loading } = useUser()
+  const { role } = useAccountRole()
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -35,7 +38,6 @@ export function Header({ title, subtitle }: HeaderProps) {
       className="sticky top-0 z-20 flex min-h-14 items-center justify-between gap-4 border-b border-[#2D7D7D]/[0.07] bg-white/85 px-4 py-2 backdrop-blur-2xl lg:px-6"
       style={{ paddingTop: 'max(env(safe-area-inset-top), 0px)' }}
     >
-      {/* Title or Search */}
       {showSearch ? (
         <div className="flex-1 flex items-center gap-2">
           <Search size={15} className="text-[#6B7682] flex-shrink-0" />
@@ -77,7 +79,6 @@ export function Header({ title, subtitle }: HeaderProps) {
             <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#6C5CE7] ring-2 ring-white" />
           </button>
 
-          {/* Avatar + dropdown */}
           <div className="relative ml-1" ref={menuRef}>
             <button
               onClick={() => setShowMenu(!showMenu)}
@@ -92,7 +93,7 @@ export function Header({ title, subtitle }: HeaderProps) {
               </div>
               <div className="hidden sm:block text-left min-w-0">
                 <p className="text-[12px] font-semibold text-[#1A3636] leading-tight max-w-[96px] truncate">
-                  {loading ? '…' : displayName}
+                  {loading ? '...' : displayName}
                 </p>
                 {businessName && (
                   <p className="text-[10px] text-[#6B7682] leading-tight max-w-[96px] truncate">{businessName}</p>
@@ -108,13 +109,15 @@ export function Header({ title, subtitle }: HeaderProps) {
                   <p className="text-[10px] text-[#6B7682] truncate mt-0.5">{email}</p>
                 </div>
 
-                <Link
-                  href="/settings"
-                  onClick={() => setShowMenu(false)}
-                  className="flex items-center gap-2.5 px-3 py-2 text-[12px] text-[#5C6B73] hover:text-[#1A3636] hover:bg-[#2D7D7D]/[0.06] transition-colors rounded-lg mx-1"
-                >
-                  <Settings size={13} /> Paramètres du compte
-                </Link>
+                {canOpenSettings(role) && (
+                  <Link
+                    href="/settings"
+                    onClick={() => setShowMenu(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 text-[12px] text-[#5C6B73] hover:text-[#1A3636] hover:bg-[#2D7D7D]/[0.06] transition-colors rounded-lg mx-1"
+                  >
+                    <Settings size={13} /> Parametres du compte
+                  </Link>
+                )}
 
                 <div className="border-t border-[#2D7D7D]/[0.07] mt-1 pt-1">
                   <form action="/auth/signout" method="POST">
@@ -122,7 +125,7 @@ export function Header({ title, subtitle }: HeaderProps) {
                       type="submit"
                       className="flex items-center gap-2.5 w-full px-3 py-2 text-[12px] text-red-500/70 hover:text-red-600 hover:bg-red-500/[0.06] transition-colors rounded-lg mx-1 max-w-[calc(100%-8px)]"
                     >
-                      <LogOut size={13} /> Déconnexion
+                      <LogOut size={13} /> Deconnexion
                     </button>
                   </form>
                 </div>

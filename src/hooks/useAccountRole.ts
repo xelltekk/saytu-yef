@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { normalizeAccountRole } from '@/lib/accountRoles'
+import type { User } from '@/types'
 
 export function useAccountRole() {
-  const [role, setRole] = useState<'admin' | 'employee' | null>(null)
+  const [role, setRole] = useState<User['role'] | null>(null)
 
   useEffect(() => {
     let active = true
@@ -13,11 +15,16 @@ export function useAccountRole() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       const { data } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
-      if (active) setRole(data?.role === 'employee' ? 'employee' : 'admin')
+      if (active) setRole(normalizeAccountRole(data?.role))
     }
     void load()
     return () => { active = false }
   }, [])
 
-  return { role, isAdmin: role === 'admin', loading: role === null }
+  return {
+    role,
+    isAdmin: role === 'admin',
+    isCashier: role === 'cashier',
+    loading: role === null,
+  }
 }
