@@ -36,6 +36,7 @@ import {
   getSupportActionLabel,
   getUsageLimit,
   getUsageRatio,
+  isPerpetualPlan,
   submitSubscriptionRequest,
   type SupportSubscriptionRequestAction,
   type SubscriptionRequestRecord,
@@ -198,8 +199,17 @@ export function SubscriptionCenter() {
     return getRecommendedPlan(overview.plan, overview.usage)
   }, [overview])
 
+  const hasActivePerpetualPlan = useMemo(() => {
+    if (!overview) return false
+    return isPerpetualPlan(overview.plan) && overview.status === 'active'
+  }, [overview])
+
   const primaryRequestPlan = useMemo<SubscriptionPlan>(() => {
     if (!overview) return 'starter'
+
+    if (isPerpetualPlan(overview.plan) && overview.status === 'active') {
+      return 'lifetime'
+    }
 
     if (overview.plan !== 'free' && (overview.status === 'active' || overview.status === 'past_due' || overview.status === 'expired' || overview.status === 'suspended' || overview.status === 'cancelled')) {
       return overview.plan
@@ -363,6 +373,40 @@ export function SubscriptionCenter() {
   const startedAt = formatSubscriptionDate(overview.subscriptionStartedAt ?? overview.createdAt)
   const periodEndsAt = formatSubscriptionDate(overview.currentPeriodEndsAt)
   const trialEndsAt = formatSubscriptionDate(overview.trialEndsAt)
+  const isPerpetual = isPerpetualPlan(overview.plan)
+  const planPriceSummary = currentPlan.price > 0
+    ? currentPlan.period.startsWith('/')
+      ? `${planPrice}${currentPlan.period}`
+      : `${planPrice} - ${currentPlan.period.toLowerCase()}`
+    : planPrice
+  const nextStepLabel = overview.status === 'trial'
+    ? 'Fin de l essai'
+    : isPerpetual
+      ? 'Validite'
+      : 'Prochaine echeance'
+  const nextStepValue = overview.status === 'trial'
+    ? (trialEndsAt ?? 'A definir')
+    : isPerpetual
+      ? 'A vie'
+      : (periodEndsAt ?? 'A confirmer')
+  const nextStepHint = overview.status === 'trial' && remainingTrialDays !== null
+    ? `${Math.max(0, remainingTrialDays)} jour(s) restants`
+    : isPerpetual
+      ? 'Aucun renouvellement requis'
+      : 'Suivi de renouvellement'
+  const lifecycleSteps = hasActivePerpetualPlan
+    ? [
+        'Plan a vie deja actif sur la boutique.',
+        'Aucune demande de renouvellement mensuel n est necessaire.',
+        'Conserver la reference du paiement initial dans le suivi support.',
+        'Contacter le support seulement pour un changement de formule ou une assistance.',
+      ]
+    : [
+        'Choisir la formule adaptee a la boutique.',
+        'Envoyer la demande au support avec votre plan souhaite.',
+        'Confirmer le paiement si necessaire.',
+        'Recevoir l activation et la date de prochaine echeance.',
+      ]
 
   const productLimit = getUsageLimit(overview.plan, 'products')
   const teamLimit = getUsageLimit(overview.plan, 'teamMembers')
@@ -400,27 +444,29 @@ export function SubscriptionCenter() {
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B7682]">Formule</p>
                 <p className="mt-2 text-xl font-bold text-[#1A3636]">{currentPlan.name}</p>
                 <p className="mt-1 text-sm text-[#5C6B73]">
-                  {planPrice}{currentPlan.price > 0 ? currentPlan.period : ''}
+                  {planPriceSummary}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/70 bg-white/80 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B7682]">Cycle</p>
                 <p className="mt-2 text-xl font-bold text-[#1A3636]">{BILLING_CYCLE_LABELS[overview.billingCycle]}</p>
                 <p className="mt-1 text-sm text-[#5C6B73]">
-                  {overview.billingCycle === 'manual' ? 'Activation suivie par support' : 'Renouvellement a la periode'}
+                  {isPerpetual
+                    ? 'Paiement unique confirme par support'
+                    : overview.billingCycle === 'manual'
+                      ? 'Activation suivie par support'
+                      : 'Renouvellement a la periode'}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/70 bg-white/80 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B7682]">
-                  {overview.status === 'trial' ? 'Fin de l essai' : 'Prochaine echeance'}
+                  {nextStepLabel}
                 </p>
                 <p className="mt-2 text-xl font-bold text-[#1A3636]">
-                  {overview.status === 'trial' ? (trialEndsAt ?? 'A definir') : (periodEndsAt ?? 'A confirmer')}
+                  {nextStepValue}
                 </p>
                 <p className="mt-1 text-sm text-[#5C6B73]">
-                  {overview.status === 'trial' && remainingTrialDays !== null
-                    ? `${Math.max(0, remainingTrialDays)} jour(s) restants`
-                    : 'Suivi de renouvellement'}
+                  {nextStepHint}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/70 bg-white/80 p-4">
@@ -434,17 +480,25 @@ export function SubscriptionCenter() {
           <div className="flex w-full flex-col gap-3 lg:w-[260px]">
             <Button
               variant="primary"
-              onClick={() => void handleRequestPlan(primaryRequestPlan)}
-              disabled={!isAdmin || requestingPlan !== null}
+              onClick={() => {
+                if (!hasActivePerpetualPlan) {
+                  void handleRequestPlan(primaryRequestPlan)
+                }
+              }}
+              disabled={!isAdmin || requestingPlan !== null || hasActivePerpetualPlan}
               fullWidth
             >
               <CreditCard size={16} />
-              {requestingPlan === primaryRequestPlan
+              {hasActivePerpetualPlan
+                ? 'Plan a vie actif'
+                : requestingPlan === primaryRequestPlan
                 ? 'Envoi en cours...'
                 : getSubscriptionRequestButtonLabel(primaryRequestType, primaryRequestPlan)}
             </Button>
             <div className="rounded-2xl border border-[#2D7D7D]/10 bg-white/70 px-3 py-2 text-xs text-[#5C6B73]">
-              Action preparee: {getSubscriptionRequestSummary(primaryRequestType, overview.plan, primaryRequestPlan)}
+              {hasActivePerpetualPlan
+                ? 'Plan perpetuel actif: aucun renouvellement mensuel a preparer.'
+                : `Action preparee: ${getSubscriptionRequestSummary(primaryRequestType, overview.plan, primaryRequestPlan)}`}
             </div>
             <Button
               variant="outline"
@@ -558,12 +612,7 @@ export function SubscriptionCenter() {
           </div>
 
           <div className="mt-5 space-y-3">
-            {[
-              'Choisir la formule adaptee a la boutique.',
-              'Envoyer la demande au support avec votre plan souhaite.',
-              'Confirmer le paiement si necessaire.',
-              'Recevoir l activation et la date de prochaine echeance.',
-            ].map((step) => (
+            {lifecycleSteps.map((step) => (
               <div key={step} className="flex items-start gap-3 rounded-2xl border border-[#2D7D7D]/10 bg-[#F4F7FB] p-3">
                 <div className="rounded-full bg-emerald-500/10 p-1 text-emerald-600">
                   <CheckCircle2 size={14} />
@@ -842,7 +891,7 @@ export function SubscriptionCenter() {
           )}
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-4">
+        <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-5">
           {SUBSCRIPTION_PLANS.map((plan) => {
             const isCurrent = plan.id === overview.plan
             const isRecommended = recommendation === plan.id

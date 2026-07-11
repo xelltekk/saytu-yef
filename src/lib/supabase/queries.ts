@@ -1,5 +1,5 @@
 import { createClient, ensureBrowserSupabaseSession } from './client'
-import type { Product, ProductGroup, ProductVariantDraft, Category, Supplier, Sale, AbroadProduct, StockMovement, TeamMember } from '@/types'
+import type { Product, ProductGroup, ProductVariantDraft, Category, Supplier, Sale, AbroadProduct, StockMovement, TeamMember, SubscriptionPlan } from '@/types'
 import { buildProductGroups } from '@/lib/productGroups'
 import { getPlanDefinition, getSubscriptionOverview, getUsageLimit } from '@/lib/subscriptions'
 
@@ -25,7 +25,7 @@ function normalizeSupabaseError(error: unknown, fallback = 'Erreur base de donne
   return error instanceof Error ? error : new Error(message)
 }
 
-function getSuggestedUpgradePlan(currentPlan: 'free' | 'starter' | 'pro' | 'enterprise') {
+function getSuggestedUpgradePlan(currentPlan: SubscriptionPlan) {
   if (currentPlan === 'free') return 'starter'
   if (currentPlan === 'starter') return 'pro'
   if (currentPlan === 'pro') return 'enterprise'

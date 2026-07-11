@@ -1,4 +1,4 @@
-export type SubscriptionPlan = 'free' | 'starter' | 'pro' | 'enterprise'
+export type SubscriptionPlan = 'free' | 'starter' | 'pro' | 'enterprise' | 'lifetime'
 export type SubscriptionStatus = 'free' | 'trial' | 'active' | 'past_due' | 'suspended' | 'cancelled' | 'expired'
 export type BillingCycle = 'monthly' | 'quarterly' | 'yearly' | 'manual'
 export type SubscriptionRequestStatus = 'sent' | 'in_progress' | 'activated' | 'cancelled'

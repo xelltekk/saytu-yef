@@ -105,6 +105,7 @@ const PLAN_LEVELS: Record<SubscriptionPlan, number> = {
   starter: 1,
   pro: 2,
   enterprise: 3,
+  lifetime: 4,
 }
 
 export const SUBSCRIPTION_PLANS: Array<{
@@ -157,6 +158,16 @@ export const SUBSCRIPTION_PLANS: Array<{
     desc: 'Accompagnement dedie pour reseaux, franchises et gros volumes.',
     cta: 'Parler a l equipe',
     features: ['Equipe illimitee', 'Support dedie', 'Accompagnement deploiement', 'Besoins specifiques'],
+    limits: { products: null, teamMembers: null, monthlySales: null },
+  },
+  {
+    id: 'lifetime',
+    name: 'A vie',
+    price: 149000,
+    period: 'Paiement unique',
+    desc: 'Un seul reglement pour garder Saytu Yef actif sans renouvellement mensuel.',
+    cta: 'Activer A vie',
+    features: ['Produits illimites', 'Equipe illimitee', 'Ventes illimitees', 'Aucune echeance mensuelle', 'Support prioritaire'],
     limits: { products: null, teamMembers: null, monthlySales: null },
   },
 ]
@@ -245,7 +256,7 @@ function normalizeCycle(value: string | null | undefined, plan: SubscriptionPlan
   if (value === 'monthly' || value === 'quarterly' || value === 'yearly' || value === 'manual') {
     return value
   }
-  return plan === 'free' ? 'manual' : 'monthly'
+  return plan === 'free' || plan === 'lifetime' ? 'manual' : 'monthly'
 }
 
 function normalizeRequestStatus(value: string | null | undefined): SubscriptionRequestStatus {
@@ -347,6 +358,12 @@ export function getSubscriptionRequestType(
     if (requestedPlan === 'free') {
       return 'activation'
     }
+    if (requestedPlan === 'lifetime') {
+      if (currentStatus === 'past_due' || currentStatus === 'expired' || currentStatus === 'suspended' || currentStatus === 'cancelled') {
+        return 'reactivation'
+      }
+      return 'activation'
+    }
     if (currentStatus === 'past_due' || currentStatus === 'expired' || currentStatus === 'suspended' || currentStatus === 'cancelled') {
       return 'reactivation'
     }
@@ -402,6 +419,10 @@ export function getSubscriptionRequestSummary(
 export function getSubscriptionRequestButtonLabel(type: SubscriptionRequestType, requestedPlan: SubscriptionPlan): string {
   const planName = getPlanDefinition(requestedPlan).name
 
+  if (requestedPlan === 'lifetime') {
+    return type === 'reactivation' ? 'Reactiver le plan a vie' : 'Demander le plan a vie'
+  }
+
   switch (type) {
     case 'renewal':
       return 'Demander le renouvellement'
@@ -418,6 +439,10 @@ export function getSubscriptionRequestButtonLabel(type: SubscriptionRequestType,
 
 export function getSupportActionLabel(type: SubscriptionRequestType, requestedPlan: SubscriptionPlan): string {
   const planName = getPlanDefinition(requestedPlan).name
+
+  if (requestedPlan === 'lifetime') {
+    return type === 'reactivation' ? 'Reactiver A vie' : 'Activer A vie'
+  }
 
   switch (type) {
     case 'renewal':
@@ -444,6 +469,10 @@ export function getSubscriptionExpectedPaymentAmount(
   }
 
   return plan.price
+}
+
+export function isPerpetualPlan(plan: SubscriptionPlan): boolean {
+  return plan === 'lifetime'
 }
 
 export function doesSubscriptionActivationRequirePayment(
@@ -591,6 +620,9 @@ export function buildSubscriptionRequestMailto(
       case 'downgrade':
         return `Je souhaite ajuster ma boutique vers le plan ${targetPlan.name}.`
       default:
+        if (plan === 'lifetime') {
+          return 'Je souhaite activer l abonnement a vie pour ma boutique.'
+        }
         return `Je souhaite activer le plan ${targetPlan.name} pour ma boutique.`
     }
   })()
