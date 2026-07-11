@@ -8,9 +8,89 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts'
-import { getReportsData } from '@/lib/supabase/queries'
+import { getReportsData, type ReportsRangeInput, type ReportsRangePreset } from '@/lib/supabase/queries'
 
 const COLORS = ['#6C5CE7', '#8b5cf6', '#f97316', '#10b981', '#0ea5e9', '#94a3b8']
+const REPORT_RANGE_OPTIONS: Array<{ value: ReportsRangePreset; label: string }> = [
+  { value: 'today', label: "Aujourd'hui" },
+  { value: '7d', label: '7 derniers jours' },
+  { value: '30d', label: '30 derniers jours' },
+  { value: 'month', label: 'Mois en cours' },
+  { value: '3m', label: '3 derniers mois' },
+  { value: '6m', label: '6 derniers mois' },
+  { value: '12m', label: '12 derniers mois' },
+  { value: 'custom', label: 'Periode personnalisee' },
+]
+
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function parseDateInput(value: string) {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+function formatDateRangePart(value: string) {
+  return parseDateInput(value).toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function getRangeLabel(preset: ReportsRangePreset, startDate: string, endDate: string) {
+  switch (preset) {
+    case 'today':
+      return "aujourd'hui"
+    case '7d':
+      return '7 derniers jours'
+    case '30d':
+      return '30 derniers jours'
+    case 'month':
+      return 'mois en cours'
+    case '3m':
+      return '3 derniers mois'
+    case '6m':
+      return '6 derniers mois'
+    case '12m':
+      return '12 derniers mois'
+    case 'custom':
+      return `${formatDateRangePart(startDate)} au ${formatDateRangePart(endDate)}`
+  }
+}
+
+function getRangeSentence(preset: ReportsRangePreset, startDate: string, endDate: string) {
+  switch (preset) {
+    case 'today':
+      return "d'aujourd'hui"
+    case '7d':
+      return 'des 7 derniers jours'
+    case '30d':
+      return 'des 30 derniers jours'
+    case 'month':
+      return 'du mois en cours'
+    case '3m':
+      return 'des 3 derniers mois'
+    case '6m':
+      return 'des 6 derniers mois'
+    case '12m':
+      return 'des 12 derniers mois'
+    case 'custom':
+      return `du ${formatDateRangePart(startDate)} au ${formatDateRangePart(endDate)}`
+  }
+}
+
+function getRangeSlug(preset: ReportsRangePreset, startDate: string, endDate: string) {
+  if (preset === 'custom') {
+    return `${startDate}_au_${endDate}`
+  }
+
+  return preset
+}
 
 interface ReportsData {
   monthlyData: { month: string; revenue: number; profit: number }[]
@@ -33,7 +113,13 @@ interface ReportsData {
 }
 
 export default function ReportsPage() {
-  const [rangeMonths, setRangeMonths] = useState(6)
+  const [rangePreset, setRangePreset] = useState<ReportsRangePreset>('6m')
+  const [customStartDate, setCustomStartDate] = useState(() => {
+    const date = new Date()
+    date.setDate(date.getDate() - 29)
+    return toDateInputValue(date)
+  })
+  const [customEndDate, setCustomEndDate] = useState(() => toDateInputValue(new Date()))
   const [data, setData] = useState<ReportsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -44,7 +130,12 @@ export default function ReportsPage() {
     else setLoading(true)
     setError('')
     try {
-      setData(await getReportsData(rangeMonths) as ReportsData)
+      const rangeInput: ReportsRangeInput = {
+        preset: rangePreset,
+        startDate: customStartDate,
+        endDate: customEndDate,
+      }
+      setData(await getReportsData(rangeInput) as ReportsData)
     } catch (err: unknown) {
       console.error(err)
       setError(err instanceof Error ? err.message : 'Impossible de charger les rapports')
@@ -52,7 +143,7 @@ export default function ReportsPage() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [rangeMonths])
+  }, [customEndDate, customStartDate, rangePreset])
 
   useEffect(() => {
     void loadReports()
@@ -75,8 +166,8 @@ export default function ReportsPage() {
   const bestProductByUnits = data?.bestProductByUnits ?? null
   const bestProductByProfit = data?.bestProductByProfit ?? null
   const collectionFollowUpCount = partialCount + pendingCount
-  const rangeLabel = rangeMonths === 1 ? 'mois en cours' : `${rangeMonths} derniers mois`
-  const rangeSentence = rangeMonths === 1 ? 'du mois en cours' : `des ${rangeMonths} derniers mois`
+  const rangeLabel = getRangeLabel(rangePreset, customStartDate, customEndDate)
+  const rangeSentence = getRangeSentence(rangePreset, customStartDate, customEndDate)
 
   const renderResponsiveCurrency = (amount: number) => (
     <>
@@ -145,7 +236,7 @@ export default function ReportsPage() {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `rapport-saytu-yef-${rangeMonths}-mois-${new Date().toISOString().slice(0, 10)}.csv`
+    link.download = `rapport-saytu-yef-${getRangeSlug(rangePreset, customStartDate, customEndDate)}-${new Date().toISOString().slice(0, 10)}.csv`
     link.click()
     URL.revokeObjectURL(url)
   }
@@ -154,20 +245,39 @@ export default function ReportsPage() {
     <div className="min-h-screen">
       <Header title="Rapports & Analyses" subtitle="Performances de votre activité" />
       <div className="space-y-4 p-3 sm:p-4 lg:space-y-6 lg:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
             <p className="text-[11px] text-[#6B7682]">Ventes {rangeSentence}, règlements partiels inclus</p>
             <select
-              value={rangeMonths}
-              onChange={(event) => setRangeMonths(Number(event.target.value))}
+              value={rangePreset}
+              onChange={(event) => setRangePreset(event.target.value as ReportsRangePreset)}
               aria-label="Période du rapport"
-              className="mt-2 h-10 w-full rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#1A3636] sm:w-auto sm:min-w-[170px]"
+              className="h-10 w-full rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#1A3636] sm:min-w-[220px]"
             >
-              <option value={1}>Mois en cours</option>
-              <option value={3}>3 derniers mois</option>
-              <option value={6}>6 derniers mois</option>
-              <option value={12}>12 derniers mois</option>
+              {REPORT_RANGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
+            {rangePreset === 'custom' && (
+              <div className="grid grid-cols-1 gap-2 min-[460px]:grid-cols-2">
+                <input
+                  type="date"
+                  value={customStartDate}
+                  max={customEndDate}
+                  onChange={(event) => setCustomStartDate(event.target.value)}
+                  aria-label="Date de debut"
+                  className="h-10 w-full rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#1A3636]"
+                />
+                <input
+                  type="date"
+                  value={customEndDate}
+                  min={customStartDate}
+                  onChange={(event) => setCustomEndDate(event.target.value)}
+                  aria-label="Date de fin"
+                  className="h-10 w-full rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#1A3636]"
+                />
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:w-auto">
             <button

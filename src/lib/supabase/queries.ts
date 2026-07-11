@@ -1024,12 +1024,153 @@ function buildChartData(sales: { total: number; created_at: string }[]) {
 
 // ─── RAPPORTS ─────────────────────────────────────────────────────────────────
 
-export async function getReportsData(months = 6) {
+export type ReportsRangePreset = 'today' | '7d' | '30d' | 'month' | '3m' | '6m' | '12m' | 'custom'
+
+export type ReportsRangeInput = {
+  preset: ReportsRangePreset
+  startDate?: string | null
+  endDate?: string | null
+}
+
+type ReportsBucketGranularity = 'day' | 'month'
+
+const REPORTS_DAY_MS = 24 * 60 * 60 * 1000
+
+function toStartOfDay(date: Date) {
+  const copy = new Date(date)
+  copy.setHours(0, 0, 0, 0)
+  return copy
+}
+
+function addDays(date: Date, days: number) {
+  const copy = new Date(date)
+  copy.setDate(copy.getDate() + days)
+  return copy
+}
+
+function parseDateInput(value?: string | null) {
+  if (!value) return null
+
+  const [year, month, day] = value.split('-').map(Number)
+  if (!year || !month || !day) return null
+
+  return new Date(year, month - 1, day)
+}
+
+function getReportsBucketKey(date: Date, granularity: ReportsBucketGranularity) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+
+  if (granularity === 'month') {
+    return `${year}-${month}`
+  }
+
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getReportsBucketLabel(date: Date, granularity: ReportsBucketGranularity) {
+  return granularity === 'month'
+    ? date.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' })
+    : date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })
+}
+
+function createReportsBucketMap(start: Date, endExclusive: Date, granularity: ReportsBucketGranularity) {
+  const map: Record<string, { month: string; revenue: number; profit: number }> = {}
+
+  if (granularity === 'month') {
+    const cursor = new Date(start.getFullYear(), start.getMonth(), 1)
+    while (cursor < endExclusive) {
+      const key = getReportsBucketKey(cursor, 'month')
+      map[key] = {
+        month: getReportsBucketLabel(cursor, 'month'),
+        revenue: 0,
+        profit: 0,
+      }
+      cursor.setMonth(cursor.getMonth() + 1, 1)
+    }
+    return map
+  }
+
+  const cursor = new Date(start)
+  while (cursor < endExclusive) {
+    const key = getReportsBucketKey(cursor, 'day')
+    map[key] = {
+      month: getReportsBucketLabel(cursor, 'day'),
+      revenue: 0,
+      profit: 0,
+    }
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  return map
+}
+
+function resolveReportsRange(input: number | ReportsRangeInput) {
+  const today = toStartOfDay(new Date())
+
+  if (typeof input === 'number') {
+    const monthCount = Math.max(1, Math.floor(input))
+    return {
+      start: new Date(today.getFullYear(), today.getMonth() - monthCount + 1, 1),
+      endExclusive: addDays(today, 1),
+      granularity: 'month' as ReportsBucketGranularity,
+    }
+  }
+
+  let start = new Date(today.getFullYear(), today.getMonth() - 5, 1)
+  let endExclusive = addDays(today, 1)
+
+  switch (input.preset) {
+    case 'today':
+      start = today
+      break
+    case '7d':
+      start = addDays(today, -6)
+      break
+    case '30d':
+      start = addDays(today, -29)
+      break
+    case 'month':
+      start = new Date(today.getFullYear(), today.getMonth(), 1)
+      break
+    case '3m':
+      start = new Date(today.getFullYear(), today.getMonth() - 2, 1)
+      break
+    case '6m':
+      start = new Date(today.getFullYear(), today.getMonth() - 5, 1)
+      break
+    case '12m':
+      start = new Date(today.getFullYear(), today.getMonth() - 11, 1)
+      break
+    case 'custom': {
+      const parsedStart = parseDateInput(input.startDate)
+      const parsedEnd = parseDateInput(input.endDate ?? input.startDate)
+
+      if (!parsedStart || !parsedEnd) {
+        throw new Error('Choisissez une date de debut et une date de fin pour le rapport personnalise.')
+      }
+
+      if (parsedStart.getTime() > parsedEnd.getTime()) {
+        throw new Error('La date de debut doit etre anterieure ou egale a la date de fin.')
+      }
+
+      start = toStartOfDay(parsedStart)
+      endExclusive = addDays(toStartOfDay(parsedEnd), 1)
+      break
+    }
+  }
+
+  const spanDays = Math.max(1, Math.ceil((endExclusive.getTime() - start.getTime()) / REPORTS_DAY_MS))
+  const granularity: ReportsBucketGranularity = spanDays <= 45 ? 'day' : 'month'
+
+  return { start, endExclusive, granularity }
+}
+
+export async function getReportsData(rangeInput: number | ReportsRangeInput = 6) {
   const supabase = createClient()
   await ensureBrowserSupabaseSession(supabase)
-  const monthCount = Math.max(1, Math.floor(months))
-  const now = new Date()
-  const start = new Date(now.getFullYear(), now.getMonth() - monthCount + 1, 1)
+  const { start, endExclusive, granularity } = resolveReportsRange(rangeInput)
   const paymentStats: Record<'cash' | 'wave' | 'orange_money' | 'card', {
     method: 'cash' | 'wave' | 'orange_money' | 'card'
     count: number
@@ -1057,6 +1198,7 @@ export async function getReportsData(months = 6) {
       .from('sales')
       .select('customer_name, customer_phone, total, tax, amount_paid, amount_due, payment_status, payment_method, created_at, items:sale_items(product_id, product_name, quantity, unit_price, total)')
       .gte('created_at', start.toISOString())
+      .lt('created_at', endExclusive.toISOString())
       .in('payment_status', ['completed', 'partial', 'pending'])
       .order('created_at'),
     supabase
@@ -1073,7 +1215,7 @@ export async function getReportsData(months = 6) {
   const productMap = Object.fromEntries(products.map((product) => [product.id, product]))
 
   // Données mensuelles
-  const monthlyMap: Record<string, { month: string; revenue: number; profit: number }> = {}
+  const periodMap = createReportsBucketMap(start, endExclusive, granularity)
   const productSales: Record<string, { name: string; sold: number; revenue: number; profit: number }> = {}
   let totalInvoiced = 0
   let totalCollected = 0
@@ -1082,21 +1224,11 @@ export async function getReportsData(months = 6) {
   let partialCount = 0
   let pendingCount = 0
 
-  for (let index = 0; index < monthCount; index += 1) {
-    const date = new Date(start.getFullYear(), start.getMonth() + index, 1)
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-    monthlyMap[key] = {
-      month: date.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }),
-      revenue: 0,
-      profit: 0,
-    }
-  }
-
   sales.forEach((sale) => {
     const saleDate = new Date(sale.created_at)
-    const monthKey = `${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`
-    const month = monthlyMap[monthKey]
-    if (!month) return
+    const periodKey = getReportsBucketKey(saleDate, granularity)
+    const period = periodMap[periodKey]
+    if (!period) return
 
     const grossSaleRevenue = Number(sale.total)
     const collectedAmount = Number(sale.amount_paid ?? Math.max(0, grossSaleRevenue - Number(sale.amount_due ?? 0)))
@@ -1141,7 +1273,7 @@ export async function getReportsData(months = 6) {
     if (sale.payment_status === 'pending') pendingCount += 1
 
     const netSaleRevenue = Math.max(0, Number(sale.total) - Number(sale.tax ?? 0))
-    month.revenue += netSaleRevenue
+    period.revenue += netSaleRevenue
 
     const saleItems = (sale.items ?? []) as { product_id: string | null; product_name: string; quantity: number; unit_price: number; total: number }[]
     const grossItemsTotal = saleItems.reduce((sum, item) => sum + Number(item.total), 0)
@@ -1152,7 +1284,7 @@ export async function getReportsData(months = 6) {
       const quantity = Number(item.quantity)
       const revenue = Number(item.total) * revenueFactor
       const profit = prod ? revenue - Number(prod.buying_price) * quantity : 0
-      month.profit += profit
+      period.profit += profit
 
       const productKey = item.product_id ?? `deleted:${item.product_name}`
       if (!productSales[productKey]) {
@@ -1170,7 +1302,7 @@ export async function getReportsData(months = 6) {
   const totalSold = allProductSales.reduce((sum, product) => sum + product.sold, 0)
   const totalProductRevenue = allProductSales.reduce((sum, product) => sum + product.revenue, 0)
   const totalProductProfit = allProductSales.reduce((sum, product) => sum + product.profit, 0)
-  const monthlyData = Object.values(monthlyMap)
+  const monthlyData = Object.values(periodMap)
   const bestMonth = monthlyData
     .filter((month) => month.revenue > 0 || month.profit > 0)
     .sort((a, b) => b.revenue - a.revenue || b.profit - a.profit)[0] ?? null
