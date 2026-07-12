@@ -10,6 +10,7 @@ import {
 } from 'recharts'
 import { getReportsData, type ReportsRangeInput, type ReportsRangePreset } from '@/lib/supabase/queries'
 import { useAccountRole } from '@/hooks/useAccountRole'
+import { ACCOUNT_ROLE_LABELS } from '@/lib/accountRoles'
 
 const COLORS = ['#6C5CE7', '#8b5cf6', '#f97316', '#10b981', '#0ea5e9', '#94a3b8']
 const PAYMENT_METHOD_META = {
@@ -121,11 +122,32 @@ interface ReportsData {
   bestProductByProfit: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number } | null
   bestClientByRevenue: { key: string; name: string; phone: string; salesCount: number; invoiced: number; collected: number; due: number; collectionRate: number } | null
   highestDueClient: { key: string; name: string; phone: string; salesCount: number; invoiced: number; collected: number; due: number; collectionRate: number } | null
+  sellerBreakdown: {
+    sellerId: string
+    sellerName: string
+    sellerEmail: string
+    sellerRole: 'admin' | 'employee' | 'cashier'
+    salesCount: number
+    totalSold: number
+    totalInvoiced: number
+    totalCollected: number
+    totalDue: number
+    averageTicket: number
+    collectionRate: number
+    lastSaleAt: string | null
+  }[]
+  sellerOptions: {
+    id: string
+    label: string
+    role: 'admin' | 'employee' | 'cashier'
+  }[]
+  appliedSellerId: string | null
 }
 
 export default function ReportsPage() {
   const { isCashier } = useAccountRole()
   const [rangePreset, setRangePreset] = useState<ReportsRangePreset>('6m')
+  const [sellerFilter, setSellerFilter] = useState<string>('all')
   const [customStartDate, setCustomStartDate] = useState(() => {
     const date = new Date()
     date.setDate(date.getDate() - 29)
@@ -146,6 +168,7 @@ export default function ReportsPage() {
         preset: rangePreset,
         startDate: customStartDate,
         endDate: customEndDate,
+        sellerId: isCashier || sellerFilter === 'all' ? null : sellerFilter,
       }
       setData(await getReportsData(rangeInput) as ReportsData)
     } catch (err: unknown) {
@@ -155,7 +178,7 @@ export default function ReportsPage() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [customEndDate, customStartDate, rangePreset])
+  }, [customEndDate, customStartDate, isCashier, rangePreset, sellerFilter])
 
   useEffect(() => {
     void loadReports()
@@ -179,8 +202,13 @@ export default function ReportsPage() {
   const bestProductByProfit = data?.bestProductByProfit ?? null
   const paymentMethods = data?.paymentMethodData ?? []
   const topClients = data?.topClients ?? []
+  const sellerBreakdown = data?.sellerBreakdown ?? []
+  const sellerOptions = data?.sellerOptions ?? []
   const bestClientByRevenue = data?.bestClientByRevenue ?? null
   const highestDueClient = data?.highestDueClient ?? null
+  const bestSellerByRevenue = sellerBreakdown[0] ?? null
+  const bestSellerByCollections = [...sellerBreakdown].sort((left, right) => right.totalCollected - left.totalCollected || right.salesCount - left.salesCount)[0] ?? null
+  const selectedSeller = sellerFilter === 'all' ? null : sellerOptions.find((seller) => seller.id === sellerFilter) ?? null
   const collectionFollowUpCount = partialCount + pendingCount
   const rangeLabel = getRangeLabel(rangePreset, customStartDate, customEndDate)
   const rangeSentence = getRangeSentence(rangePreset, customStartDate, customEndDate)
@@ -221,6 +249,7 @@ export default function ReportsPage() {
     }
     const rows: Array<Array<string | number>> = [
       ['Rapport Saytu Yef', rangeLabel],
+      ['Vue vendeur', isCashier ? 'Mes ventes personnelles' : (selectedSeller?.label ?? 'Toute l equipe')],
       [],
       ['Pilotage'],
       ['Ventes', data.salesCount],
@@ -245,6 +274,20 @@ export default function ReportsPage() {
         Math.round(product.revenue),
         Math.round(product.profit),
         product.margin.toFixed(2),
+      ]),
+      [],
+      ['Performance equipe'],
+      ['Vendeur', 'Role', 'Ventes', 'Articles', 'Facture (FCFA)', 'Encaisse (FCFA)', 'Reste (FCFA)', 'Ticket moyen (FCFA)', 'Taux encaissement (%)'],
+      ...data.sellerBreakdown.map((seller) => [
+        seller.sellerName,
+        ACCOUNT_ROLE_LABELS[seller.sellerRole],
+        seller.salesCount,
+        seller.totalSold,
+        Math.round(seller.totalInvoiced),
+        Math.round(seller.totalCollected),
+        Math.round(seller.totalDue),
+        Math.round(seller.averageTicket),
+        seller.collectionRate.toFixed(2),
       ]),
     ]
     const csv = rows.map((row) => row.map(protectSpreadsheetCell).join(',')).join('\n')
@@ -294,6 +337,21 @@ export default function ReportsPage() {
                 />
               </div>
             )}
+            {!isCashier && sellerOptions.length > 0 && (
+              <select
+                value={sellerFilter}
+                onChange={(event) => setSellerFilter(event.target.value)}
+                aria-label="Filtrer par vendeur"
+                className="h-10 w-full rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#1A3636] sm:min-w-[220px]"
+              >
+                <option value="all">Toute l&apos;equipe</option>
+                {sellerOptions.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.label} - {ACCOUNT_ROLE_LABELS[seller.role]}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:w-auto">
             <button
@@ -324,6 +382,12 @@ export default function ReportsPage() {
         {isCashier && !error && (
           <div className="rounded-xl border border-[#2D7D7D]/[0.12] bg-[#F4F7FB] px-3 py-2.5 text-xs text-[#5C6B73]">
             Rapport personnel caisse : seules vos ventes et vos encaissements associes sont pris en compte ici.
+          </div>
+        )}
+
+        {!isCashier && !error && selectedSeller && (
+          <div className="rounded-xl border border-[#6C5CE7]/[0.12] bg-[#6C5CE7]/[0.05] px-3 py-2.5 text-xs text-[#5C6B73]">
+            Vue filtree sur {selectedSeller.label}. Les cartes, graphiques et exports montrent uniquement ses ventes sur la periode.
           </div>
         )}
 
@@ -538,6 +602,109 @@ export default function ReportsPage() {
             )}
           </Card>
         </div>
+
+        {!isCashier && (
+          <Card className="p-4 sm:p-5">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-[#1A3636]">Performance par vendeur / caisse</h3>
+                <p className="mt-1 text-xs text-[#6B7682]">
+                  Suivi des ventes attribuees a chaque membre sur {rangeLabel}.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+                <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] px-3 py-2.5">
+                  <p className="text-[10px] uppercase tracking-[0.07em] text-[#6B7682]">Meilleur CA</p>
+                  <p className="mt-1 text-sm font-semibold text-[#1A3636]">{bestSellerByRevenue?.sellerName ?? 'Aucun vendeur'}</p>
+                  <p className="mt-1 text-xs text-[#6C5CE7]">
+                    {bestSellerByRevenue ? formatCurrencyCompact(bestSellerByRevenue.totalInvoiced) : 'Pas de vente'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] px-3 py-2.5">
+                  <p className="text-[10px] uppercase tracking-[0.07em] text-[#6B7682]">Meilleur encaissement</p>
+                  <p className="mt-1 text-sm font-semibold text-[#1A3636]">{bestSellerByCollections?.sellerName ?? 'Aucun vendeur'}</p>
+                  <p className="mt-1 text-xs text-emerald-600">
+                    {bestSellerByCollections ? formatCurrencyCompact(bestSellerByCollections.totalCollected) : 'Pas d encaissement'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((index) => (
+                  <div key={index} className="animate-pulse rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+                    <div className="h-3 w-32 rounded bg-[#2D7D7D]/[0.08]" />
+                    <div className="mt-3 h-2 w-full rounded bg-[#2D7D7D]/[0.08]" />
+                  </div>
+                ))}
+              </div>
+            ) : sellerBreakdown.length === 0 ? (
+              <div className="flex h-[180px] items-center justify-center rounded-2xl border border-dashed border-[#2D7D7D]/[0.12] text-center text-sm text-[#6B7682]">
+                Aucune vente attribuee a un vendeur sur cette periode.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {sellerBreakdown.map((seller) => (
+                  <article key={seller.sellerId} className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-semibold text-[#1A3636]">{seller.sellerName}</p>
+                          <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-[#6B7682]">
+                            {ACCOUNT_ROLE_LABELS[seller.sellerRole]}
+                          </span>
+                          <span className="rounded-full bg-[#6C5CE7]/10 px-2 py-1 text-[10px] font-semibold text-[#6C5CE7]">
+                            {seller.salesCount} vente(s)
+                          </span>
+                        </div>
+                        <p className="mt-1 truncate text-xs text-[#6B7682]">
+                          {seller.sellerEmail || 'Email non renseigne'}
+                        </p>
+                        <p className="mt-1 text-xs text-[#6B7682]">
+                          {seller.lastSaleAt
+                            ? `Derniere vente: ${new Date(seller.lastSaleAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                            : 'Aucune vente recente'}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 min-[520px]:grid-cols-4 lg:min-w-[420px]">
+                        <div className="rounded-xl bg-white px-3 py-2">
+                          <p className="text-[10px] uppercase tracking-wide text-[#6B7682]">Facture</p>
+                          <p className="mt-1 text-sm font-semibold text-[#1A3636]">{formatCurrencyCompact(seller.totalInvoiced)}</p>
+                        </div>
+                        <div className="rounded-xl bg-white px-3 py-2">
+                          <p className="text-[10px] uppercase tracking-wide text-[#6B7682]">Encaisse</p>
+                          <p className="mt-1 text-sm font-semibold text-emerald-600">{formatCurrencyCompact(seller.totalCollected)}</p>
+                        </div>
+                        <div className="rounded-xl bg-white px-3 py-2">
+                          <p className="text-[10px] uppercase tracking-wide text-[#6B7682]">Reste</p>
+                          <p className="mt-1 text-sm font-semibold text-amber-600">{formatCurrencyCompact(seller.totalDue)}</p>
+                        </div>
+                        <div className="rounded-xl bg-white px-3 py-2">
+                          <p className="text-[10px] uppercase tracking-wide text-[#6B7682]">Ticket moyen</p>
+                          <p className="mt-1 text-sm font-semibold text-[#1A3636]">{formatCurrencyCompact(seller.averageTicket)}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#2D7D7D]/[0.08]">
+                      <div
+                        className="h-full rounded-full bg-emerald-500 transition-all"
+                        style={{ width: `${Math.max(0, Math.min(100, seller.collectionRate))}%` }}
+                      />
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#6B7682]">
+                      <span>{seller.totalSold} article(s) vendus</span>
+                      <span>{seller.collectionRate.toFixed(0)}% encaisses</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
 
         {/* Top products table */}
         <Card className="p-4 sm:p-5">

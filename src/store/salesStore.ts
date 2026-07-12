@@ -80,11 +80,16 @@ export const useSalesStore = create<SalesState>()(
           return [{
             ...item,
             product_name: formatProductLabel(product),
+            product_base_name: product.name,
+            variant_label: [product.size?.trim(), product.color?.trim()].filter(Boolean).join(' · '),
             unit_price: product.selling_price,
             quantity,
             total: quantity * product.selling_price,
             max_quantity: product.quantity,
             image_url: product.image_url,
+            size: product.size,
+            color: product.color,
+            sku: product.sku,
           }]
         }),
       }

@@ -36,6 +36,8 @@ import type { CartItem, Product, ProductGroup } from '@/types'
 interface POSInterfaceProps {
   onCheckout: () => void
   refreshKey?: number
+  canCheckout?: boolean
+  checkoutDisabledReason?: string
 }
 
 const PAYMENT_METHOD_CHIPS = [
@@ -51,7 +53,16 @@ function summarizeValues(values: string[]) {
   return `${values.slice(0, 2).join(' · ')} +${values.length - 2}`
 }
 
-export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
+function normalizeVariantOption(value?: string | null) {
+  return value?.trim() ?? ''
+}
+
+export function POSInterface({
+  onCheckout,
+  refreshKey,
+  canCheckout = true,
+  checkoutDisabledReason = '',
+}: POSInterfaceProps) {
   const { user } = useUser()
   const { overview } = useSubscriptionOverview()
   const restoredDraftNoticeShown = useRef(false)
@@ -65,6 +76,8 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   const [currencyNotice, setCurrencyNotice] = useState('')
   const [showClearCartConfirm, setShowClearCartConfirm] = useState(false)
   const [variantPickerGroup, setVariantPickerGroup] = useState<ProductGroup | null>(null)
+  const [selectedVariantSize, setSelectedVariantSize] = useState('')
+  const [selectedVariantColor, setSelectedVariantColor] = useState('')
   const {
     draftOwnerId,
     cart,
@@ -148,7 +161,12 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
     }
   }, [cart.length])
 
-  const activeCart = isDraftReady ? cart : []
+  useEffect(() => {
+    setSelectedVariantSize('')
+    setSelectedVariantColor('')
+  }, [variantPickerGroup?.id])
+
+  const activeCart = useMemo(() => (isDraftReady ? cart : []), [cart, isDraftReady])
   const activeDiscount = isDraftReady ? discount : 0
   const activeCustomerName = isDraftReady ? customerName : ''
   const activeCustomerPhone = isDraftReady ? customerPhone : ''
@@ -166,6 +184,7 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
   const isSalesLimitReached = !!monthlySalesLimit && monthlySalesCount >= monthlySalesLimit
   const isSalesLimitNear = !isSalesLimitReached && !!monthlySalesLimit && monthlySalesRatio >= 80
   const currentPlanName = overview ? getPlanDefinition(overview.plan).name : 'actuel'
+  const checkoutBlockedBySession = !canCheckout && !isSalesLimitReached && checkoutDisabledReason.trim().length > 0
   const cartSummaryPills = [
     itemCount > 0 ? `${itemCount} article(s)` : '',
     activeCustomerName.trim() || activeCustomerPhone.trim() ? (activeCustomerName.trim() || activeCustomerPhone.trim()) : '',
@@ -196,6 +215,64 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
     })
   }, [groupedProducts, search])
 
+  const variantPickerVariants = useMemo(() => {
+    if (!variantPickerGroup) return []
+
+    return variantPickerGroup.variants.filter((variant) => {
+      const inCart = activeCart.find((item) => item.product_id === variant.id)?.quantity ?? 0
+      return variant.quantity - inCart > 0
+    })
+  }, [activeCart, variantPickerGroup])
+
+  const variantPickerSizes = useMemo(() => (
+    Array.from(
+      new Set(
+        variantPickerVariants
+          .map((variant) => normalizeVariantOption(variant.size))
+          .filter(Boolean)
+      )
+    )
+  ), [variantPickerVariants])
+
+  const variantPickerColors = useMemo(() => (
+    Array.from(
+      new Set(
+        variantPickerVariants
+          .map((variant) => normalizeVariantOption(variant.color))
+          .filter(Boolean)
+      )
+    )
+  ), [variantPickerVariants])
+
+  const enabledVariantSizes = useMemo(() => (
+    new Set(
+      variantPickerVariants
+        .filter((variant) => !selectedVariantColor || normalizeVariantOption(variant.color) === selectedVariantColor)
+        .map((variant) => normalizeVariantOption(variant.size))
+        .filter(Boolean)
+    )
+  ), [selectedVariantColor, variantPickerVariants])
+
+  const enabledVariantColors = useMemo(() => (
+    new Set(
+      variantPickerVariants
+        .filter((variant) => !selectedVariantSize || normalizeVariantOption(variant.size) === selectedVariantSize)
+        .map((variant) => normalizeVariantOption(variant.color))
+        .filter(Boolean)
+    )
+  ), [selectedVariantSize, variantPickerVariants])
+
+  const filteredVariantPickerVariants = useMemo(() => (
+    variantPickerVariants.filter((variant) => {
+      const variantSize = normalizeVariantOption(variant.size)
+      const variantColor = normalizeVariantOption(variant.color)
+
+      if (selectedVariantSize && variantSize !== selectedVariantSize) return false
+      if (selectedVariantColor && variantColor !== selectedVariantColor) return false
+      return true
+    })
+  ), [selectedVariantColor, selectedVariantSize, variantPickerVariants])
+
   const handleAddToCart = (product: Product) => {
     const remaining = getRemainingQuantity(product)
     if (remaining <= 0) return
@@ -203,11 +280,16 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
     const item: CartItem = {
       product_id: product.id,
       product_name: formatProductLabel(product),
+      product_base_name: product.name,
+      variant_label: getProductVariantSummary(product) || undefined,
       unit_price: product.selling_price,
       quantity: 1,
       total: product.selling_price,
       max_quantity: product.quantity,
       image_url: product.image_url,
+      size: product.size,
+      color: product.color,
+      sku: product.sku,
     }
     addToCart(item)
   }
@@ -319,7 +401,10 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-[#1A3636]">{item.product_name}</p>
+                  <p className="truncate text-sm font-medium text-[#1A3636]">{item.product_base_name || item.product_name}</p>
+                  {item.variant_label && (
+                    <p className="truncate text-[11px] font-medium text-[#6C5CE7]">{item.variant_label}</p>
+                  )}
                   <p className="text-xs text-[#6B7682]">{formatCurrency(item.unit_price)} / unite</p>
                 </div>
                 <button
@@ -366,7 +451,10 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-[#1A3636]">{item.product_name}</p>
+                <p className="truncate text-xs font-medium text-[#1A3636]">{item.product_base_name || item.product_name}</p>
+                {item.variant_label && (
+                  <p className="truncate text-[10px] font-medium text-[#6C5CE7]">{item.variant_label}</p>
+                )}
                 <p className="text-xs text-[#6B7682]">{formatCurrency(item.unit_price)}</p>
               </div>
               <div className="flex items-center gap-1">
@@ -431,6 +519,12 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           />
         )}
 
+        {checkoutBlockedBySession && (
+          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-xs text-amber-700">
+            {checkoutDisabledReason}
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
           <Tag size={14} className="flex-shrink-0 text-[#6B7682]" />
           <input
@@ -482,9 +576,15 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
           variant="primary"
           fullWidth
           size="lg"
-          disabled={activeCart.length === 0 || isSalesLimitReached}
+          disabled={activeCart.length === 0 || isSalesLimitReached || !canCheckout}
           onClick={handleCheckout}
-          title={isSalesLimitReached ? `Limite atteinte sur le plan ${currentPlanName}` : 'Encaisser'}
+          title={
+            isSalesLimitReached
+              ? `Limite atteinte sur le plan ${currentPlanName}`
+              : checkoutBlockedBySession
+                ? checkoutDisabledReason
+                : 'Encaisser'
+          }
         >
           Encaisser
         </Button>
@@ -570,6 +670,12 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
             <div className="flex items-start justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700">
               <span>{stockNotice}</span>
               <button type="button" onClick={() => setStockNotice('')} className="font-semibold">Fermer</button>
+            </div>
+          )}
+
+          {checkoutBlockedBySession && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700">
+              {checkoutDisabledReason}
             </div>
           )}
 
@@ -699,6 +805,14 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
               size="md"
               className="min-w-[132px] px-5"
               onClick={handleCheckout}
+              disabled={isSalesLimitReached || !canCheckout}
+              title={
+                isSalesLimitReached
+                  ? `Limite atteinte sur le plan ${currentPlanName}`
+                  : checkoutBlockedBySession
+                    ? checkoutDisabledReason
+                    : 'Encaisser'
+              }
             >
               Encaisser
             </Button>
@@ -754,10 +868,139 @@ export function POSInterface({ onCheckout, refreshKey }: POSInterfaceProps) {
               Selectionnez la taille ou la couleur a encaisser pour utiliser le bon stock.
             </p>
 
+            <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F8FBFC] p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="info">{filteredVariantPickerVariants.length} variante(s)</Badge>
+                <Badge variant="purple">
+                  {filteredVariantPickerVariants.reduce((sum, variant) => sum + getRemainingQuantity(variant), 0)} unite(s)
+                </Badge>
+                {(selectedVariantSize || selectedVariantColor) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedVariantSize('')
+                      setSelectedVariantColor('')
+                    }}
+                    className="text-xs font-semibold text-[#6C5CE7]"
+                  >
+                    Reinitialiser
+                  </button>
+                )}
+              </div>
+
+              {variantPickerSizes.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Taille</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedVariantSize('')}
+                      className={cn(
+                        'rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
+                        selectedVariantSize === ''
+                          ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7]'
+                          : 'border-[#2D7D7D]/[0.1] bg-white text-[#5C6B73]'
+                      )}
+                    >
+                      Toutes
+                    </button>
+                    {variantPickerSizes.map((size) => {
+                      const isEnabled = enabledVariantSizes.has(size)
+                      return (
+                        <button
+                          key={size}
+                          type="button"
+                          onClick={() => {
+                            setSelectedVariantSize(size)
+                            if (
+                              selectedVariantColor &&
+                              !variantPickerVariants.some(
+                                (variant) =>
+                                  normalizeVariantOption(variant.size) === size &&
+                                  normalizeVariantOption(variant.color) === selectedVariantColor
+                              )
+                            ) {
+                              setSelectedVariantColor('')
+                            }
+                          }}
+                          disabled={!isEnabled}
+                          className={cn(
+                            'rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
+                            selectedVariantSize === size
+                              ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7]'
+                              : 'border-[#2D7D7D]/[0.1] bg-white text-[#5C6B73]',
+                            !isEnabled && 'cursor-not-allowed opacity-35'
+                          )}
+                        >
+                          {size}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {variantPickerColors.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Couleur</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedVariantColor('')}
+                      className={cn(
+                        'rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
+                        selectedVariantColor === ''
+                          ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7]'
+                          : 'border-[#2D7D7D]/[0.1] bg-white text-[#5C6B73]'
+                      )}
+                    >
+                      Toutes
+                    </button>
+                    {variantPickerColors.map((color) => {
+                      const isEnabled = enabledVariantColors.has(color)
+                      return (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => {
+                            setSelectedVariantColor(color)
+                            if (
+                              selectedVariantSize &&
+                              !variantPickerVariants.some(
+                                (variant) =>
+                                  normalizeVariantOption(variant.color) === color &&
+                                  normalizeVariantOption(variant.size) === selectedVariantSize
+                              )
+                            ) {
+                              setSelectedVariantSize('')
+                            }
+                          }}
+                          disabled={!isEnabled}
+                          className={cn(
+                            'rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
+                            selectedVariantColor === color
+                              ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7]'
+                              : 'border-[#2D7D7D]/[0.1] bg-white text-[#5C6B73]',
+                            !isEnabled && 'cursor-not-allowed opacity-35'
+                          )}
+                        >
+                          {color}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="space-y-2">
-              {variantPickerGroup.variants
-                .filter((variant) => getRemainingQuantity(variant) > 0)
-                .map((variant) => (
+              {filteredVariantPickerVariants.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-[#2D7D7D]/[0.14] bg-white px-4 py-6 text-center text-sm text-[#6B7682]">
+                  Aucune variante ne correspond a cette combinaison taille / couleur.
+                </div>
+              )}
+
+              {filteredVariantPickerVariants.map((variant) => (
                   <button
                     key={variant.id}
                     type="button"

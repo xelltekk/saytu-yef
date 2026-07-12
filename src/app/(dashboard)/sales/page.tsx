@@ -1,20 +1,31 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Header } from '@/components/layout/Header'
+import { CashSessionPanel } from '@/components/sales/CashSessionPanel'
 import { POSInterface } from '@/components/sales/POSInterface'
 import { PaymentModal } from '@/components/sales/PaymentModal'
 import { SaleDetailModal } from '@/components/sales/SaleDetailModal'
 import { Badge } from '@/components/ui/Badge'
+import { printSalesSummary } from '@/lib/receipt'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { AlertCircle, ArrowRight, CheckCircle2, Download, ShoppingCart, Clock, RefreshCw, Search } from 'lucide-react'
-import { getSales } from '@/lib/supabase/queries'
+import { AlertCircle, ArrowRight, CheckCircle2, Download, Printer, ShoppingCart, Clock, RefreshCw, Search } from 'lucide-react'
+import { closeCashSession, getCashSessionContext, getSales, openCashSession } from '@/lib/supabase/queries'
 import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, SALE_METHOD_LABELS, SALE_METHOD_VARIANTS, SALE_STATUS_LABELS, SALE_STATUS_VARIANTS } from '@/lib/sales'
-import type { Sale } from '@/types'
+import { useAccountRole } from '@/hooks/useAccountRole'
+import { useUser } from '@/hooks/useUser'
+import type { CashSession, Sale } from '@/types'
 
 type Tab = 'pos' | 'history'
 type HistoryFilter = 'all' | 'open' | 'paid'
 type HistoryPeriod = 'all' | 'today' | '7d' | '30d'
+type PaymentMethodId = 'cash' | 'wave' | 'orange_money' | 'card'
 const SALES_PAGE_SIZE = 50
+const CASH_SUMMARY_METHODS: Array<{ id: PaymentMethodId; label: string }> = [
+  { id: 'cash', label: 'Especes' },
+  { id: 'wave', label: 'Wave' },
+  { id: 'orange_money', label: 'Orange Money' },
+  { id: 'card', label: 'Carte' },
+]
 const HISTORY_FILTER_OPTIONS: Array<{ value: HistoryFilter; label: string; shortLabel: string }> = [
   { value: 'all', label: 'Toutes les ventes', shortLabel: 'Toutes' },
   { value: 'open', label: 'Dettes ouvertes', shortLabel: 'Dettes' },
@@ -28,6 +39,8 @@ const HISTORY_PERIOD_OPTIONS: Array<{ value: HistoryPeriod; label: string; short
 ]
 
 export default function SalesPage() {
+  const { isCashier } = useAccountRole()
+  const { businessName, businessAddress, businessPhone, businessNinea, displayName } = useUser()
   const [tab, setTab] = useState<Tab>('pos')
   const [showPayment, setShowPayment] = useState(false)
   const [sales, setSales] = useState<Sale[]>([])
@@ -41,6 +54,10 @@ export default function SalesPage() {
   const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('all')
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
   const [posRefreshKey, setPosRefreshKey] = useState(0)
+  const [cashSessionLoading, setCashSessionLoading] = useState(true)
+  const [cashSessionError, setCashSessionError] = useState('')
+  const [activeCashSession, setActiveCashSession] = useState<CashSession | null>(null)
+  const [cashSessionHistory, setCashSessionHistory] = useState<CashSession[]>([])
 
   const loadSales = useCallback(async (offset = 0) => {
     const loadingNextPage = offset > 0
@@ -76,6 +93,32 @@ export default function SalesPage() {
   useEffect(() => {
     if (tab === 'history') void loadSales()
   }, [tab, loadSales])
+
+  const loadCashSessions = useCallback(async () => {
+    setCashSessionLoading(true)
+    setCashSessionError('')
+
+    try {
+      const context = await getCashSessionContext()
+      setActiveCashSession(context.activeSession)
+      setCashSessionHistory(context.history)
+    } catch (error: unknown) {
+      console.error(error)
+      setCashSessionError(
+        error instanceof Error
+          ? error.message
+          : "Impossible de charger l'etat de la caisse."
+      )
+      setActiveCashSession(null)
+      setCashSessionHistory([])
+    } finally {
+      setCashSessionLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadCashSessions()
+  }, [loadCashSessions])
 
   useEffect(() => {
     if (!salesNotice) return
@@ -137,6 +180,102 @@ export default function SalesPage() {
     })
   }, [historyFilter, historyPeriod, sales, salesQuery])
 
+  const historySummary = useMemo(() => {
+    const methodTotals: Record<PaymentMethodId, { count: number; amount: number }> = {
+      cash: { count: 0, amount: 0 },
+      wave: { count: 0, amount: 0 },
+      orange_money: { count: 0, amount: 0 },
+      card: { count: 0, amount: 0 },
+    }
+
+    let totalItems = 0
+    let totalInvoiced = 0
+    let totalCollected = 0
+    let totalDue = 0
+    let openDebtCount = 0
+    let completedCount = 0
+
+    filteredSales.forEach((sale) => {
+      const saleStatus = getSaleComputedStatus(sale)
+      const amountPaid = getSaleAmountPaid(sale)
+      const amountDue = getSaleAmountDue(sale)
+
+      totalItems += (sale.items ?? []).reduce((sum, item) => sum + item.quantity, 0)
+      totalInvoiced += sale.total
+      totalCollected += amountPaid
+      totalDue += amountDue
+
+      if (amountDue > 0 && saleStatus !== 'cancelled' && saleStatus !== 'refunded') {
+        openDebtCount += 1
+      }
+
+      if (saleStatus === 'completed') {
+        completedCount += 1
+      }
+
+      if (sale.payments?.length) {
+        sale.payments.forEach((payment) => {
+          const method = payment.payment_method as PaymentMethodId
+          if (!methodTotals[method]) return
+          methodTotals[method].count += 1
+          methodTotals[method].amount += payment.amount
+        })
+        return
+      }
+
+      if (amountPaid > 0) {
+        methodTotals[sale.payment_method].count += 1
+        methodTotals[sale.payment_method].amount += amountPaid
+      }
+    })
+
+    return {
+      salesCount: filteredSales.length,
+      totalItems,
+      totalInvoiced,
+      totalCollected,
+      totalDue,
+      openDebtCount,
+      completedCount,
+      averageTicket: filteredSales.length > 0 ? totalInvoiced / filteredSales.length : 0,
+      paymentBreakdown: CASH_SUMMARY_METHODS
+        .map((method) => ({
+          id: method.id,
+          label: method.label,
+          count: methodTotals[method.id].count,
+          amount: methodTotals[method.id].amount,
+        }))
+        .filter((method) => method.count > 0 || method.amount > 0)
+        .sort((left, right) => right.amount - left.amount || right.count - left.count),
+    }
+  }, [filteredSales])
+
+  const historyPeriodLabel = useMemo(() => (
+    HISTORY_PERIOD_OPTIONS.find((option) => option.value === historyPeriod)?.label ?? 'Toute periode chargee'
+  ), [historyPeriod])
+
+  const historySummaryTitle = historyPeriod === 'today'
+    ? (isCashier ? 'Ma cloture du jour' : 'Cloture de caisse du jour')
+    : historyPeriod === '7d'
+      ? (isCashier ? 'Ma synthese des 7 derniers jours' : 'Synthese caisse - 7 derniers jours')
+      : historyPeriod === '30d'
+        ? (isCashier ? 'Ma synthese des 30 derniers jours' : 'Synthese caisse - 30 derniers jours')
+        : (isCashier ? 'Ma synthese caisse' : 'Synthese caisse')
+
+  const historySummarySubtitle = useMemo(() => {
+    const filterLabel = historyFilter === 'all'
+      ? 'toutes les ventes'
+      : historyFilter === 'open'
+        ? 'les dettes ouvertes'
+        : 'les ventes soldees'
+
+    const searchLabel = salesQuery.trim()
+      ? `, recherche "${salesQuery.trim()}"`
+      : ''
+
+    return `${historyPeriodLabel} - ${filterLabel}${searchLabel}`
+  }, [historyFilter, historyPeriodLabel, salesQuery])
+
   const hasActiveHistoryFilters = salesQuery.trim().length > 0
     || historyFilter !== 'all'
     || historyPeriod !== 'all'
@@ -150,7 +289,22 @@ export default function SalesPage() {
   const handleSaleSaved = useCallback((message?: string) => {
     setSalesNotice(message ?? 'La vente a bien été mise à jour.')
     void loadSales(0)
-  }, [loadSales])
+    void loadCashSessions()
+  }, [loadCashSessions, loadSales])
+
+  const handleOpenCashSession = useCallback(async (openingAmount: number, note?: string) => {
+    await openCashSession(openingAmount, note)
+    await loadCashSessions()
+  }, [loadCashSessions])
+
+  const handleCloseCashSession = useCallback(async (closingAmount: number, note?: string) => {
+    if (!activeCashSession?.id) {
+      throw new Error("Aucune caisse ouverte à clôturer.")
+    }
+
+    await closeCashSession(activeCashSession.id, closingAmount, note)
+    await loadCashSessions()
+  }, [activeCashSession, loadCashSessions])
 
   const exportSalesCsv = () => {
     if (filteredSales.length === 0) return
@@ -187,10 +341,97 @@ export default function SalesPage() {
     URL.revokeObjectURL(url)
   }
 
+  const exportHistorySummaryCsv = () => {
+    if (filteredSales.length === 0) return
+
+    const protectSpreadsheetCell = (value: string | number) => {
+      const text = String(value)
+      const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text
+      return `"${safeText.replace(/"/g, '""')}"`
+    }
+
+    const rows: Array<Array<string | number>> = [
+      ['Synthese caisse', historySummaryTitle],
+      ['Periode', historySummarySubtitle],
+      ['Boutique', businessName || 'Saytu Yef'],
+      ['Responsable', isCashier ? displayName : 'Equipe vente'],
+      [],
+      ['Ventes', historySummary.salesCount],
+      ['Articles', historySummary.totalItems],
+      ['Montant facture (FCFA)', Math.round(historySummary.totalInvoiced)],
+      ['Montant encaisse (FCFA)', Math.round(historySummary.totalCollected)],
+      ['Reste a encaisser (FCFA)', Math.round(historySummary.totalDue)],
+      ['Dettes ouvertes', historySummary.openDebtCount],
+      ['Ticket moyen (FCFA)', Math.round(historySummary.averageTicket)],
+      [],
+      ['Encaissements par methode'],
+      ['Methode', 'Nombre', 'Montant encaisse (FCFA)'],
+      ...historySummary.paymentBreakdown.map((method) => [
+        method.label,
+        method.count,
+        Math.round(method.amount),
+      ]),
+    ]
+
+    const csv = rows.map((row) => row.map(protectSpreadsheetCell).join(',')).join('\n')
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `cloture-caisse-${historyPeriod}-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handlePrintHistorySummary = () => {
+    if (filteredSales.length === 0) return
+
+    printSalesSummary({
+      businessName: businessName || 'Saytu Yef',
+      businessAddress: businessAddress || undefined,
+      businessPhone: businessPhone || undefined,
+      businessNinea: businessNinea || undefined,
+      title: historySummaryTitle,
+      subtitle: historySummarySubtitle,
+      generatedAt: new Date().toLocaleString('fr-SN'),
+      operatorLabel: isCashier ? displayName : 'Equipe vente',
+      salesCount: historySummary.salesCount,
+      totalItems: historySummary.totalItems,
+      totalInvoiced: historySummary.totalInvoiced,
+      totalCollected: historySummary.totalCollected,
+      totalDue: historySummary.totalDue,
+      averageTicket: historySummary.averageTicket,
+      openDebtCount: historySummary.openDebtCount,
+      methods: historySummary.paymentBreakdown,
+    })
+  }
+
+  const checkoutDisabledReason = useMemo(() => {
+    if (cashSessionLoading) return 'Vérification de la caisse en cours...'
+    if (cashSessionError) return cashSessionError
+    if (!activeCashSession) {
+      return "Ouvrez d'abord votre caisse avec un fond initial avant d'encaisser."
+    }
+    return ''
+  }, [activeCashSession, cashSessionError, cashSessionLoading])
+
+  const canCheckout = !cashSessionLoading && !cashSessionError && !!activeCashSession
+
   return (
     <div className="min-h-screen flex flex-col">
       <Header title="Ventes" subtitle="Point de vente & historique" />
       <div className="flex-1 p-4 lg:p-6 space-y-4">
+        <CashSessionPanel
+          activeSession={activeCashSession}
+          history={cashSessionHistory}
+          loading={cashSessionLoading}
+          error={cashSessionError}
+          isCashier={isCashier}
+          onRefresh={() => void loadCashSessions()}
+          onOpenSession={handleOpenCashSession}
+          onCloseSession={handleCloseCashSession}
+        />
+
         <div className="grid w-full max-w-md grid-cols-2 gap-1 rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F4F7FB] p-1">
           <button
             onClick={() => setTab('pos')}
@@ -207,7 +448,12 @@ export default function SalesPage() {
         </div>
 
         {tab === 'pos' ? (
-          <POSInterface onCheckout={() => setShowPayment(true)} refreshKey={posRefreshKey} />
+          <POSInterface
+            onCheckout={() => setShowPayment(true)}
+            refreshKey={posRefreshKey}
+            canCheckout={canCheckout}
+            checkoutDisabledReason={checkoutDisabledReason}
+          />
         ) : (
           <div className="space-y-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -360,6 +606,95 @@ export default function SalesPage() {
               >
                 <CheckCircle2 size={18} className="shrink-0" />
                 {salesNotice}
+              </div>
+            )}
+
+            {!salesError && (
+              <div className="rounded-[28px] border border-[#2D7D7D]/[0.08] bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(244,247,251,0.98))] p-4 shadow-[0_16px_40px_rgba(26,54,54,0.06)] sm:p-5">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#2D7D7D]">
+                      {isCashier ? 'Mode caisse personnel' : 'Pilotage caisse'}
+                    </p>
+                    <h3 className="mt-1 text-lg font-semibold text-[#1A3636]">{historySummaryTitle}</h3>
+                    <p className="mt-1 text-xs text-[#6B7682]">{historySummarySubtitle}</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handlePrintHistorySummary}
+                      disabled={filteredSales.length === 0 || loadingSales}
+                      className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-4 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Printer size={13} /> Imprimer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={exportHistorySummaryCsv}
+                      disabled={filteredSales.length === 0 || loadingSales}
+                      className="flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-4 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Download size={13} /> Export caisse
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Ventes</p>
+                    <p className="mt-1 text-xl font-bold text-[#1A3636]">{historySummary.salesCount}</p>
+                    <p className="text-[11px] text-[#6B7682]">{historySummary.totalItems} article(s)</p>
+                  </div>
+                  <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Encaisse</p>
+                    <p className="mt-1 text-xl font-bold text-emerald-600">{formatCurrency(historySummary.totalCollected)}</p>
+                    <p className="text-[11px] text-[#6B7682]">sur {formatCurrency(historySummary.totalInvoiced)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-amber-700">Reste ouvert</p>
+                    <p className="mt-1 text-xl font-bold text-amber-700">{formatCurrency(historySummary.totalDue)}</p>
+                    <p className="text-[11px] text-amber-700/80">{historySummary.openDebtCount} dette(s)</p>
+                  </div>
+                  <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Ticket moyen</p>
+                    <p className="mt-1 text-xl font-bold text-[#1A3636]">{formatCurrency(historySummary.averageTicket)}</p>
+                    <p className="text-[11px] text-[#6B7682]">{historySummary.completedCount} vente(s) soldee(s)</p>
+                  </div>
+                  <div className="rounded-2xl border border-[#6C5CE7]/20 bg-[#6C5CE7]/10 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#6C5CE7]">Vue active</p>
+                    <p className="mt-1 text-base font-semibold text-[#1A3636]">{historyFilter === 'open' ? 'Dettes' : historyFilter === 'paid' ? 'Soldees' : 'Toutes'}</p>
+                    <p className="text-[11px] text-[#6B7682]">{historyPeriodLabel}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-2 lg:grid-cols-2 2xl:grid-cols-4">
+                  {CASH_SUMMARY_METHODS.map((method) => {
+                    const breakdown = historySummary.paymentBreakdown.find((item) => item.id === method.id)
+                    const amount = breakdown?.amount ?? 0
+                    const count = breakdown?.count ?? 0
+
+                    return (
+                      <div
+                        key={method.id}
+                        className={`rounded-2xl border px-4 py-3 transition-colors ${
+                          amount > 0
+                            ? 'border-[#2D7D7D]/[0.08] bg-white'
+                            : 'border-dashed border-[#2D7D7D]/[0.08] bg-white/70'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-semibold text-[#1A3636]">{method.label}</p>
+                          <span className="text-[11px] text-[#6B7682]">{count} encaissement(s)</span>
+                        </div>
+                        <p className="mt-2 text-lg font-bold text-[#1A3636]">{formatCurrency(amount)}</p>
+                        <p className="mt-1 text-[11px] text-[#6B7682]">
+                          {amount > 0 ? 'Montant deja encaisse sur la periode.' : 'Aucun reglement sur cette methode.'}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             )}
 
@@ -579,6 +914,7 @@ export default function SalesPage() {
         onClose={() => {
           setShowPayment(false)
           setPosRefreshKey((key) => key + 1)
+          void loadCashSessions()
           if (tab === 'history') void loadSales()
         }}
       />

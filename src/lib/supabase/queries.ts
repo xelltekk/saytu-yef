@@ -1,5 +1,5 @@
 import { createClient, ensureBrowserSupabaseSession } from './client'
-import type { Product, ProductGroup, ProductVariantDraft, Category, Supplier, Sale, AbroadProduct, StockMovement, TeamMember, SubscriptionPlan, User as AppUser } from '@/types'
+import type { Product, ProductGroup, ProductVariantDraft, Category, Supplier, Sale, SalePayment, CashSession, CashSessionSummary, AbroadProduct, StockMovement, TeamMember, SubscriptionPlan, User as AppUser } from '@/types'
 import { buildProductGroups } from '@/lib/productGroups'
 import { getPlanDefinition, getSubscriptionOverview, getUsageLimit } from '@/lib/subscriptions'
 import { normalizeAccountRole } from '@/lib/accountRoles'
@@ -13,6 +13,12 @@ type AuthActorContext = {
 
 const CASHIER_SALES_SCOPE_MESSAGE =
   "La base Supabase n'a pas encore la colonne seller_id pour distinguer les ventes du membre caisse. Appliquez d'abord la migration SQL role caisse / suivi vendeur."
+const CASH_SESSION_SETUP_MESSAGE =
+  "La base Supabase n'a pas encore le module sessions de caisse. Appliquez d'abord la migration SQL ouverture / fermeture de caisse."
+const CASH_SESSION_REQUIRED_MESSAGE =
+  "Ouvrez d'abord votre caisse avec un fond initial avant d'enregistrer une vente."
+const CASH_SESSION_PAYMENT_REQUIRED_MESSAGE =
+  "Ouvrez d'abord votre caisse avant d'enregistrer un versement client."
 
 async function getAuthActorContext() {
   const supabase = createClient()
@@ -650,6 +656,117 @@ export async function getSales(limit = 50, offset = 0): Promise<Sale[]> {
   return (data ?? []) as Sale[]
 }
 
+export async function getCashSessionContext(limit = 8): Promise<{ activeSession: CashSession | null; history: CashSession[] }> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+  const actor = await getAuthActorContext()
+
+  const { data: sessions, error } = await supabase
+    .from('cash_sessions')
+    .select('*')
+    .eq('member_id', actor.userId)
+    .order('opened_at', { ascending: false })
+    .limit(Math.max(1, Math.floor(limit)))
+
+  if (error) {
+    if (isMissingCashSessionSchema(error)) {
+      throw new Error(CASH_SESSION_SETUP_MESSAGE)
+    }
+    throw error
+  }
+
+  const allSessions = (sessions ?? []) as CashSession[]
+  const activeSessionRow = allSessions.find((session) => session.status === 'open') ?? null
+  const history = allSessions.filter((session) => session.status !== 'open')
+
+  if (!activeSessionRow) {
+    return { activeSession: null, history }
+  }
+
+  const [salesResult, paymentsResult] = await Promise.all([
+    supabase
+      .from('sales')
+      .select('total, amount_due, payment_status')
+      .eq('seller_id', actor.userId)
+      .eq('cash_session_id', activeSessionRow.id),
+    supabase
+      .from('sale_payments')
+      .select('amount, payment_method')
+      .eq('recorded_by_id', actor.userId)
+      .eq('cash_session_id', activeSessionRow.id),
+  ])
+
+  if (salesResult.error || paymentsResult.error) {
+    const currentError = salesResult.error ?? paymentsResult.error
+    if (isMissingCashSessionSchema(currentError)) {
+      throw new Error(CASH_SESSION_SETUP_MESSAGE)
+    }
+    throw currentError
+  }
+
+  const live_summary = buildCashSessionSummary(
+    activeSessionRow,
+    (salesResult.data ?? []) as Array<Pick<Sale, 'total' | 'amount_due' | 'payment_status'>>,
+    (paymentsResult.data ?? []) as Array<Pick<SalePayment, 'amount' | 'payment_method'>>
+  )
+
+  return {
+    activeSession: {
+      ...activeSessionRow,
+      total_invoiced: live_summary.total_invoiced,
+      total_collected: live_summary.total_collected,
+      total_due: live_summary.total_due,
+      cash_collected: live_summary.cash_collected,
+      sales_count: live_summary.sales_count,
+      payments_count: live_summary.payments_count,
+      expected_cash_amount: live_summary.expected_cash_amount,
+      live_summary,
+    },
+    history,
+  }
+}
+
+export async function openCashSession(openingAmount: number, note?: string): Promise<CashSession> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+  const { data, error } = await supabase.rpc('open_cash_session', {
+    p_opening_amount: openingAmount,
+    p_note: note?.trim() || null,
+  })
+
+  if (error) {
+    if (isMissingRpc(error, 'open_cash_session')) {
+      throw new Error(CASH_SESSION_SETUP_MESSAGE)
+    }
+    throwSupabaseError(error, "Impossible d'ouvrir la caisse")
+  }
+
+  return data as CashSession
+}
+
+export async function closeCashSession(
+  sessionId: string,
+  closingAmount: number,
+  note?: string
+): Promise<CashSession> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+  const { data, error } = await supabase.rpc('close_cash_session', {
+    p_session_id: sessionId,
+    p_closing_amount: closingAmount,
+    p_note: note?.trim() || null,
+  })
+
+  if (error) {
+    if (isMissingRpc(error, 'close_cash_session')) {
+      throw new Error(CASH_SESSION_SETUP_MESSAGE)
+    }
+    throwSupabaseError(error, "Impossible de cloturer la caisse")
+  }
+
+  return data as CashSession
+}
+
 type CreateSaleInput = {
   customer_name?: string
   customer_phone?: string
@@ -718,6 +835,71 @@ function isMissingSchemaObject(error: unknown, objectName: string): boolean {
       (text.includes('could not find') || text.includes('does not exist') || text.includes('relationship'))
     )
   )
+}
+
+function isMissingCashSessionSchema(error: unknown): boolean {
+  return (
+    isMissingSchemaObject(error, 'cash_sessions')
+    || isMissingSchemaObject(error, 'cash_session_id')
+    || isMissingSchemaObject(error, 'member_id')
+    || isMissingSchemaObject(error, 'expected_cash_amount')
+  )
+}
+
+function buildCashSessionSummary(
+  session: Pick<CashSession, 'opening_amount'>,
+  sales: Array<Pick<Sale, 'total' | 'amount_due' | 'payment_status'>>,
+  payments: Array<Pick<SalePayment, 'amount' | 'payment_method'>>
+): CashSessionSummary {
+  const activeSales = sales.filter((sale) => sale.payment_status !== 'cancelled' && sale.payment_status !== 'refunded')
+  const sales_count = activeSales.length
+  const total_invoiced = activeSales.reduce((sum, sale) => sum + Number(sale.total ?? 0), 0)
+  const total_due = activeSales.reduce((sum, sale) => sum + Number(sale.amount_due ?? 0), 0)
+  const payments_count = payments.length
+  const total_collected = payments.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0)
+  const cash_collected = payments.reduce((sum, payment) => (
+    payment.payment_method === 'cash' ? sum + Number(payment.amount ?? 0) : sum
+  ), 0)
+  const expected_cash_amount = Number(session.opening_amount ?? 0) + cash_collected
+
+  return {
+    sales_count,
+    payments_count,
+    total_invoiced,
+    total_collected,
+    total_due,
+    cash_collected,
+    expected_cash_amount,
+    average_ticket: sales_count > 0 ? total_invoiced / sales_count : 0,
+  }
+}
+
+async function requireActiveCashSession(action: 'sale' | 'payment') {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+  const actor = await getAuthActorContext()
+
+  const { data, error } = await supabase
+    .from('cash_sessions')
+    .select('id')
+    .eq('member_id', actor.userId)
+    .eq('status', 'open')
+    .order('opened_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    if (isMissingCashSessionSchema(error)) {
+      throw new Error(CASH_SESSION_SETUP_MESSAGE)
+    }
+    throw error
+  }
+
+  if (!data?.id) {
+    throw new Error(action === 'payment' ? CASH_SESSION_PAYMENT_REQUIRED_MESSAGE : CASH_SESSION_REQUIRED_MESSAGE)
+  }
+
+  return String(data.id)
 }
 
 function normalizeAmountPaid(total: number, amountPaid?: number): number {
@@ -798,6 +980,7 @@ async function createSaleLegacy(sale: CreateSaleInput, userId: string): Promise<
 
 export async function createSale(sale: CreateSaleInput): Promise<Sale> {
   await assertSubscriptionCapacity('monthlySales')
+  await requireActiveCashSession('sale')
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Non connecté')
@@ -871,6 +1054,7 @@ export async function updateSale(id: string, updates: {
 }
 
 export async function recordSalePayment(id: string, payment: RecordSalePaymentInput): Promise<Sale> {
+  await requireActiveCashSession('payment')
   const supabase = createClient()
   const { data, error } = await supabase.rpc('record_sale_payment', {
     p_sale_id: id,
@@ -1093,6 +1277,28 @@ export type ReportsRangeInput = {
   preset: ReportsRangePreset
   startDate?: string | null
   endDate?: string | null
+  sellerId?: string | null
+}
+
+export type ReportsSellerOption = {
+  id: string
+  label: string
+  role: TeamMember['role']
+}
+
+export type ReportsSellerBreakdown = {
+  sellerId: string
+  sellerName: string
+  sellerEmail: string
+  sellerRole: TeamMember['role']
+  salesCount: number
+  totalSold: number
+  totalInvoiced: number
+  totalCollected: number
+  totalDue: number
+  averageTicket: number
+  collectionRate: number
+  lastSaleAt: string | null
 }
 
 type ReportsBucketGranularity = 'day' | 'month'
@@ -1235,6 +1441,8 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
   await ensureBrowserSupabaseSession(supabase)
   const actor = await getAuthActorContext()
   const { start, endExclusive, granularity } = resolveReportsRange(rangeInput)
+  const requestedSellerId = typeof rangeInput === 'number' ? null : (rangeInput.sellerId ?? null)
+  const appliedSellerId = actor.role === 'cashier' ? actor.userId : requestedSellerId
   const paymentStats: Record<'cash' | 'wave' | 'orange_money' | 'card', {
     method: 'cash' | 'wave' | 'orange_money' | 'card'
     count: number
@@ -1256,35 +1464,66 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
     collected: number
     due: number
   }> = {}
+  const sellerStats: Record<string, {
+    sellerId: string
+    sellerName: string
+    sellerEmail: string
+    sellerRole: TeamMember['role']
+    salesCount: number
+    totalSold: number
+    totalInvoiced: number
+    totalCollected: number
+    totalDue: number
+    lastSaleAt: string | null
+  }> = {}
 
   let salesQuery = supabase
       .from('sales')
-      .select('customer_name, customer_phone, total, tax, amount_paid, amount_due, payment_status, payment_method, created_at, items:sale_items(product_id, product_name, quantity, unit_price, total)')
+      .select('seller_id, customer_name, customer_phone, total, tax, amount_paid, amount_due, payment_status, payment_method, created_at, items:sale_items(product_id, product_name, quantity, unit_price, total)')
       .gte('created_at', start.toISOString())
       .lt('created_at', endExclusive.toISOString())
       .in('payment_status', ['completed', 'partial', 'pending'])
       .order('created_at')
-  if (actor.role === 'cashier') {
-    salesQuery = salesQuery.eq('seller_id', actor.userId)
+  if (appliedSellerId) {
+    salesQuery = salesQuery.eq('seller_id', appliedSellerId)
   }
 
-  const [salesResult, productsResult] = await Promise.all([
+  const [salesResult, productsResult, profilesResult] = await Promise.all([
     salesQuery,
     supabase
       .from('products')
       .select('id, name, buying_price, selling_price, quantity'),
+    supabase
+      .from('profiles')
+      .select('id, email, full_name, role')
+      .order('full_name'),
   ])
 
-  if (salesResult.error && actor.role === 'cashier' && isMissingSchemaObject(salesResult.error, 'seller_id')) {
+  if (salesResult.error && isMissingSchemaObject(salesResult.error, 'seller_id')) {
     throw new Error(CASHIER_SALES_SCOPE_MESSAGE)
   }
   if (salesResult.error) throw salesResult.error
   if (productsResult.error) throw productsResult.error
+  if (profilesResult.error) throw profilesResult.error
 
   const sales = salesResult.data ?? []
   const products = productsResult.data ?? []
+  const sellerProfiles = (profilesResult.data ?? []).map((profile) => ({
+    id: String(profile.id),
+    email: String(profile.email ?? ''),
+    full_name: String(profile.full_name ?? '').trim(),
+    role: normalizeAccountRole(profile.role),
+  }))
 
   const productMap = Object.fromEntries(products.map((product) => [product.id, product]))
+  const sellerProfileMap = new Map(sellerProfiles.map((profile) => [profile.id, profile]))
+  const sellerOptions: ReportsSellerOption[] = sellerProfiles
+    .map((profile) => ({
+      id: profile.id,
+      label: profile.full_name || profile.email || 'Utilisateur',
+      role: profile.role,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, 'fr'))
 
   // Données mensuelles
   const periodMap = createReportsBucketMap(start, endExclusive, granularity)
@@ -1301,14 +1540,43 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
     const periodKey = getReportsBucketKey(saleDate, granularity)
     const period = periodMap[periodKey]
     if (!period) return
+    const saleItems = (sale.items ?? []) as { product_id: string | null; product_name: string; quantity: number; unit_price: number; total: number }[]
 
     const grossSaleRevenue = Number(sale.total)
     const collectedAmount = Number(sale.amount_paid ?? Math.max(0, grossSaleRevenue - Number(sale.amount_due ?? 0)))
     const dueAmount = Number(sale.amount_due ?? Math.max(0, grossSaleRevenue - collectedAmount))
+    const sellerId = String(sale.seller_id ?? 'unassigned')
+    const sellerProfile = sale.seller_id ? sellerProfileMap.get(String(sale.seller_id)) : null
+    const sellerName = sellerProfile?.full_name || sellerProfile?.email || 'Vente non attribuee'
+    const soldUnits = saleItems.reduce((sum, item) => sum + Number(item.quantity), 0)
 
     totalInvoiced += grossSaleRevenue
     totalCollected += Math.max(0, collectedAmount)
     totalDue += Math.max(0, dueAmount)
+
+    if (!sellerStats[sellerId]) {
+      sellerStats[sellerId] = {
+        sellerId,
+        sellerName,
+        sellerEmail: sellerProfile?.email ?? '',
+        sellerRole: sellerProfile?.role ?? 'employee',
+        salesCount: 0,
+        totalSold: 0,
+        totalInvoiced: 0,
+        totalCollected: 0,
+        totalDue: 0,
+        lastSaleAt: null,
+      }
+    }
+
+    sellerStats[sellerId].salesCount += 1
+    sellerStats[sellerId].totalSold += soldUnits
+    sellerStats[sellerId].totalInvoiced += grossSaleRevenue
+    sellerStats[sellerId].totalCollected += Math.max(0, collectedAmount)
+    sellerStats[sellerId].totalDue += Math.max(0, dueAmount)
+    if (!sellerStats[sellerId].lastSaleAt || sale.created_at > sellerStats[sellerId].lastSaleAt!) {
+      sellerStats[sellerId].lastSaleAt = sale.created_at
+    }
 
     const paymentMethod = sale.payment_method as keyof typeof paymentStats
     if (paymentStats[paymentMethod]) {
@@ -1347,7 +1615,6 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
     const netSaleRevenue = Math.max(0, Number(sale.total) - Number(sale.tax ?? 0))
     period.revenue += netSaleRevenue
 
-    const saleItems = (sale.items ?? []) as { product_id: string | null; product_name: string; quantity: number; unit_price: number; total: number }[]
     const grossItemsTotal = saleItems.reduce((sum, item) => sum + Number(item.total), 0)
     const revenueFactor = grossItemsTotal > 0 ? netSaleRevenue / grossItemsTotal : 1
 
@@ -1391,6 +1658,17 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
   const bestClientByRevenue = topClients[0] ?? null
   const highestDueClient = [...topClients]
     .sort((a, b) => b.due - a.due || b.invoiced - a.invoiced)[0] ?? null
+  const sellerBreakdown: ReportsSellerBreakdown[] = Object.values(sellerStats)
+    .map((seller) => ({
+      ...seller,
+      averageTicket: seller.salesCount > 0 ? seller.totalInvoiced / seller.salesCount : 0,
+      collectionRate: seller.totalInvoiced > 0 ? (seller.totalCollected / seller.totalInvoiced) * 100 : 0,
+    }))
+    .sort((left, right) => (
+      right.totalInvoiced - left.totalInvoiced
+      || right.totalCollected - left.totalCollected
+      || right.salesCount - left.salesCount
+    ))
 
   return {
     monthlyData,
@@ -1414,5 +1692,8 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
     bestProductByProfit,
     bestClientByRevenue,
     highestDueClient,
+    sellerBreakdown,
+    sellerOptions,
+    appliedSellerId,
   }
 }

@@ -145,6 +145,7 @@ export interface Sale {
   id: string
   user_id: string
   seller_id?: string | null
+  cash_session_id?: string | null
   customer_name?: string
   customer_phone?: string
   items: SaleItem[]
@@ -174,6 +175,11 @@ export interface SaleItem {
 export interface CartItem extends SaleItem {
   image_url?: string
   max_quantity: number
+  product_base_name?: string
+  variant_label?: string
+  size?: string
+  color?: string
+  sku?: string
 }
 
 export interface SalePayment {
@@ -181,10 +187,46 @@ export interface SalePayment {
   sale_id: string
   user_id: string
   recorded_by_id?: string | null
+  cash_session_id?: string | null
   amount: number
   payment_method: 'cash' | 'wave' | 'orange_money' | 'card'
   note?: string
   created_at: string
+}
+
+export interface CashSessionSummary {
+  sales_count: number
+  payments_count: number
+  total_invoiced: number
+  total_collected: number
+  total_due: number
+  cash_collected: number
+  expected_cash_amount: number
+  average_ticket: number
+}
+
+export interface CashSession {
+  id: string
+  user_id: string
+  member_id: string
+  opening_amount: number
+  opening_note?: string | null
+  status: 'open' | 'closed'
+  opened_at: string
+  closed_at?: string | null
+  closing_amount?: number | null
+  closing_note?: string | null
+  expected_cash_amount?: number | null
+  cash_gap?: number | null
+  sales_count?: number | null
+  payments_count?: number | null
+  total_invoiced?: number | null
+  total_collected?: number | null
+  total_due?: number | null
+  cash_collected?: number | null
+  created_at: string
+  updated_at: string
+  live_summary?: CashSessionSummary | null
 }
 
 export interface DashboardMetrics {
