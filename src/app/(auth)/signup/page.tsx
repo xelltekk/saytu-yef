@@ -131,7 +131,7 @@ export default function SignupPage() {
           <Link href="/" className="inline-flex mb-8">
             <BrandLogo
               variant="full"
-              className="h-28 w-28 drop-shadow-[0_12px_30px_rgba(108,92,231,0.12)]"
+              className="h-[112px] w-[148px] sm:h-[124px] sm:w-[170px] drop-shadow-[0_12px_30px_rgba(108,92,231,0.12)]"
               priority
             />
           </Link>
@@ -158,7 +158,7 @@ export default function SignupPage() {
             <Link href="/" className="inline-flex">
               <BrandLogo
                 variant="full"
-                className="h-24 w-24 drop-shadow-[0_10px_24px_rgba(108,92,231,0.12)]"
+                className="h-[102px] w-[136px] sm:h-[112px] sm:w-[148px] drop-shadow-[0_10px_24px_rgba(108,92,231,0.12)]"
                 priority
               />
             </Link>

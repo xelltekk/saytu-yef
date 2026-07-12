@@ -125,7 +125,7 @@ export default function LoginPage() {
           <Link href="/" className="inline-flex flex-col items-center gap-3 mb-4">
             <BrandLogo
               variant="full"
-              className="h-36 w-36 sm:h-40 sm:w-40 drop-shadow-[0_12px_30px_rgba(108,92,231,0.12)]"
+              className="h-[130px] w-[168px] sm:h-[148px] sm:w-[196px] drop-shadow-[0_12px_30px_rgba(108,92,231,0.12)]"
               priority
             />
           </Link>

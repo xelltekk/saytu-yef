@@ -71,7 +71,7 @@ export default function ResetPasswordPage() {
           <Link href="/" className="inline-flex mb-6">
             <BrandLogo
               variant="full"
-              className="h-28 w-28 drop-shadow-[0_12px_30px_rgba(108,92,231,0.12)]"
+              className="h-[112px] w-[148px] sm:h-[124px] sm:w-[170px] drop-shadow-[0_12px_30px_rgba(108,92,231,0.12)]"
               priority
             />
           </Link>
