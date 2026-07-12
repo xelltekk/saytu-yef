@@ -9,7 +9,8 @@ import { Badge } from '@/components/ui/Badge'
 import { printSalesSummary } from '@/lib/receipt'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { AlertCircle, ArrowRight, CheckCircle2, Download, Printer, ShoppingCart, Clock, RefreshCw, Search } from 'lucide-react'
-import { closeCashSession, getCashSessionContext, getSales, openCashSession } from '@/lib/supabase/queries'
+import { closeCashSession, getCashSessionContext, getSales, getSalesSellerOptions, openCashSession } from '@/lib/supabase/queries'
+import type { SalesSellerOption } from '@/lib/supabase/queries'
 import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, SALE_METHOD_LABELS, SALE_METHOD_VARIANTS, SALE_STATUS_LABELS, SALE_STATUS_VARIANTS } from '@/lib/sales'
 import { useAccountRole } from '@/hooks/useAccountRole'
 import { useUser } from '@/hooks/useUser'
@@ -38,8 +39,12 @@ const HISTORY_PERIOD_OPTIONS: Array<{ value: HistoryPeriod; label: string; short
   { value: '30d', label: '30 derniers jours', shortLabel: '30 jours' },
 ]
 
+function getSaleSellerLabel(sale: Sale) {
+  return sale.seller_name || sale.seller_email || 'Vente non attribuee'
+}
+
 export default function SalesPage() {
-  const { isCashier } = useAccountRole()
+  const { isAdmin, isCashier } = useAccountRole()
   const { businessName, businessAddress, businessPhone, businessNinea, displayName } = useUser()
   const [tab, setTab] = useState<Tab>('pos')
   const [showPayment, setShowPayment] = useState(false)
@@ -52,6 +57,9 @@ export default function SalesPage() {
   const [salesQuery, setSalesQuery] = useState('')
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all')
   const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('all')
+  const [sellerFilter, setSellerFilter] = useState('all')
+  const [sellerOptions, setSellerOptions] = useState<SalesSellerOption[]>([])
+  const [loadingSellerOptions, setLoadingSellerOptions] = useState(false)
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
   const [posRefreshKey, setPosRefreshKey] = useState(0)
   const [cashSessionLoading, setCashSessionLoading] = useState(true)
@@ -61,12 +69,13 @@ export default function SalesPage() {
 
   const loadSales = useCallback(async (offset = 0) => {
     const loadingNextPage = offset > 0
+    const scopedSellerId = isAdmin && sellerFilter !== 'all' ? sellerFilter : undefined
     if (loadingNextPage) setLoadingMore(true)
     else setLoadingSales(true)
     setSalesError('')
 
     try {
-      const nextSales = await getSales(SALES_PAGE_SIZE, offset)
+      const nextSales = await getSales(SALES_PAGE_SIZE, offset, scopedSellerId)
       if (loadingNextPage) {
         setSales((current) => {
           const merged = new Map(current.map((sale) => [sale.id, sale]))
@@ -88,11 +97,32 @@ export default function SalesPage() {
       if (loadingNextPage) setLoadingMore(false)
       else setLoadingSales(false)
     }
-  }, [])
+  }, [isAdmin, sellerFilter])
 
   useEffect(() => {
     if (tab === 'history') void loadSales()
   }, [tab, loadSales])
+
+  const loadSellerOptions = useCallback(async () => {
+    if (!isAdmin) {
+      setSellerOptions([])
+      return
+    }
+
+    setLoadingSellerOptions(true)
+    try {
+      setSellerOptions(await getSalesSellerOptions())
+    } catch (error) {
+      console.error(error)
+    } finally {
+      setLoadingSellerOptions(false)
+    }
+  }, [isAdmin])
+
+  useEffect(() => {
+    if (tab !== 'history' || !isAdmin || sellerOptions.length > 0) return
+    void loadSellerOptions()
+  }, [isAdmin, loadSellerOptions, sellerOptions.length, tab])
 
   const loadCashSessions = useCallback(async () => {
     setCashSessionLoading(true)
@@ -147,6 +177,7 @@ export default function SalesPage() {
     const query = salesQuery.trim().toLocaleLowerCase('fr')
 
     return sales.filter((sale) => {
+      const matchesSeller = !isAdmin || sellerFilter === 'all' || sale.seller_id === sellerFilter
       const computedStatus = getSaleComputedStatus(sale)
       const isOpen = getSaleAmountDue(sale) > 0
         && computedStatus !== 'cancelled'
@@ -162,6 +193,7 @@ export default function SalesPage() {
         || (historyPeriod === '7d' && saleDate.getTime() >= now.getTime() - 7 * 24 * 60 * 60 * 1000)
         || (historyPeriod === '30d' && saleDate.getTime() >= now.getTime() - 30 * 24 * 60 * 60 * 1000)
 
+      if (!matchesSeller) return false
       if (!matchesPeriod) return false
       if (historyFilter === 'open' && !isOpen) return false
       if (historyFilter === 'paid' && (isOpen || computedStatus !== 'completed')) return false
@@ -170,6 +202,8 @@ export default function SalesPage() {
       const searchableText = [
         sale.customer_name,
         sale.customer_phone,
+        sale.seller_name,
+        sale.seller_email,
         ...(sale.items ?? []).map((item) => item.product_name),
       ]
         .filter(Boolean)
@@ -178,7 +212,7 @@ export default function SalesPage() {
 
       return searchableText.includes(query)
     })
-  }, [historyFilter, historyPeriod, sales, salesQuery])
+  }, [historyFilter, historyPeriod, isAdmin, sales, salesQuery, sellerFilter])
 
   const historySummary = useMemo(() => {
     const methodTotals: Record<PaymentMethodId, { count: number; amount: number }> = {
@@ -254,6 +288,14 @@ export default function SalesPage() {
     HISTORY_PERIOD_OPTIONS.find((option) => option.value === historyPeriod)?.label ?? 'Toute periode chargee'
   ), [historyPeriod])
 
+  const selectedSellerLabel = useMemo(() => {
+    if (!isAdmin || sellerFilter === 'all') {
+      return isCashier ? displayName : 'Toute l equipe vente'
+    }
+
+    return sellerOptions.find((option) => option.id === sellerFilter)?.label ?? 'Vendeur'
+  }, [displayName, isAdmin, isCashier, sellerFilter, sellerOptions])
+
   const historySummaryTitle = historyPeriod === 'today'
     ? (isCashier ? 'Ma cloture du jour' : 'Cloture de caisse du jour')
     : historyPeriod === '7d'
@@ -268,22 +310,25 @@ export default function SalesPage() {
       : historyFilter === 'open'
         ? 'les dettes ouvertes'
         : 'les ventes soldees'
+    const sellerLabel = !isAdmin || sellerFilter === 'all' ? '' : `, vendeur ${selectedSellerLabel}`
 
     const searchLabel = salesQuery.trim()
       ? `, recherche "${salesQuery.trim()}"`
       : ''
 
-    return `${historyPeriodLabel} - ${filterLabel}${searchLabel}`
-  }, [historyFilter, historyPeriodLabel, salesQuery])
+    return `${historyPeriodLabel} - ${filterLabel}${sellerLabel}${searchLabel}`
+  }, [historyFilter, historyPeriodLabel, isAdmin, salesQuery, selectedSellerLabel, sellerFilter])
 
   const hasActiveHistoryFilters = salesQuery.trim().length > 0
     || historyFilter !== 'all'
     || historyPeriod !== 'all'
+    || (isAdmin && sellerFilter !== 'all')
 
   const resetHistoryFilters = () => {
     setSalesQuery('')
     setHistoryFilter('all')
     setHistoryPeriod('all')
+    setSellerFilter('all')
   }
 
   const handleSaleSaved = useCallback((message?: string) => {
@@ -354,7 +399,7 @@ export default function SalesPage() {
       ['Synthese caisse', historySummaryTitle],
       ['Periode', historySummarySubtitle],
       ['Boutique', businessName || 'Saytu Yef'],
-      ['Responsable', isCashier ? displayName : 'Equipe vente'],
+      ['Responsable', sellerFilter === 'all' ? (isCashier ? displayName : 'Equipe vente') : selectedSellerLabel],
       [],
       ['Ventes', historySummary.salesCount],
       ['Articles', historySummary.totalItems],
@@ -394,7 +439,7 @@ export default function SalesPage() {
       title: historySummaryTitle,
       subtitle: historySummarySubtitle,
       generatedAt: new Date().toLocaleString('fr-SN'),
-      operatorLabel: isCashier ? displayName : 'Equipe vente',
+      operatorLabel: sellerFilter === 'all' ? (isCashier ? displayName : 'Equipe vente') : selectedSellerLabel,
       salesCount: historySummary.salesCount,
       totalItems: historySummary.totalItems,
       totalInvoiced: historySummary.totalInvoiced,
@@ -491,7 +536,7 @@ export default function SalesPage() {
               </div>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_180px]">
+            <div className={`grid gap-2 ${isAdmin ? 'sm:grid-cols-[minmax(0,1fr)_180px_180px_200px]' : 'sm:grid-cols-[minmax(0,1fr)_180px_180px]'}`}>
               <label className="relative block">
                 <span className="sr-only">Rechercher une vente</span>
                 <Search
@@ -527,6 +572,22 @@ export default function SalesPage() {
                 <option value="7d">7 derniers jours</option>
                 <option value="30d">30 derniers jours</option>
               </select>
+              {isAdmin && (
+                <select
+                  value={sellerFilter}
+                  onChange={(event) => setSellerFilter(event.target.value)}
+                  aria-label="Filtrer les ventes par vendeur"
+                  disabled={loadingSellerOptions}
+                  className="hidden h-11 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-sm text-[#1A3636] disabled:cursor-not-allowed disabled:opacity-60 sm:block"
+                >
+                  <option value="all">Tous les vendeurs</option>
+                  {sellerOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div className="space-y-2 sm:hidden">
@@ -586,6 +647,22 @@ export default function SalesPage() {
                   )
                 })}
               </div>
+              {isAdmin && (
+                <select
+                  value={sellerFilter}
+                  onChange={(event) => setSellerFilter(event.target.value)}
+                  aria-label="Filtrer les ventes par vendeur"
+                  disabled={loadingSellerOptions}
+                  className="h-11 w-full rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-sm text-[#1A3636] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <option value="all">Tous les vendeurs</option>
+                  {sellerOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {hasActiveHistoryFilters && (
@@ -764,6 +841,11 @@ export default function SalesPage() {
                               {sale.customer_phone && (
                                 <p className="mt-1 truncate text-xs text-[#6B7682]">{sale.customer_phone}</p>
                               )}
+                              {isAdmin && (
+                                <p className="mt-1 truncate text-xs font-medium text-[#6C5CE7]">
+                                  Vendeur: {getSaleSellerLabel(sale)}
+                                </p>
+                              )}
                             </div>
                             <div className="text-right">
                               <p className="text-sm font-semibold text-[#1A3636]">{formatCurrency(sale.total)}</p>
@@ -827,6 +909,9 @@ export default function SalesPage() {
                         <tr className="border-b border-[#2D7D7D]/[0.08] bg-[#F4F7FB]">
                           <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682]">Client</th>
                           <th className="hidden px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682] sm:table-cell">Date</th>
+                          {isAdmin && (
+                            <th className="hidden px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682] lg:table-cell">Vendeur</th>
+                          )}
                           <th className="hidden px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682] md:table-cell">Paiement</th>
                           <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-[#6B7682]">Montant</th>
                           <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#6B7682]">Statut</th>
@@ -854,6 +939,14 @@ export default function SalesPage() {
                                 )}
                               </td>
                               <td className="hidden px-4 py-3 text-xs text-[#6B7682] sm:table-cell">{formatDate(sale.created_at)}</td>
+                              {isAdmin && (
+                                <td className="hidden px-4 py-3 lg:table-cell">
+                                  <p className="text-sm font-medium text-[#1A3636]">{getSaleSellerLabel(sale)}</p>
+                                  {sale.seller_email && sale.seller_email !== sale.seller_name && (
+                                    <p className="text-xs text-[#6B7682]">{sale.seller_email}</p>
+                                  )}
+                                </td>
+                              )}
                               <td className="hidden px-4 py-3 md:table-cell">
                                 <Badge variant={SALE_METHOD_VARIANTS[sale.payment_method]}>
                                   {SALE_METHOD_LABELS[sale.payment_method]}

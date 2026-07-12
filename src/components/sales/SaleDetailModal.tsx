@@ -373,6 +373,11 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                     <p className="text-sm font-semibold text-[#1A3636]">{sale.customer_name || 'Client'}</p>
                     {sale.customer_phone && <p className="text-xs text-[#6B7682]">{sale.customer_phone}</p>}
                     <p className="mt-0.5 text-xs text-[#6B7682]">{formatDate(sale.created_at)}</p>
+                    {(sale.seller_name || sale.seller_email) && (
+                      <p className="mt-1 text-xs font-medium text-[#6C5CE7]">
+                        Vendeur: {sale.seller_name || sale.seller_email}
+                      </p>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="text-base font-bold text-[#1A3636]">{formatCurrency(sale.total)}</p>

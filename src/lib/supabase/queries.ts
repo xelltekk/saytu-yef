@@ -3,6 +3,7 @@ import type { Product, ProductGroup, ProductVariantDraft, Category, Supplier, Sa
 import { buildProductGroups } from '@/lib/productGroups'
 import { getPlanDefinition, getSubscriptionOverview, getUsageLimit } from '@/lib/subscriptions'
 import { normalizeAccountRole } from '@/lib/accountRoles'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 type SubscriptionLimitKey = 'products' | 'teamMembers' | 'monthlySales'
 
@@ -39,6 +40,59 @@ async function getAuthActorContext() {
     userId: user.id,
     role: normalizeAccountRole(profile?.role),
   } satisfies AuthActorContext
+}
+
+async function attachSellerProfilesToSales(supabase: SupabaseClient, sales: Sale[]): Promise<Sale[]> {
+  if (sales.length === 0) return []
+
+  const sellerIds = Array.from(
+    new Set(
+      sales
+        .map((sale) => String(sale.seller_id ?? '').trim())
+        .filter(Boolean)
+    )
+  )
+
+  if (sellerIds.length === 0) {
+    return sales.map((sale) => ({
+      ...sale,
+      seller_name: sale.seller_name ?? 'Vente non attribuee',
+      seller_email: sale.seller_email ?? '',
+      seller_role: sale.seller_role ?? null,
+    }))
+  }
+
+  const { data: profiles, error } = await supabase
+    .from('profiles')
+    .select('id, email, full_name, role')
+    .in('id', sellerIds)
+
+  if (error) {
+    console.warn('sales_seller_profiles_failed', error)
+    return sales
+  }
+
+  const profileMap = new Map(
+    (profiles ?? []).map((profile) => [
+      String(profile.id),
+      {
+        email: String(profile.email ?? ''),
+        full_name: String(profile.full_name ?? '').trim(),
+        role: normalizeAccountRole(profile.role),
+      },
+    ])
+  )
+
+  return sales.map((sale) => {
+    const sellerProfile = sale.seller_id ? profileMap.get(String(sale.seller_id)) : null
+
+    return {
+      ...sale,
+      seller_name: sale.seller_name ?? sellerProfile?.full_name ?? sellerProfile?.email ?? 'Vente non attribuee',
+      seller_email: sale.seller_email ?? sellerProfile?.email ?? '',
+      seller_role: sale.seller_role ?? sellerProfile?.role ?? null,
+    }
+  })
 }
 
 function normalizeSupabaseError(error: unknown, fallback = 'Erreur base de donnees') {
@@ -613,7 +667,13 @@ export async function deleteSupplier(id: string): Promise<void> {
   if (error) throw error
 }
 
-export async function getSales(limit = 50, offset = 0): Promise<Sale[]> {
+export type SalesSellerOption = {
+  id: string
+  label: string
+  role: TeamMember['role']
+}
+
+export async function getSales(limit = 50, offset = 0, sellerId?: string | null): Promise<Sale[]> {
   const supabase = createClient()
   await ensureBrowserSupabaseSession(supabase)
   const actor = await getAuthActorContext()
@@ -627,6 +687,8 @@ export async function getSales(limit = 50, offset = 0): Promise<Sale[]> {
     .range(start, end)
   if (actor.role === 'cashier') {
     query = query.eq('seller_id', actor.userId)
+  } else if (sellerId) {
+    query = query.eq('seller_id', sellerId)
   }
   const { data, error } = await query
 
@@ -638,6 +700,8 @@ export async function getSales(limit = 50, offset = 0): Promise<Sale[]> {
       .range(start, end)
     if (actor.role === 'cashier') {
       fallbackQuery = fallbackQuery.eq('seller_id', actor.userId)
+    } else if (sellerId) {
+      fallbackQuery = fallbackQuery.eq('seller_id', sellerId)
     }
     const fallback = await fallbackQuery
 
@@ -645,7 +709,7 @@ export async function getSales(limit = 50, offset = 0): Promise<Sale[]> {
       throw new Error(CASHIER_SALES_SCOPE_MESSAGE)
     }
     if (fallback.error) throw fallback.error
-    return (fallback.data ?? []) as Sale[]
+    return attachSellerProfilesToSales(supabase, (fallback.data ?? []) as Sale[])
   }
 
   if (error && actor.role === 'cashier' && isMissingSchemaObject(error, 'seller_id')) {
@@ -653,7 +717,30 @@ export async function getSales(limit = 50, offset = 0): Promise<Sale[]> {
   }
 
   if (error) throw error
-  return (data ?? []) as Sale[]
+  return attachSellerProfilesToSales(supabase, (data ?? []) as Sale[])
+}
+
+export async function getSalesSellerOptions(): Promise<SalesSellerOption[]> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+  const actor = await getAuthActorContext()
+
+  if (actor.role === 'cashier') return []
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, email, full_name, role')
+    .order('full_name')
+
+  if (error) throw error
+
+  return (data ?? [])
+    .map((profile) => ({
+      id: String(profile.id),
+      label: String(profile.full_name ?? '').trim() || String(profile.email ?? '').trim() || 'Utilisateur',
+      role: normalizeAccountRole(profile.role),
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, 'fr'))
 }
 
 export async function getCashSessionContext(limit = 8): Promise<{ activeSession: CashSession | null; history: CashSession[] }> {

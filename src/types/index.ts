@@ -145,6 +145,9 @@ export interface Sale {
   id: string
   user_id: string
   seller_id?: string | null
+  seller_name?: string
+  seller_email?: string
+  seller_role?: TeamMember['role'] | null
   cash_session_id?: string | null
   customer_name?: string
   customer_phone?: string
