@@ -12,8 +12,8 @@ interface BrandLogoProps {
 }
 
 const SOURCES: Record<BrandLogoVariant, string> = {
-  full: '/brand/logo-saytu-yef.png',
-  mark: '/brand/logo-saytu-yef-mark.png',
+  full: '/brand/logo-saytu-yef-v2.png',
+  mark: '/brand/logo-saytu-yef-mark-v2.png',
 }
 
 const SIZES: Record<BrandLogoVariant, string> = {
