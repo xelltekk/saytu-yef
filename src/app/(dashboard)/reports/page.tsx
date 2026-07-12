@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { Header } from '@/components/layout/Header'
+import { CashSessionPanel } from '@/components/sales/CashSessionPanel'
 import { Card, MetricCard } from '@/components/ui/Card'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
 import { TrendingUp, Package, DollarSign, BarChart3, Download, RefreshCw, Wallet, Receipt, TriangleAlert, Target, Users, CreditCard, Smartphone } from 'lucide-react'
@@ -8,9 +9,10 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts'
-import { getReportsData, type ReportsRangeInput, type ReportsRangePreset } from '@/lib/supabase/queries'
+import { closeCashSession, getCashSessionContext, getReportsData, openCashSession, type ReportsRangeInput, type ReportsRangePreset } from '@/lib/supabase/queries'
 import { useAccountRole } from '@/hooks/useAccountRole'
 import { ACCOUNT_ROLE_LABELS } from '@/lib/accountRoles'
+import type { CashSession } from '@/types'
 
 const COLORS = ['#6C5CE7', '#8b5cf6', '#f97316', '#10b981', '#0ea5e9', '#94a3b8']
 const PAYMENT_METHOD_META = {
@@ -158,6 +160,10 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const [cashSessionLoading, setCashSessionLoading] = useState(true)
+  const [cashSessionError, setCashSessionError] = useState('')
+  const [activeCashSession, setActiveCashSession] = useState<CashSession | null>(null)
+  const [cashSessionHistory, setCashSessionHistory] = useState<CashSession[]>([])
 
   const loadReports = useCallback(async (showRefreshState = false) => {
     if (showRefreshState) setRefreshing(true)
@@ -183,6 +189,46 @@ export default function ReportsPage() {
   useEffect(() => {
     void loadReports()
   }, [loadReports])
+
+  const loadCashSessions = useCallback(async () => {
+    setCashSessionLoading(true)
+    setCashSessionError('')
+
+    try {
+      const context = await getCashSessionContext()
+      setActiveCashSession(context.activeSession)
+      setCashSessionHistory(context.history)
+    } catch (sessionError: unknown) {
+      console.error(sessionError)
+      setCashSessionError(
+        sessionError instanceof Error
+          ? sessionError.message
+          : "Impossible de charger le suivi de caisse."
+      )
+      setActiveCashSession(null)
+      setCashSessionHistory([])
+    } finally {
+      setCashSessionLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadCashSessions()
+  }, [loadCashSessions])
+
+  const handleOpenCashSession = useCallback(async (openingAmount: number, note?: string) => {
+    await openCashSession(openingAmount, note)
+    await loadCashSessions()
+  }, [loadCashSessions])
+
+  const handleCloseCashSession = useCallback(async (closingAmount: number, note?: string) => {
+    if (!activeCashSession?.id) {
+      throw new Error("Aucune caisse ouverte à clôturer.")
+    }
+
+    await closeCashSession(activeCashSession.id, closingAmount, note)
+    await loadCashSessions()
+  }, [activeCashSession, loadCashSessions])
 
   const totalRevenue = data?.monthlyData.reduce((s, m) => s + m.revenue, 0) ?? 0
   const totalProfit = data?.monthlyData.reduce((s, m) => s + m.profit, 0) ?? 0
@@ -390,6 +436,18 @@ export default function ReportsPage() {
             Vue filtree sur {selectedSeller.label}. Les cartes, graphiques et exports montrent uniquement ses ventes sur la periode.
           </div>
         )}
+
+        <CashSessionPanel
+          activeSession={activeCashSession}
+          history={cashSessionHistory}
+          loading={cashSessionLoading}
+          error={cashSessionError}
+          isCashier={isCashier}
+          mode="detailed"
+          onRefresh={() => void loadCashSessions()}
+          onOpenSession={handleOpenCashSession}
+          onCloseSession={handleCloseCashSession}
+        />
 
         {/* Metrics */}
         <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">

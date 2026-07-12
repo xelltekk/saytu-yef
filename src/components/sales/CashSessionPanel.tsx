@@ -15,6 +15,7 @@ interface CashSessionPanelProps {
   loading: boolean
   error: string
   isCashier: boolean
+  mode?: 'compact' | 'detailed'
   onRefresh: () => void
   onOpenSession: (openingAmount: number, note?: string) => Promise<void>
   onCloseSession: (closingAmount: number, note?: string) => Promise<void>
@@ -34,6 +35,7 @@ export function CashSessionPanel({
   loading,
   error,
   isCashier,
+  mode = 'detailed',
   onRefresh,
   onOpenSession,
   onCloseSession,
@@ -49,6 +51,7 @@ export function CashSessionPanel({
 
   const liveSummary = activeSession?.live_summary ?? null
   const expectedCash = liveSummary?.expected_cash_amount ?? Number(activeSession?.expected_cash_amount ?? 0)
+  const isCompact = mode === 'compact'
   const cashGapPreview = useMemo(() => {
     const parsed = Number(closingAmount)
     if (Number.isNaN(parsed)) return null
@@ -142,7 +145,9 @@ export function CashSessionPanel({
             </p>
             <h3 className="mt-1 text-lg font-semibold text-[#1A3636]">Ouverture / fermeture de caisse</h3>
             <p className="mt-1 text-xs text-[#6B7682]">
-              Un fond initial par utilisateur, une session ouverte a la fois, puis une cloture avec verification.
+              {isCompact
+                ? 'Ouvrez votre session avant de vendre, puis cloturez-la a la fin du service.'
+                : 'Un fond initial par utilisateur, une session ouverte a la fois, puis une cloture avec verification.'}
             </p>
           </div>
 
@@ -183,8 +188,8 @@ export function CashSessionPanel({
         )}
 
         {loading ? (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {[1, 2, 3, 4].map((card) => (
+          <div className={`mt-4 grid gap-3 ${isCompact ? 'sm:grid-cols-2 xl:grid-cols-2' : 'sm:grid-cols-2 xl:grid-cols-4'}`}>
+            {[1, 2, 3, 4].slice(0, isCompact ? 2 : 4).map((card) => (
               <div key={card} className="animate-pulse rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-4">
                 <div className="h-3 w-24 rounded bg-[#2D7D7D]/[0.08]" />
                 <div className="mt-3 h-7 w-28 rounded bg-[#2D7D7D]/[0.08]" />
@@ -202,39 +207,56 @@ export function CashSessionPanel({
               </Badge>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-              <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Fond initial</p>
-                <p className="mt-1 text-xl font-bold text-[#1A3636]">{formatCurrency(Number(activeSession.opening_amount ?? 0))}</p>
-                <p className="text-[11px] text-[#6B7682]">au demarrage</p>
+            {isCompact ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Fond initial</p>
+                  <p className="mt-1 text-xl font-bold text-[#1A3636]">{formatCurrency(Number(activeSession.opening_amount ?? 0))}</p>
+                  <p className="text-[11px] text-[#6B7682]">session ouverte depuis {formatDate(activeSession.opened_at)}</p>
+                </div>
+                <div className="rounded-2xl border border-[#6C5CE7]/20 bg-[#6C5CE7]/10 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#6C5CE7]">Cloture prevue</p>
+                  <p className="mt-1 text-base font-bold text-[#1A3636]">Validation en fin de service</p>
+                  <p className="text-[11px] text-[#6B7682]">Le detail caisse est disponible dans Rapports.</p>
+                </div>
               </div>
-              <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Especes encaissees</p>
-                <p className="mt-1 text-xl font-bold text-[#2D7D7D]">{formatCurrency(liveSummary?.cash_collected ?? 0)}</p>
-                <p className="text-[11px] text-[#6B7682]">paiements cash</p>
-              </div>
-              <div className="rounded-2xl border border-[#6C5CE7]/20 bg-[#6C5CE7]/10 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#6C5CE7]">Especes attendues</p>
-                <p className="mt-1 text-xl font-bold text-[#6C5CE7]">{formatCurrency(expectedCash)}</p>
-                <p className="text-[11px] text-[#6B7682]">fond + cash</p>
-              </div>
-              <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Ventes</p>
-                <p className="mt-1 text-xl font-bold text-[#1A3636]">{liveSummary?.sales_count ?? 0}</p>
-                <p className="text-[11px] text-[#6B7682]">{formatCurrency(liveSummary?.total_invoiced ?? 0)} factures</p>
-              </div>
-              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-amber-700">Reste a encaisser</p>
-                <p className="mt-1 text-xl font-bold text-amber-700">{formatCurrency(liveSummary?.total_due ?? 0)}</p>
-                <p className="text-[11px] text-amber-700/80">{liveSummary?.payments_count ?? 0} versement(s)</p>
-              </div>
-            </div>
+            ) : (
+              <>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Fond initial</p>
+                    <p className="mt-1 text-xl font-bold text-[#1A3636]">{formatCurrency(Number(activeSession.opening_amount ?? 0))}</p>
+                    <p className="text-[11px] text-[#6B7682]">au demarrage</p>
+                  </div>
+                  <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Especes encaissees</p>
+                    <p className="mt-1 text-xl font-bold text-[#2D7D7D]">{formatCurrency(liveSummary?.cash_collected ?? 0)}</p>
+                    <p className="text-[11px] text-[#6B7682]">paiements cash</p>
+                  </div>
+                  <div className="rounded-2xl border border-[#6C5CE7]/20 bg-[#6C5CE7]/10 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#6C5CE7]">Especes attendues</p>
+                    <p className="mt-1 text-xl font-bold text-[#6C5CE7]">{formatCurrency(expectedCash)}</p>
+                    <p className="text-[11px] text-[#6B7682]">fond + cash</p>
+                  </div>
+                  <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Ventes</p>
+                    <p className="mt-1 text-xl font-bold text-[#1A3636]">{liveSummary?.sales_count ?? 0}</p>
+                    <p className="text-[11px] text-[#6B7682]">{formatCurrency(liveSummary?.total_invoiced ?? 0)} factures</p>
+                  </div>
+                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-amber-700">Reste a encaisser</p>
+                    <p className="mt-1 text-xl font-bold text-amber-700">{formatCurrency(liveSummary?.total_due ?? 0)}</p>
+                    <p className="text-[11px] text-amber-700/80">{liveSummary?.payments_count ?? 0} versement(s)</p>
+                  </div>
+                </div>
 
-            {(activeSession.opening_note ?? '').trim() && (
-              <div className="mt-4 rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Note d&apos;ouverture</p>
-                <p className="mt-1 text-sm text-[#1A3636]">{activeSession.opening_note}</p>
-              </div>
+                {(activeSession.opening_note ?? '').trim() && (
+                  <div className="mt-4 rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Note d&apos;ouverture</p>
+                    <p className="mt-1 text-sm text-[#1A3636]">{activeSession.opening_note}</p>
+                  </div>
+                )}
+              </>
             )}
           </>
         ) : (
@@ -251,7 +273,8 @@ export function CashSessionPanel({
           </div>
         )}
 
-        <div className="mt-5 rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-4">
+        {!isCompact && (
+          <div className="mt-5 rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-4">
           <div className="flex items-center gap-2">
             <History size={16} className="text-[#6B7682]" />
             <h4 className="text-sm font-semibold text-[#1A3636]">Historique des sessions</h4>
@@ -312,7 +335,8 @@ export function CashSessionPanel({
               })}
             </div>
           )}
-        </div>
+          </div>
+        )}
       </section>
 
       <Modal

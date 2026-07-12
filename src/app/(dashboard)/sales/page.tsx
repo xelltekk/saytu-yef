@@ -427,6 +427,7 @@ export default function SalesPage() {
           loading={cashSessionLoading}
           error={cashSessionError}
           isCashier={isCashier}
+          mode="compact"
           onRefresh={() => void loadCashSessions()}
           onOpenSession={handleOpenCashSession}
           onCloseSession={handleCloseCashSession}
