@@ -11,6 +11,8 @@ import type {
 type PlanLimitKey = 'products' | 'teamMembers' | 'monthlySales'
 
 type RawBillingProfile = {
+  id?: string | null
+  account_owner_id?: string | null
   business_name?: string | null
   created_at?: string | null
   subscription_plan?: string | null
@@ -789,25 +791,38 @@ export async function getSubscriptionOverview(): Promise<SubscriptionOverview> {
   if (userError) throw userError
   if (!user) throw new Error('Non connecte')
 
-  const basicProfileResult = await supabase
+  const memberProfileResult = await supabase
     .from('profiles')
-    .select('business_name,created_at,subscription_plan')
+    .select('id,account_owner_id,business_name,created_at,subscription_plan,subscription_status,billing_cycle,trial_started_at,trial_ends_at,subscription_started_at,current_period_ends_at,cancelled_at,subscription_notes')
     .eq('id', user.id)
     .maybeSingle()
 
-  const basicProfile = (basicProfileResult.data ?? null) as RawBillingProfile | null
-  const basicProfileError = basicProfileResult.error
+  const memberProfile = (memberProfileResult.data ?? null) as RawBillingProfile | null
+  const memberProfileError = memberProfileResult.error
 
-  if (basicProfileError) throw basicProfileError
+  if (memberProfileError) throw memberProfileError
 
-  const advancedProfileResult = await supabase
-    .from('profiles')
-    .select('subscription_status,billing_cycle,trial_started_at,trial_ends_at,subscription_started_at,current_period_ends_at,cancelled_at,subscription_notes')
-    .eq('id', user.id)
-    .maybeSingle()
+  const accountOwnerId = memberProfile?.account_owner_id ?? memberProfile?.id ?? user.id
 
-  const advancedProfile = (advancedProfileResult.data ?? null) as RawBillingProfile | null
-  const advancedProfileError = advancedProfileResult.error
+  let billingProfile = memberProfile
+  let billingProfileError = memberProfileError
+
+  if (accountOwnerId && accountOwnerId !== user.id) {
+    const ownerProfileResult = await supabase
+      .from('profiles')
+      .select('id,account_owner_id,business_name,created_at,subscription_plan,subscription_status,billing_cycle,trial_started_at,trial_ends_at,subscription_started_at,current_period_ends_at,cancelled_at,subscription_notes')
+      .eq('id', accountOwnerId)
+      .maybeSingle()
+
+    if (ownerProfileResult.error) {
+      throw ownerProfileResult.error
+    }
+
+    if (ownerProfileResult.data) {
+      billingProfile = ownerProfileResult.data as RawBillingProfile
+      billingProfileError = ownerProfileResult.error
+    }
+  }
 
   const now = new Date()
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString()
@@ -826,26 +841,26 @@ export async function getSubscriptionOverview(): Promise<SubscriptionOverview> {
   if (teamCountResult.error) throw teamCountResult.error
   if (monthlySalesResult.error) throw monthlySalesResult.error
 
-  const plan = normalizePlan(basicProfile?.subscription_plan)
-  const status = normalizeStatus(advancedProfile?.subscription_status) ?? inferStatus(plan, basicProfile?.created_at, advancedProfile?.trial_ends_at)
+  const plan = normalizePlan(billingProfile?.subscription_plan)
+  const status = normalizeStatus(billingProfile?.subscription_status) ?? inferStatus(plan, billingProfile?.created_at, billingProfile?.trial_ends_at)
 
   return {
-    businessName: basicProfile?.business_name ?? '',
+    businessName: billingProfile?.business_name ?? memberProfile?.business_name ?? '',
     plan,
     status,
-    billingCycle: normalizeCycle(advancedProfile?.billing_cycle, plan),
-    createdAt: basicProfile?.created_at ?? null,
-    trialStartedAt: advancedProfile?.trial_started_at ?? basicProfile?.created_at ?? null,
-    trialEndsAt: advancedProfile?.trial_ends_at ?? getFallbackTrialEndsAt(plan, basicProfile?.created_at),
-    subscriptionStartedAt: advancedProfile?.subscription_started_at ?? null,
-    currentPeriodEndsAt: advancedProfile?.current_period_ends_at ?? null,
-    cancelledAt: advancedProfile?.cancelled_at ?? null,
-    notes: advancedProfile?.subscription_notes ?? null,
+    billingCycle: normalizeCycle(billingProfile?.billing_cycle, plan),
+    createdAt: billingProfile?.created_at ?? memberProfile?.created_at ?? null,
+    trialStartedAt: billingProfile?.trial_started_at ?? billingProfile?.created_at ?? memberProfile?.created_at ?? null,
+    trialEndsAt: billingProfile?.trial_ends_at ?? getFallbackTrialEndsAt(plan, billingProfile?.created_at ?? memberProfile?.created_at),
+    subscriptionStartedAt: billingProfile?.subscription_started_at ?? null,
+    currentPeriodEndsAt: billingProfile?.current_period_ends_at ?? null,
+    cancelledAt: billingProfile?.cancelled_at ?? null,
+    notes: billingProfile?.subscription_notes ?? null,
     usage: {
       products: productCountResult.count ?? 0,
       teamMembers: teamCountResult.count ?? 0,
       monthlySales: monthlySalesResult.count ?? 0,
     },
-    hasAdvancedFields: !advancedProfileError,
+    hasAdvancedFields: !billingProfileError,
   }
 }

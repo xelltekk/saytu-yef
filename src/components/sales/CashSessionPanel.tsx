@@ -137,21 +137,21 @@ export function CashSessionPanel({
 
   return (
     <>
-      <section className="rounded-[28px] border border-[#2D7D7D]/[0.08] bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(244,247,251,0.98))] p-4 shadow-[0_16px_40px_rgba(26,54,54,0.06)] sm:p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      <section className={`rounded-[28px] border border-[#2D7D7D]/[0.08] bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(244,247,251,0.98))] shadow-[0_16px_40px_rgba(26,54,54,0.06)] ${isCompact ? 'p-3 sm:p-4' : 'p-4 sm:p-5'}`}>
+        <div className={`flex flex-col lg:flex-row lg:justify-between ${isCompact ? 'gap-2 lg:items-center' : 'gap-3 lg:items-start'}`}>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#2D7D7D]">
               {isCashier ? 'Session personnelle' : 'Gestion de caisse'}
             </p>
-            <h3 className="mt-1 text-lg font-semibold text-[#1A3636]">Ouverture / fermeture de caisse</h3>
-            <p className="mt-1 text-xs text-[#6B7682]">
+            <h3 className={`mt-1 font-semibold text-[#1A3636] ${isCompact ? 'text-base' : 'text-lg'}`}>Ouverture / fermeture de caisse</h3>
+            <p className={`text-[#6B7682] ${isCompact ? 'mt-0.5 text-[11px]' : 'mt-1 text-xs'}`}>
               {isCompact
                 ? 'Ouvrez votre session avant de vendre, puis cloturez-la a la fin du service.'
                 : 'Un fond initial par utilisateur, une session ouverte a la fois, puis une cloture avec verification.'}
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className={`flex flex-wrap gap-2 ${isCompact ? 'lg:justify-end' : ''}`}>
             <Button variant="outline" size="md" onClick={onRefresh} leftIcon={<RefreshCw size={14} />}>
               Actualiser
             </Button>
@@ -199,7 +199,7 @@ export function CashSessionPanel({
           </div>
         ) : activeSession ? (
           <>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
+            <div className={`flex flex-wrap items-center gap-2 ${isCompact ? 'mt-3' : 'mt-4'}`}>
               <Badge variant="success">Session ouverte</Badge>
               <Badge variant="primary">{formatSessionDate(activeSession.opened_at)}</Badge>
               <Badge variant="default">
@@ -208,16 +208,14 @@ export function CashSessionPanel({
             </div>
 
             {isCompact ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-4 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Fond initial</p>
-                  <p className="mt-1 text-xl font-bold text-[#1A3636]">{formatCurrency(Number(activeSession.opening_amount ?? 0))}</p>
-                  <p className="text-[11px] text-[#6B7682]">session ouverte depuis {formatDate(activeSession.opened_at)}</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white px-3 py-2.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Fond de caisse</p>
+                  <p className="mt-0.5 text-base font-bold text-[#1A3636]">{formatCurrency(Number(activeSession.opening_amount ?? 0))}</p>
+                  <p className="text-[11px] text-[#6B7682]">Detail complet disponible dans Rapports.</p>
                 </div>
-                <div className="rounded-2xl border border-[#6C5CE7]/20 bg-[#6C5CE7]/10 px-4 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#6C5CE7]">Cloture prevue</p>
-                  <p className="mt-1 text-base font-bold text-[#1A3636]">Validation en fin de service</p>
-                  <p className="text-[11px] text-[#6B7682]">Le detail caisse est disponible dans Rapports.</p>
+                <div className="rounded-2xl border border-[#6C5CE7]/20 bg-[#6C5CE7]/10 px-3 py-2.5 text-sm text-[#1A3636]">
+                  <span className="font-semibold text-[#6C5CE7]">Cloture</span> en fin de service
                 </div>
               </div>
             ) : (
@@ -260,17 +258,27 @@ export function CashSessionPanel({
             )}
           </>
         ) : (
-          <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/[0.18] bg-white/80 px-4 py-5 text-sm text-[#5C6B73]">
-            <div className="flex items-start gap-3">
-              <Wallet size={20} className="mt-0.5 shrink-0 text-[#2D7D7D]" />
-              <div>
-                <p className="font-semibold text-[#1A3636]">Aucune caisse ouverte pour le moment</p>
-                <p className="mt-1">
-                  Ouvrez une session avec votre fond initial avant de vendre ou d&apos;encaisser un versement client.
-                </p>
+          isCompact ? (
+            <div className="mt-3 flex items-center gap-2 rounded-2xl border border-dashed border-[#2D7D7D]/[0.16] bg-white/85 px-3 py-2.5 text-sm text-[#5C6B73]">
+              <Wallet size={16} className="shrink-0 text-[#2D7D7D]" />
+              <p className="min-w-0">
+                <span className="font-semibold text-[#1A3636]">Aucune caisse ouverte.</span>{' '}
+                <span className="text-[#6B7682]">Ouvrez une session pour commencer les ventes.</span>
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/[0.18] bg-white/80 px-4 py-5 text-sm text-[#5C6B73]">
+              <div className="flex items-start gap-3">
+                <Wallet size={20} className="mt-0.5 shrink-0 text-[#2D7D7D]" />
+                <div>
+                  <p className="font-semibold text-[#1A3636]">Aucune caisse ouverte pour le moment</p>
+                  <p className="mt-1">
+                    Ouvrez une session avec votre fond initial avant de vendre ou d&apos;encaisser un versement client.
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )
         )}
 
         {!isCompact && (
