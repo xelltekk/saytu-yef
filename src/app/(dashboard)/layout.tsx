@@ -3,6 +3,7 @@ import { BottomNav } from '@/components/layout/BottomNav'
 import { InstallPrompt } from '@/components/pwa/InstallPrompt'
 import { BusinessOnboarding } from '@/components/onboarding/BusinessOnboarding'
 import { SessionBootstrap } from '@/components/auth/SessionBootstrap'
+import { IdleSessionManager } from '@/components/auth/IdleSessionManager'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
@@ -26,6 +27,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       initialAccessToken={session?.access_token ?? null}
       initialRefreshToken={session?.refresh_token ?? null}
     >
+      <IdleSessionManager />
       <div className="flex min-h-screen">
         <Sidebar />
         <div className="flex-1 flex flex-col min-w-0">

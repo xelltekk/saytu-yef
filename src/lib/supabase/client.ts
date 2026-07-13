@@ -41,6 +41,12 @@ function matchesSupabasePrefix(key: string, prefixes: string[]) {
   return prefixes.some((prefix) => key === prefix || key.startsWith(`${prefix}.`))
 }
 
+function resetBrowserSessionState() {
+  browserSessionSync = null
+  serverSessionSyncPromise = null
+  lastServerSyncedAccessToken = null
+}
+
 function clearBrowserSupabaseAuthLocalStorage() {
   if (typeof window === 'undefined') return
 
@@ -208,6 +214,36 @@ export function clearBrowserSupabaseAuthStorage() {
     })
 
   clearBrowserSupabaseAuthLocalStorage()
+  resetBrowserSessionState()
+}
+
+export async function signOutBrowserSession(redirectTo = '/login') {
+  if (typeof window === 'undefined') return
+
+  const supabase = createClient()
+
+  try {
+    await supabase.auth.signOut()
+  } catch (error) {
+    console.warn('browser_sign_out_failed', error)
+  }
+
+  clearBrowserSupabaseAuthStorage()
+
+  try {
+    await fetch('/auth/signout', {
+      method: 'POST',
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    })
+  } catch (error) {
+    console.warn('server_sign_out_failed', error)
+  }
+
+  window.location.assign(redirectTo)
 }
 
 export async function ensureBrowserSupabaseSession(
