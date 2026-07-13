@@ -97,18 +97,23 @@ function buildReceiptHTML(receipt: ReceiptData): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>Recu ${escapeHtml(receipt.reference)}</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Courier New', monospace; color: #000; margin: 0; padding: 10px; width: 280px; }
-    h1 { font-size: 16px; text-align: center; margin: 0 0 2px; }
+    @page { size: 80mm auto; margin: 4mm 3mm 5mm; }
+    html, body { width: 72mm; }
+    body { font-family: 'Courier New', monospace; color: #000; margin: 0 auto; padding: 0; background: #fff; }
+    h1 { font-size: 15px; text-align: center; margin: 0 0 3px; line-height: 1.15; }
     .center { text-align: center; }
-    .muted { color: #555; font-size: 11px; }
-    .line { border-top: 1px dashed #000; margin: 8px 0; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    td { padding: 3px 0; vertical-align: top; }
+    .muted { color: #555; font-size: 10px; line-height: 1.35; }
+    .line { border-top: 1px dashed #000; margin: 6px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    td { padding: 2px 0; vertical-align: top; line-height: 1.3; }
     td.l { text-align: left; }
-    td.r { text-align: right; white-space: nowrap; padding-left: 8px; }
-    .tot td { font-weight: bold; font-size: 13px; }
-    .small { font-size: 11px; }
-    @media print { body { width: auto; } }
+    td.r { text-align: right; white-space: nowrap; padding-left: 6px; }
+    .tot td { font-weight: bold; font-size: 12px; }
+    .small { font-size: 10px; }
+    @media print {
+      html, body { width: 72mm; }
+      body { margin: 0 auto; }
+    }
   </style></head><body>
     <h1>${escapeHtml(receipt.businessName)}</h1>
     ${receipt.businessAddress ? `<div class="center muted">${escapeHtml(receipt.businessAddress)}</div>` : ''}
