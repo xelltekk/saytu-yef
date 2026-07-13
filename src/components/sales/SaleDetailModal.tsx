@@ -7,7 +7,7 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { recordSalePayment, reverseSale, updateSale } from '@/lib/supabase/queries'
-import { printReceipt, type ReceiptData } from '@/lib/receipt'
+import { printInvoice, printReceipt, type InvoiceData, type ReceiptData } from '@/lib/receipt'
 import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, SALE_METHOD_LABELS, SALE_METHOD_VARIANTS, SALE_STATUS_LABELS, SALE_STATUS_VARIANTS } from '@/lib/sales'
 import { useUser } from '@/hooks/useUser'
 import { useAccountRole } from '@/hooks/useAccountRole'
@@ -116,6 +116,46 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
       amountDue,
     }
   }, [amountDue, amountPaid, businessAddress, businessName, businessNinea, businessPhone, computedStatus, sale])
+  const invoice = useMemo<InvoiceData | null>(() => {
+    if (!sale) return null
+
+    const reference = sale.id.slice(0, 8).toUpperCase()
+
+    return {
+      businessName: businessName || 'Saytu Yef',
+      businessAddress: businessAddress || undefined,
+      businessPhone: businessPhone || undefined,
+      businessNinea: businessNinea || undefined,
+      reference,
+      invoiceNumber: `FAC-${reference}`,
+      date: new Date(sale.created_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }),
+      customerName: sale.customer_name || undefined,
+      customerPhone: sale.customer_phone || undefined,
+      sellerName: sale.seller_name || undefined,
+      sellerEmail: sale.seller_email || undefined,
+      methodLabel: SALE_METHOD_LABELS[sale.payment_method],
+      statusLabel: SALE_STATUS_LABELS[computedStatus],
+      items: (sale.items ?? []).map((item) => ({
+        name: item.product_name,
+        qty: item.quantity,
+        unitPrice: item.unit_price,
+        total: item.total,
+      })),
+      subtotal: sale.subtotal,
+      discountAmount: sale.discount,
+      taxAmount: sale.tax,
+      total: sale.total,
+      amountPaid,
+      amountDue,
+      notes: sale.notes || undefined,
+      payments: payments.map((payment) => ({
+        date: new Date(payment.created_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }),
+        amount: payment.amount,
+        methodLabel: SALE_METHOD_LABELS[payment.payment_method],
+        note: payment.note || undefined,
+      })),
+    }
+  }, [amountDue, amountPaid, businessAddress, businessName, businessNinea, businessPhone, computedStatus, payments, sale])
   const contactPhone = useMemo(
     () => normalizeContactPhone(sale?.customer_phone ?? ''),
     [sale?.customer_phone]
@@ -253,6 +293,15 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
               disabled={!receipt}
             >
               Imprimer le reçu
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              leftIcon={<Printer size={15} />}
+              onClick={() => invoice && printInvoice(invoice)}
+              disabled={!invoice}
+            >
+              Facture PDF
             </Button>
             {isAdmin && computedStatus !== 'cancelled' && computedStatus !== 'refunded' && (
               <Button
