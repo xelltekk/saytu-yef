@@ -30,6 +30,10 @@ interface ClientSummary {
   id: string
   name: string
   phone: string
+  normalizedName: string
+  normalizedPhone: string
+  hasExplicitName: boolean
+  hasExplicitPhone: boolean
   saleCount: number
   totalPurchases: number
   totalPaid: number
@@ -244,11 +248,19 @@ function finalizeClientSummary(client: ClientSummary): ClientSummary {
   const latestSale = sales[0] ?? null
   const latestSaleWithName = sales.find((sale) => sale.customer_name?.trim()) ?? null
   const latestSaleWithPhone = sales.find((sale) => sale.customer_phone?.trim()) ?? null
+  const resolvedName = latestSaleWithName?.customer_name?.trim() || client.name || latestSaleWithPhone?.customer_phone?.trim() || 'Client'
+  const resolvedPhone = latestSaleWithPhone?.customer_phone?.trim() || client.phone
+  const hasExplicitName = Boolean(latestSaleWithName?.customer_name?.trim()) || client.hasExplicitName
+  const hasExplicitPhone = Boolean(latestSaleWithPhone?.customer_phone?.trim()) || client.hasExplicitPhone
 
   return {
     ...client,
-    name: latestSaleWithName?.customer_name?.trim() || client.name || latestSaleWithPhone?.customer_phone?.trim() || 'Client',
-    phone: latestSaleWithPhone?.customer_phone?.trim() || client.phone,
+    name: resolvedName,
+    phone: resolvedPhone,
+    normalizedName: hasExplicitName ? normalizeClientName(resolvedName) : '',
+    normalizedPhone: hasExplicitPhone ? normalizePhone(resolvedPhone) : '',
+    hasExplicitName,
+    hasExplicitPhone,
     saleCount: sales.length,
     totalPurchases: sales.reduce((sum, sale) => sum + Number(sale.total), 0),
     totalPaid: sales.reduce((sum, sale) => sum + getSaleAmountPaid(sale), 0),
@@ -272,46 +284,52 @@ function mergeClientSummaries(primary: ClientSummary, secondary: ClientSummary):
   })
 }
 
-function mergeNameOnlyClientSummaries(clients: ClientSummary[]): ClientSummary[] {
-  const groups = new Map<string, ClientSummary[]>()
+function mergeClientSummariesByIdentity(clients: ClientSummary[]): ClientSummary[] {
+  const working = new Map(clients.map((client) => [client.id, finalizeClientSummary(client)]))
 
-  clients.forEach((client) => {
-    const nameKey = normalizeClientName(client.name)
-    if (!nameKey) return
+  const mergeIntoTarget = (targetId: string, sourceId: string) => {
+    if (targetId === sourceId) return
+    const target = working.get(targetId)
+    const source = working.get(sourceId)
+    if (!target || !source) return
 
-    const existing = groups.get(nameKey) ?? []
-    existing.push(client)
-    groups.set(nameKey, existing)
-  })
+    working.set(targetId, mergeClientSummaries(target, source))
+    working.delete(sourceId)
+  }
 
-  const mergedIds = new Set<string>()
-  const mergedClients: ClientSummary[] = []
+  const getSnapshot = () => Array.from(working.values())
 
-  groups.forEach((group) => {
-    const withPhone = group.filter((client) => normalizePhone(client.phone).length > 0)
-    const withoutPhone = group.filter((client) => normalizePhone(client.phone).length === 0)
+  getSnapshot()
+    .filter((client) => client.hasExplicitName && !client.hasExplicitPhone && client.normalizedName)
+    .forEach((client) => {
+      const candidates = getSnapshot().filter((candidate) => (
+        candidate.id !== client.id
+        && candidate.hasExplicitName
+        && candidate.hasExplicitPhone
+        && candidate.normalizedName === client.normalizedName
+      ))
 
-    if (withPhone.length === 1 && withoutPhone.length > 0) {
-      let mergedClient = withPhone[0]
-      withoutPhone.forEach((client) => {
-        mergedIds.add(client.id)
-        mergedClient = mergeClientSummaries(mergedClient, client)
-      })
-      mergedIds.add(mergedClient.id)
-      mergedClients.push(mergedClient)
-      return
-    }
-
-    group.forEach((client) => {
-      mergedIds.add(client.id)
-      mergedClients.push(client)
+      if (candidates.length === 1) {
+        mergeIntoTarget(candidates[0].id, client.id)
+      }
     })
-  })
 
-  return [
-    ...mergedClients,
-    ...clients.filter((client) => !mergedIds.has(client.id)),
-  ]
+  getSnapshot()
+    .filter((client) => client.hasExplicitPhone && !client.hasExplicitName && client.normalizedPhone)
+    .forEach((client) => {
+      const candidates = getSnapshot().filter((candidate) => (
+        candidate.id !== client.id
+        && candidate.hasExplicitPhone
+        && candidate.hasExplicitName
+        && candidate.normalizedPhone === client.normalizedPhone
+      ))
+
+      if (candidates.length === 1) {
+        mergeIntoTarget(candidates[0].id, client.id)
+      }
+    })
+
+  return getSnapshot()
 }
 
 function buildClientSummaries(sales: Sale[]): ClientSummary[] {
@@ -324,8 +342,13 @@ function buildClientSummaries(sales: Sale[]): ClientSummary[] {
     const phone = sale.customer_phone?.trim() ?? ''
     if (!name && !phone) return
 
+    const normalizedName = name ? normalizeClientName(name) : ''
     const normalizedPhone = normalizePhone(phone)
-    const key = normalizedPhone ? `phone:${normalizedPhone}` : `name:${name.toLocaleLowerCase('fr')}`
+    const key = normalizedPhone && normalizedName
+      ? `contact:${normalizedPhone}:${normalizedName}`
+      : normalizedPhone
+        ? `phone:${normalizedPhone}`
+        : `name:${normalizedName}`
     const saleTimestamp = new Date(sale.created_at).getTime()
     const status = getSaleComputedStatus(sale)
     const isReversed = status === 'cancelled' || status === 'refunded'
@@ -333,6 +356,10 @@ function buildClientSummaries(sales: Sale[]): ClientSummary[] {
       id: key,
       name: name || phone,
       phone,
+      normalizedName,
+      normalizedPhone,
+      hasExplicitName: Boolean(name),
+      hasExplicitPhone: Boolean(normalizedPhone),
       saleCount: 0,
       totalPurchases: 0,
       totalPaid: 0,
@@ -343,11 +370,15 @@ function buildClientSummaries(sales: Sale[]): ClientSummary[] {
 
     if (name && saleTimestamp >= (latestNameAt.get(key) ?? Number.NEGATIVE_INFINITY)) {
       current.name = name
+      current.normalizedName = normalizedName
+      current.hasExplicitName = true
       latestNameAt.set(key, saleTimestamp)
     }
 
     if (phone && saleTimestamp >= (latestPhoneAt.get(key) ?? Number.NEGATIVE_INFINITY)) {
       current.phone = phone
+      current.normalizedPhone = normalizedPhone
+      current.hasExplicitPhone = true
       latestPhoneAt.set(key, saleTimestamp)
     }
 
@@ -366,7 +397,7 @@ function buildClientSummaries(sales: Sale[]): ClientSummary[] {
     clients.set(key, current)
   })
 
-  return mergeNameOnlyClientSummaries(Array.from(clients.values()))
+  return mergeClientSummariesByIdentity(Array.from(clients.values()))
     .map(finalizeClientSummary)
     .sort((left, right) => (
     right.totalDue - left.totalDue
