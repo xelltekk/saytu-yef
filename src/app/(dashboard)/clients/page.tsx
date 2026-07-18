@@ -44,11 +44,22 @@ interface ClientNextAction {
   className: string
 }
 
+interface ClientDebtStats {
+  debtSales: Sale[]
+  amountPaid: number
+  amountDue: number
+  recoveryRate: number
+}
+
 function normalizePhone(phone: string): string {
   let digits = phone.replace(/\D/g, '')
   if (digits.startsWith('00')) digits = digits.slice(2)
   if (digits.length === 9 && digits.startsWith('7')) digits = `221${digits}`
   return digits
+}
+
+function normalizeClientName(name: string): string {
+  return name.trim().toLocaleLowerCase('fr')
 }
 
 function getClientDebtSales(client: ClientSummary): Sale[] {
@@ -74,19 +85,31 @@ function getClientRecentSales(client: ClientSummary): Sale[] {
   ))
 }
 
+function getClientDebtStats(client: ClientSummary): ClientDebtStats {
+  const debtSales = getClientDebtSales(client)
+  const amountPaid = debtSales.reduce((sum, sale) => sum + getSaleAmountPaid(sale), 0)
+  const amountDue = debtSales.reduce((sum, sale) => sum + getSaleAmountDue(sale), 0)
+  const totalOpenDebtAmount = amountPaid + amountDue
+
+  if (totalOpenDebtAmount <= 0) {
+    return {
+      debtSales,
+      amountPaid,
+      amountDue,
+      recoveryRate: client.totalDue > 0 ? 0 : 100,
+    }
+  }
+
+  return {
+    debtSales,
+    amountPaid,
+    amountDue,
+    recoveryRate: Math.max(0, Math.min(99, Math.floor((amountPaid / totalOpenDebtAmount) * 100))),
+  }
+}
+
 function getClientRecoveryRate(client: ClientSummary): number {
-  if (client.totalPurchases <= 0) {
-    return client.totalDue > 0 ? 0 : 100
-  }
-
-  const rawRate = (client.totalPaid / client.totalPurchases) * 100
-  const boundedRate = Math.max(0, Math.min(100, Math.floor(rawRate)))
-
-  if (client.totalDue > 0) {
-    return Math.min(99, boundedRate)
-  }
-
-  return 100
+  return getClientDebtStats(client).recoveryRate
 }
 
 function getSaleStatusClasses(status: Sale['payment_status']): string {
@@ -214,6 +237,83 @@ async function copyText(value: string): Promise<void> {
   }
 }
 
+function finalizeClientSummary(client: ClientSummary): ClientSummary {
+  const sales = [...client.sales].sort((left, right) => (
+    new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+  ))
+  const latestSale = sales[0] ?? null
+  const latestSaleWithName = sales.find((sale) => sale.customer_name?.trim()) ?? null
+  const latestSaleWithPhone = sales.find((sale) => sale.customer_phone?.trim()) ?? null
+
+  return {
+    ...client,
+    name: latestSaleWithName?.customer_name?.trim() || client.name || latestSaleWithPhone?.customer_phone?.trim() || 'Client',
+    phone: latestSaleWithPhone?.customer_phone?.trim() || client.phone,
+    saleCount: sales.length,
+    totalPurchases: sales.reduce((sum, sale) => sum + Number(sale.total), 0),
+    totalPaid: sales.reduce((sum, sale) => sum + getSaleAmountPaid(sale), 0),
+    totalDue: sales.reduce((sum, sale) => sum + getSaleAmountDue(sale), 0),
+    lastPurchase: latestSale?.created_at || client.lastPurchase,
+    sales,
+  }
+}
+
+function mergeClientSummaries(primary: ClientSummary, secondary: ClientSummary): ClientSummary {
+  return finalizeClientSummary({
+    ...primary,
+    sales: [...primary.sales, ...secondary.sales],
+    saleCount: primary.saleCount + secondary.saleCount,
+    totalPurchases: primary.totalPurchases + secondary.totalPurchases,
+    totalPaid: primary.totalPaid + secondary.totalPaid,
+    totalDue: primary.totalDue + secondary.totalDue,
+    lastPurchase: new Date(primary.lastPurchase).getTime() >= new Date(secondary.lastPurchase).getTime()
+      ? primary.lastPurchase
+      : secondary.lastPurchase,
+  })
+}
+
+function mergeNameOnlyClientSummaries(clients: ClientSummary[]): ClientSummary[] {
+  const groups = new Map<string, ClientSummary[]>()
+
+  clients.forEach((client) => {
+    const nameKey = normalizeClientName(client.name)
+    if (!nameKey) return
+
+    const existing = groups.get(nameKey) ?? []
+    existing.push(client)
+    groups.set(nameKey, existing)
+  })
+
+  const mergedIds = new Set<string>()
+  const mergedClients: ClientSummary[] = []
+
+  groups.forEach((group) => {
+    const withPhone = group.filter((client) => normalizePhone(client.phone).length > 0)
+    const withoutPhone = group.filter((client) => normalizePhone(client.phone).length === 0)
+
+    if (withPhone.length === 1 && withoutPhone.length > 0) {
+      let mergedClient = withPhone[0]
+      withoutPhone.forEach((client) => {
+        mergedIds.add(client.id)
+        mergedClient = mergeClientSummaries(mergedClient, client)
+      })
+      mergedIds.add(mergedClient.id)
+      mergedClients.push(mergedClient)
+      return
+    }
+
+    group.forEach((client) => {
+      mergedIds.add(client.id)
+      mergedClients.push(client)
+    })
+  })
+
+  return [
+    ...mergedClients,
+    ...clients.filter((client) => !mergedIds.has(client.id)),
+  ]
+}
+
 function buildClientSummaries(sales: Sale[]): ClientSummary[] {
   const clients = new Map<string, ClientSummary>()
   const latestNameAt = new Map<string, number>()
@@ -266,7 +366,9 @@ function buildClientSummaries(sales: Sale[]): ClientSummary[] {
     clients.set(key, current)
   })
 
-  return Array.from(clients.values()).sort((left, right) => (
+  return mergeNameOnlyClientSummaries(Array.from(clients.values()))
+    .map(finalizeClientSummary)
+    .sort((left, right) => (
     right.totalDue - left.totalDue
     || new Date(right.lastPurchase).getTime() - new Date(left.lastPurchase).getTime()
   ))
@@ -390,7 +492,7 @@ export default function ClientsPage() {
         client.phone,
         client.saleCount,
         Math.round(client.totalPurchases),
-        Math.round(client.totalPaid),
+        Math.round(client.totalDue > 0 ? getClientDebtStats(client).amountPaid : client.totalPaid),
         Math.round(client.totalDue),
         new Date(client.lastPurchase).toLocaleString('fr-SN'),
       ]),
@@ -534,14 +636,15 @@ export default function ClientsPage() {
 
             <div className="mt-4 grid gap-3 xl:grid-cols-2">
               {priorityClients.map((client) => {
-                const debtSales = getClientDebtSales(client)
+                const debtStats = getClientDebtStats(client)
+                const debtSales = debtStats.debtSales
                 const latestDebtSale = debtSales[0] ?? null
                 const oldestDebtSale = getClientOldestDebtSale(client)
                 const oldestDebtAgeDays = oldestDebtSale ? getDaysSince(oldestDebtSale.created_at) : 0
                 const debtAgeBadge = oldestDebtSale ? getDebtAgeBadge(oldestDebtAgeDays) : null
                 const nextAction = getClientNextAction(client)
                 const contactPhone = normalizePhone(client.phone)
-                const reminder = buildDebtReminderMessage(client.name, client.totalDue)
+                const reminder = buildDebtReminderMessage(client.name, debtStats.amountDue)
 
                 return (
                   <div key={`${client.id}-priority`} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
@@ -554,13 +657,13 @@ export default function ClientsPage() {
                       </div>
                       <div className="text-right">
                         <p className="text-xs text-[#6B7682]">A recouvrer</p>
-                        <p className="text-base font-bold text-amber-700">{formatCurrencyCompact(client.totalDue)}</p>
+                        <p className="text-base font-bold text-amber-700">{formatCurrencyCompact(debtStats.amountDue)}</p>
                       </div>
                     </div>
 
                     <div className="mt-3 flex flex-wrap gap-2">
                       <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#5C6B73]">
-                        {debtSales.length} dette(s) ouverte(s)
+                        {debtStats.debtSales.length} dette(s) ouverte(s)
                       </span>
                       {debtAgeBadge && (
                         <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${debtAgeBadge.className}`}>
@@ -568,7 +671,7 @@ export default function ClientsPage() {
                         </span>
                       )}
                       <span className="rounded-full bg-[#2D7D7D]/10 px-2.5 py-1 text-[11px] font-medium text-[#2D7D7D]">
-                        Verse {formatCurrencyCompact(client.totalPaid)}
+                        Verse {formatCurrencyCompact(debtStats.amountPaid)}
                       </span>
                     </div>
 
@@ -645,7 +748,8 @@ export default function ClientsPage() {
           <div className="space-y-2">
             {filteredClients.map((client) => {
               const contactPhone = normalizePhone(client.phone)
-              const debtSales = getClientDebtSales(client)
+              const debtStats = getClientDebtStats(client)
+              const debtSales = debtStats.debtSales
               const recentSales = getClientRecentSales(client)
               const latestDebtSale = debtSales[0] ?? null
               const latestSale = recentSales[0] ?? null
@@ -656,7 +760,7 @@ export default function ClientsPage() {
               const latestActionSale = latestDebtSale ?? latestSale
               const oldestDebtAgeDays = oldestDebtSale ? getDaysSince(oldestDebtSale.created_at) : 0
               const debtAgeBadge = oldestDebtSale ? getDebtAgeBadge(oldestDebtAgeDays) : null
-              const reminder = buildDebtReminderMessage(client.name, client.totalDue)
+              const reminder = buildDebtReminderMessage(client.name, debtStats.amountDue)
               const nextAction = getClientNextAction(client)
               const cardBorderClass = isSettled ? 'border-emerald-500/25' : 'border-red-500/25'
               const duePanelClass = isSettled ? 'bg-emerald-500/10' : 'bg-red-500/10'
@@ -692,10 +796,10 @@ export default function ClientsPage() {
 
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     <span className="rounded-full bg-[#F4F7FB] px-2.5 py-1 text-[11px] font-medium text-[#5C6B73]">
-                      Versé {formatCurrencyCompact(client.totalPaid)}
+                      Versé {formatCurrencyCompact(isSettled ? client.totalPaid : debtStats.amountPaid)}
                     </span>
                     <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${isSettled ? 'bg-emerald-500/10 text-emerald-700' : 'bg-red-500/10 text-red-600'}`}>
-                      {isSettled ? 'Compte soldé' : `${debtSales.length} dette(s) ouverte(s)`}
+                      {isSettled ? 'Compte soldé' : `${debtStats.debtSales.length} dette(s) ouverte(s)`}
                     </span>
                     <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${recoveryBadgeClass}`}>
                       {recoveryRate}% recouvré
@@ -778,7 +882,7 @@ export default function ClientsPage() {
                       className="flex min-h-9 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 px-3 text-[11px] font-semibold text-[#2D7D7D]"
                     >
                       <ReceiptText size={14} />
-                      {debtSales.length > 0 ? `Voir ${debtSales.length} dette(s)` : 'Voir les ventes'}
+                      {debtStats.debtSales.length > 0 ? `Voir ${debtStats.debtSales.length} dette(s)` : 'Voir les ventes'}
                       <ChevronDown size={14} className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                     </button>
 
@@ -887,3 +991,4 @@ export default function ClientsPage() {
     </div>
   )
 }
+
