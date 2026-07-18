@@ -10,7 +10,7 @@ import {
   normalizeAccountRole,
 } from '@/lib/accountRoles'
 
-const PUBLIC_ROUTES = ['/', '/login', '/signup', '/forgot-password', '/auth/callback', '/auth/reset-password']
+const PUBLIC_ROUTES = ['/', '/login', '/signup', '/forgot-password', '/auth/callback', '/auth/reset-password', '/account-status']
 const SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
   'X-Content-Type-Options': 'nosniff',
@@ -122,11 +122,33 @@ export async function middleware(request: NextRequest) {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role,account_owner_id')
     .eq('id', user.id)
     .maybeSingle()
 
   const role = normalizeAccountRole(profile?.role)
+  let accessStatus = 'active'
+
+  try {
+    const { data, error } = await supabase.rpc('current_account_access_status')
+    if (error) {
+      console.warn('middleware_account_access_status_failed', {
+        code: error.code,
+        message: error.message,
+      })
+    } else if (data === 'restricted') {
+      accessStatus = 'restricted'
+    }
+  } catch (error) {
+    console.warn('middleware_account_access_status_failed', {
+      message: error instanceof Error ? error.message : 'unknown_error',
+    })
+  }
+
+  if (accessStatus === 'restricted') {
+    const redirectResponse = buildRedirectResponse(request, '/account-status')
+    return applySecurityHeaders(redirectResponse)
+  }
 
   if (role === 'cashier' && (isCashierRestrictedRoute(pathname) || !canCashierAccessPath(pathname))) {
     const redirectResponse = buildRedirectResponse(request, getRoleLandingPath(role))

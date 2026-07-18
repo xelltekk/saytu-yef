@@ -12,16 +12,22 @@ import {
   BILLING_CYCLE_LABELS,
   doesSubscriptionActivationRequirePayment,
   formatSubscriptionDate,
+  formatSubscriptionDateTime,
   getRemainingDays,
   getSubscriptionExpectedPaymentAmount,
   getSubscriptionRequestReference,
   getSubscriptionRequestSummary,
   getSupportActionLabel,
+  getSupportPlatformMembers,
   getSupportConsoleOverview,
   getSupportPlatformAccounts,
   getSupportSubscriptionAudit,
   getSupportSubscriptionRequests,
   hasSupportOperatorAccess,
+  SUPPORT_ACCESS_STATUS_LABELS,
+  SUPPORT_ACCESS_STATUS_STYLES,
+  SUPPORT_WATCH_LEVEL_LABELS,
+  SUPPORT_WATCH_LEVEL_STYLES,
   SUBSCRIPTION_PAYMENT_METHOD_LABELS,
   SUBSCRIPTION_PLANS,
   SUBSCRIPTION_REQUEST_STATUS_LABELS,
@@ -30,19 +36,27 @@ import {
   SUBSCRIPTION_REQUEST_TYPE_STYLES,
   SUBSCRIPTION_STATUS_LABELS,
   SUBSCRIPTION_STATUS_STYLES,
+  toDateInputValue,
   type SubscriptionRequestRecord,
+  type SupportAccountControlInput,
   type SupportConsoleOverview,
   type SupportPlatformAccount,
+  type SupportPlatformMember,
   type SupportSubscriptionAuditEntry,
+  upsertSupportAccountControl,
 } from '@/lib/subscriptions'
 import type {
   SubscriptionPaymentMethod,
   SubscriptionPlan,
   SubscriptionStatus,
+  SupportAccessStatus,
+  SupportWatchLevel,
 } from '@/types'
 import {
+  Ban,
   BadgeDollarSign,
   Building2,
+  CalendarClock,
   CheckCircle2,
   Clock3,
   CreditCard,
@@ -54,6 +68,7 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  UserRoundCog,
   Users,
   Wallet,
 } from 'lucide-react'
@@ -62,6 +77,15 @@ type SupportPaymentDraft = {
   method: SubscriptionPaymentMethod | ''
   amount: string
   reference: string
+}
+
+type SupportAccountControlDraft = {
+  accessStatus: SupportAccessStatus
+  watchLevel: SupportWatchLevel
+  internalNote: string
+  followUpNote: string
+  nextFollowUpAt: string
+  lastContactedAt?: string | null
 }
 
 const SUBSCRIPTION_PAYMENT_OPTIONS: Array<{ value: string; label: string }> = [
@@ -250,6 +274,84 @@ function getSupportRecommendation(account: SupportPlatformAccount) {
   }
 }
 
+function getSupportWatchRank(level: SupportWatchLevel) {
+  switch (level) {
+    case 'critical':
+      return 3
+    case 'priority':
+      return 2
+    default:
+      return 1
+  }
+}
+
+function getMemberRoleStyle(role: SupportPlatformMember['role']) {
+  if (role === 'admin') return 'bg-violet-500/10 text-violet-700 border border-violet-500/15'
+  if (role === 'cashier') return 'bg-emerald-500/10 text-emerald-700 border border-emerald-500/15'
+  return 'bg-sky-500/10 text-sky-700 border border-sky-500/15'
+}
+
+function buildAccountPriorityScore(account: SupportPlatformAccount) {
+  const daysLeft = getRemainingDays(account.currentPeriodEndsAt)
+  let score = getSupportWatchRank(account.watchLevel) * 10
+
+  if (account.accessStatus === 'restricted') score += 100
+  if (account.pendingRequestsCount > 0) score += 35
+  if (account.status === 'past_due' || account.status === 'expired' || account.status === 'suspended') score += 24
+  if (
+    account.plan !== 'free'
+    && account.plan !== 'lifetime'
+    && daysLeft !== null
+    && daysLeft >= 0
+    && daysLeft <= 7
+  ) {
+    score += 18
+  }
+
+  return score
+}
+
+function needsBillingAttention(account: SupportPlatformAccount) {
+  if (account.plan === 'free' || account.plan === 'lifetime') {
+    return account.pendingRequestsCount > 0
+  }
+
+  const daysLeft = getRemainingDays(account.currentPeriodEndsAt)
+
+  return (
+    account.pendingRequestsCount > 0
+    || account.status === 'past_due'
+    || account.status === 'expired'
+    || account.status === 'suspended'
+    || (daysLeft !== null && daysLeft <= 10)
+  )
+}
+
+function getBillingFollowUpLabel(account: SupportPlatformAccount) {
+  if (account.pendingRequestsCount > 0) {
+    return `${account.pendingRequestsCount} demande(s) en attente`
+  }
+
+  if (account.status === 'past_due') {
+    return 'Paiement a confirmer'
+  }
+
+  if (account.status === 'suspended') {
+    return 'Compte suspendu a reevaluer'
+  }
+
+  if (account.status === 'expired') {
+    return 'Abonnement expire'
+  }
+
+  const daysLeft = getRemainingDays(account.currentPeriodEndsAt)
+  if (daysLeft !== null && daysLeft >= 0) {
+    return daysLeft <= 0 ? 'Echeance aujourd hui' : `Echeance dans ${daysLeft} jour(s)`
+  }
+
+  return 'Suivi support recommande'
+}
+
 export function SupportConsole() {
   const [hasAccess, setHasAccess] = useState<boolean | null>(null)
   const [bootLoading, setBootLoading] = useState(true)
@@ -257,27 +359,34 @@ export function SupportConsole() {
 
   const [overview, setOverview] = useState<SupportConsoleOverview | null>(null)
   const [accounts, setAccounts] = useState<SupportPlatformAccount[]>([])
+  const [members, setMembers] = useState<SupportPlatformMember[]>([])
   const [queue, setQueue] = useState<SubscriptionRequestRecord[]>([])
   const [auditEntries, setAuditEntries] = useState<SupportSubscriptionAuditEntry[]>([])
 
   const [accountsLoading, setAccountsLoading] = useState(true)
+  const [membersLoading, setMembersLoading] = useState(true)
   const [queueLoading, setQueueLoading] = useState(true)
   const [auditLoading, setAuditLoading] = useState(true)
 
   const [pageError, setPageError] = useState('')
   const [accountsError, setAccountsError] = useState('')
+  const [membersError, setMembersError] = useState('')
   const [queueError, setQueueError] = useState('')
   const [auditError, setAuditError] = useState('')
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
 
   const [search, setSearch] = useState('')
+  const [memberSearch, setMemberSearch] = useState('')
   const [planFilter, setPlanFilter] = useState<SubscriptionPlan | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<SubscriptionStatus | 'all'>('all')
+  const [memberRoleFilter, setMemberRoleFilter] = useState<'all' | SupportPlatformMember['role']>('all')
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
 
   const [supportActionTarget, setSupportActionTarget] = useState<string | null>(null)
+  const [accountControlTarget, setAccountControlTarget] = useState<string | null>(null)
   const [supportNotes, setSupportNotes] = useState<Record<string, string>>({})
   const [supportPayments, setSupportPayments] = useState<Record<string, SupportPaymentDraft>>({})
+  const [accountControlDrafts, setAccountControlDrafts] = useState<Record<string, SupportAccountControlDraft>>({})
 
   const seedSupportDrafts = useCallback((requests: SubscriptionRequestRecord[]) => {
     setSupportNotes(
@@ -311,12 +420,45 @@ export function SupportConsole() {
         limit: 80,
       })
       setAccounts(nextAccounts)
+      setAccountControlDrafts(
+        Object.fromEntries(
+          nextAccounts.map((account) => [
+            account.accountId,
+            {
+              accessStatus: account.accessStatus,
+              watchLevel: account.watchLevel,
+              internalNote: account.internalNote ?? '',
+              followUpNote: account.followUpNote ?? '',
+              nextFollowUpAt: toDateInputValue(account.nextFollowUpAt),
+              lastContactedAt: account.lastContactedAt ?? null,
+            },
+          ])
+        )
+      )
     } catch (error) {
       setAccountsError(error instanceof Error ? error.message : 'Impossible de charger les boutiques.')
     } finally {
       setAccountsLoading(false)
     }
   }, [planFilter, search, statusFilter])
+
+  const loadMembers = useCallback(async () => {
+    setMembersLoading(true)
+    setMembersError('')
+
+    try {
+      const nextMembers = await getSupportPlatformMembers({
+        search: memberSearch,
+        role: memberRoleFilter,
+        limit: 120,
+      })
+      setMembers(nextMembers)
+    } catch (error) {
+      setMembersError(error instanceof Error ? error.message : 'Impossible de charger les utilisateurs.')
+    } finally {
+      setMembersLoading(false)
+    }
+  }, [memberRoleFilter, memberSearch])
 
   const focusAccountInList = useCallback(async (account: SupportPlatformAccount) => {
     const nextSearch = account.ownerEmail
@@ -381,19 +523,20 @@ export function SupportConsole() {
       if (!access) {
         setOverview(null)
         setAccounts([])
+        setMembers([])
         setQueue([])
         setAuditEntries([])
         return
       }
 
-      await Promise.all([loadPanels(), loadAccounts()])
+      await Promise.all([loadPanels(), loadAccounts(), loadMembers()])
     } catch (error) {
       setHasAccess(false)
       setPageError(error instanceof Error ? error.message : 'Impossible d ouvrir la console SaaS.')
     } finally {
       setBootLoading(false)
     }
-  }, [loadAccounts, loadPanels])
+  }, [loadAccounts, loadMembers, loadPanels])
 
   useEffect(() => {
     void initialize()
@@ -409,6 +552,11 @@ export function SupportConsole() {
   const handleFilters = async () => {
     if (hasAccess !== true) return
     await loadAccounts()
+  }
+
+  const handleMemberFilters = async () => {
+    if (hasAccess !== true) return
+    await loadMembers()
   }
 
   const getSupportPaymentDraft = useCallback((request: SubscriptionRequestRecord): SupportPaymentDraft => {
@@ -435,6 +583,61 @@ export function SupportConsole() {
     },
     [getSupportPaymentDraft]
   )
+
+  const getAccountControlDraft = useCallback((account: SupportPlatformAccount): SupportAccountControlDraft => {
+    return accountControlDrafts[account.accountId] ?? {
+      accessStatus: account.accessStatus,
+      watchLevel: account.watchLevel,
+      internalNote: account.internalNote ?? '',
+      followUpNote: account.followUpNote ?? '',
+      nextFollowUpAt: toDateInputValue(account.nextFollowUpAt),
+      lastContactedAt: account.lastContactedAt ?? null,
+    }
+  }, [accountControlDrafts])
+
+  const handleAccountControlChange = useCallback((
+    account: SupportPlatformAccount,
+    field: keyof SupportAccountControlDraft,
+    value: string
+  ) => {
+    setAccountControlDrafts((current) => ({
+      ...current,
+      [account.accountId]: {
+        ...getAccountControlDraft(account),
+        [field]: value,
+      },
+    }))
+  }, [getAccountControlDraft])
+
+  const saveAccountControl = useCallback(async (
+    account: SupportPlatformAccount,
+    override?: Partial<SupportAccountControlInput>
+  ) => {
+    setAccountControlTarget(account.accountId)
+    setFeedback(null)
+
+    try {
+      const currentDraft = getAccountControlDraft(account)
+      await upsertSupportAccountControl(account.accountId, {
+        accessStatus: override?.accessStatus ?? currentDraft.accessStatus,
+        watchLevel: override?.watchLevel ?? currentDraft.watchLevel,
+        internalNote: override?.internalNote ?? currentDraft.internalNote,
+        followUpNote: override?.followUpNote ?? currentDraft.followUpNote,
+        nextFollowUpAt: override?.nextFollowUpAt ?? currentDraft.nextFollowUpAt,
+        lastContactedAt: override?.lastContactedAt ?? currentDraft.lastContactedAt ?? null,
+      })
+
+      setFeedback({ type: 'success', msg: 'Fiche boutique mise a jour.' })
+      await Promise.all([loadAccounts(), loadMembers()])
+    } catch (error) {
+      setFeedback({
+        type: 'error',
+        msg: error instanceof Error ? error.message : 'Mise a jour support impossible.',
+      })
+    } finally {
+      setAccountControlTarget(null)
+    }
+  }, [getAccountControlDraft, loadAccounts, loadMembers])
 
   const handleSupportAction = useCallback(
     async (request: SubscriptionRequestRecord, action: 'mark_in_progress' | 'activate' | 'cancel') => {
@@ -510,6 +713,35 @@ export function SupportConsole() {
     ],
     []
   )
+
+  const memberRoleOptions = useMemo(
+    () => [
+      { value: 'all', label: 'Tous les roles' },
+      { value: 'admin', label: 'Administrateurs' },
+      { value: 'employee', label: 'Employes' },
+      { value: 'cashier', label: 'Caisse' },
+    ],
+    []
+  )
+
+  const adminAccounts = useMemo(
+    () => [...accounts].sort((left, right) => buildAccountPriorityScore(right) - buildAccountPriorityScore(left)).slice(0, 6),
+    [accounts]
+  )
+
+  const billingAccounts = useMemo(
+    () => [...accounts]
+      .filter((account) => needsBillingAttention(account))
+      .sort((left, right) => buildAccountPriorityScore(right) - buildAccountPriorityScore(left))
+      .slice(0, 6),
+    [accounts]
+  )
+
+  const memberSummary = useMemo(() => ({
+    admins: members.filter((member) => member.role === 'admin').length,
+    cashiers: members.filter((member) => member.role === 'cashier').length,
+    restricted: members.filter((member) => member.accessStatus === 'restricted').length,
+  }), [members])
 
   const selectedAccount = useMemo(
     () => accounts.find((account) => account.accountId === selectedAccountId) ?? null,
@@ -680,6 +912,334 @@ export function SupportConsole() {
         </div>
       </Card>
 
+      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+        <Card className="p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-[#1A3636]">Administration des boutiques</h3>
+              <p className="mt-1 text-sm text-[#6B7682]">
+                Suspendre ou reactiver un compte, definir le niveau de suivi et garder une note interne.
+              </p>
+            </div>
+            <div className="rounded-full bg-[#F4F7FB] px-3 py-1 text-xs font-semibold text-[#5C6B73]">
+              {adminAccounts.length} priorite(s)
+            </div>
+          </div>
+
+          {accountsLoading ? (
+            <div className="mt-4 space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="animate-pulse rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                  <div className="h-4 w-44 rounded-full bg-[#2D7D7D]/10" />
+                  <div className="mt-3 h-20 rounded-2xl bg-[#2D7D7D]/10" />
+                </div>
+              ))}
+            </div>
+          ) : adminAccounts.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+              Aucune boutique a piloter avec les filtres actuels.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {adminAccounts.map((account) => {
+                const draft = getAccountControlDraft(account)
+                const isSaving = accountControlTarget === account.accountId
+
+                return (
+                  <div key={account.accountId} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate text-sm font-semibold text-[#1A3636]">{account.businessName}</span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_ACCESS_STATUS_STYLES[account.accessStatus]}`}>
+                            {SUPPORT_ACCESS_STATUS_LABELS[account.accessStatus]}
+                          </span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_WATCH_LEVEL_STYLES[account.watchLevel]}`}>
+                            {SUPPORT_WATCH_LEVEL_LABELS[account.watchLevel]}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm text-[#1A3636]">{account.ownerName}</p>
+                        <p className="mt-1 text-xs text-[#6B7682]">{account.ownerEmail}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant={draft.accessStatus === 'restricted' ? 'teal' : 'danger'}
+                          size="sm"
+                          onClick={() => void saveAccountControl(account, {
+                            accessStatus: draft.accessStatus === 'restricted' ? 'active' : 'restricted',
+                          })}
+                          disabled={isSaving}
+                        >
+                          <Ban size={14} />
+                          {draft.accessStatus === 'restricted' ? 'Reactiver' : 'Suspendre'}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setSelectedAccountId(account.accountId)}>
+                          <Eye size={14} />
+                          Fiche
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
+                      <Select
+                        label="Niveau de suivi"
+                        value={draft.watchLevel}
+                        onChange={(event) => handleAccountControlChange(account, 'watchLevel', event.target.value)}
+                        options={[
+                          { value: 'normal', label: 'Normal' },
+                          { value: 'priority', label: 'Priorite' },
+                          { value: 'critical', label: 'Critique' },
+                        ]}
+                      />
+                      <Textarea
+                        label="Note interne support"
+                        rows={3}
+                        value={draft.internalNote}
+                        onChange={(event) => handleAccountControlChange(account, 'internalNote', event.target.value)}
+                        placeholder="Contexte de la boutique, decision prise, element a surveiller..."
+                      />
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[#6B7682]">
+                      <div className="flex flex-wrap gap-2">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-[#2D7D7D]/10 bg-white px-2.5 py-1">
+                          <Clock3 size={13} />
+                          Derniere vente {formatSubscriptionDate(account.lastSaleAt) || 'aucune'}
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-full border border-[#2D7D7D]/10 bg-white px-2.5 py-1">
+                          <Users size={13} />
+                          {account.teamMembersCount} membre(s)
+                        </span>
+                      </div>
+                      <Button
+                        variant="glass"
+                        size="sm"
+                        onClick={() => void saveAccountControl(account)}
+                        disabled={isSaving}
+                      >
+                        {isSaving ? 'Enregistrement...' : 'Enregistrer'}
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+
+        <Card className="p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-[#1A3636]">Facturation & relances</h3>
+              <p className="mt-1 text-sm text-[#6B7682]">
+                Echeances proches, paiements a confirmer et prochaines relances du support.
+              </p>
+            </div>
+            <div className="rounded-full bg-[#F4F7FB] px-3 py-1 text-xs font-semibold text-[#5C6B73]">
+              {billingAccounts.length} suivi(s)
+            </div>
+          </div>
+
+          {accountsLoading ? (
+            <div className="mt-4 space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="animate-pulse rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                  <div className="h-4 w-40 rounded-full bg-[#2D7D7D]/10" />
+                  <div className="mt-3 h-24 rounded-2xl bg-[#2D7D7D]/10" />
+                </div>
+              ))}
+            </div>
+          ) : billingAccounts.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+              Aucun renouvellement ou relance urgente detecte pour l&apos;instant.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {billingAccounts.map((account) => {
+                const draft = getAccountControlDraft(account)
+                const isSaving = accountControlTarget === account.accountId
+
+                return (
+                  <div key={account.accountId} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                    <div className="flex flex-col gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-[#1A3636]">{account.businessName}</span>
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_STATUS_STYLES[account.status]}`}>
+                          {SUBSCRIPTION_STATUS_LABELS[account.status]}
+                        </span>
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_WATCH_LEVEL_STYLES[account.watchLevel]}`}>
+                          {SUPPORT_WATCH_LEVEL_LABELS[account.watchLevel]}
+                        </span>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/70 bg-white px-3 py-3 text-sm text-[#5C6B73]">
+                        <p className="font-semibold text-[#1A3636]">{getBillingFollowUpLabel(account)}</p>
+                        <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
+                          <span className="inline-flex items-center gap-1">
+                            <CalendarClock size={13} className="text-[#2D7D7D]" />
+                            Echeance {formatSubscriptionDate(account.currentPeriodEndsAt) || 'non definie'}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Mail size={13} className="text-[#2D7D7D]" />
+                            Dernier contact {formatSubscriptionDateTime(account.lastContactedAt) || 'aucun'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <Input
+                        label="Prochaine relance"
+                        type="date"
+                        value={draft.nextFollowUpAt}
+                        onChange={(event) => handleAccountControlChange(account, 'nextFollowUpAt', event.target.value)}
+                      />
+                      <Textarea
+                        label="Note de relance"
+                        rows={2}
+                        value={draft.followUpNote}
+                        onChange={(event) => handleAccountControlChange(account, 'followUpNote', event.target.value)}
+                        placeholder="Paiement attendu, canal de relance, retour client..."
+                      />
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void saveAccountControl(account, {
+                            lastContactedAt: new Date().toISOString(),
+                          })}
+                          disabled={isSaving}
+                        >
+                          <Mail size={14} />
+                          Relance faite aujourd&apos;hui
+                        </Button>
+                        <Button
+                          variant="glass"
+                          size="sm"
+                          onClick={() => void saveAccountControl(account)}
+                          disabled={isSaving}
+                        >
+                          {isSaving ? 'Enregistrement...' : 'Enregistrer'}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setSelectedAccountId(account.accountId)}>
+                          <Eye size={14} />
+                          Voir la boutique
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      <Card className="p-4 sm:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-[#1A3636]">Gestion globale des utilisateurs</h3>
+            <p className="mt-1 text-sm text-[#6B7682]">
+              Membres par boutique, role actuel et derniere activite commerciale visible par le support.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-[#6B7682]">
+            <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{memberSummary.admins} admin</span>
+            <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{memberSummary.cashiers} caisse</span>
+            <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{memberSummary.restricted} acces suspendu(s)</span>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_140px]">
+          <Input
+            label="Recherche membre"
+            value={memberSearch}
+            onChange={(event) => setMemberSearch(event.target.value)}
+            placeholder="Nom, email ou boutique..."
+            leftAddon={<Search size={16} />}
+          />
+          <Select
+            label="Role"
+            value={memberRoleFilter}
+            onChange={(event) => setMemberRoleFilter(event.target.value as 'all' | SupportPlatformMember['role'])}
+            options={memberRoleOptions}
+          />
+          <Button className="lg:mb-[2px]" onClick={() => void handleMemberFilters()}>
+            Filtrer
+          </Button>
+        </div>
+
+        {membersError && (
+          <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-700">
+            {membersError}
+          </div>
+        )}
+
+        {membersLoading ? (
+          <div className="mt-4 space-y-3">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="animate-pulse rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                <div className="h-4 w-48 rounded-full bg-[#2D7D7D]/10" />
+                <div className="mt-3 h-10 rounded-2xl bg-[#2D7D7D]/10" />
+              </div>
+            ))}
+          </div>
+        ) : members.length === 0 ? (
+          <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+            Aucun utilisateur ne correspond aux filtres actuels.
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {members.map((member) => {
+              const linkedAccount = accounts.find((account) => account.accountId === member.accountId) ?? null
+
+              return (
+                <div key={member.memberId} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-semibold text-[#1A3636]">{member.fullName}</span>
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${getMemberRoleStyle(member.role)}`}>
+                          {member.role}
+                        </span>
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_ACCESS_STATUS_STYLES[member.accessStatus]}`}>
+                          {SUPPORT_ACCESS_STATUS_LABELS[member.accessStatus]}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-[#6B7682]">{member.email}</p>
+                      <p className="mt-1 text-sm text-[#1A3636]">{member.businessName}</p>
+                    </div>
+
+                    <div className="grid gap-2 text-xs text-[#5C6B73] sm:grid-cols-3 lg:min-w-[420px]">
+                      <div className="rounded-2xl border border-white/70 bg-white px-3 py-2">
+                        <p className="font-semibold text-[#1A3636]">{formatSubscriptionDate(member.lastSaleAt) || 'Aucune vente'}</p>
+                        <p className="mt-1">Derniere activite</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/70 bg-white px-3 py-2">
+                        <p className="font-semibold text-[#1A3636]">{member.monthlySalesCount}</p>
+                        <p className="mt-1">Vente(s) ce mois</p>
+                      </div>
+                      <div className="rounded-2xl border border-white/70 bg-white px-3 py-2">
+                        <p className="font-semibold text-[#1A3636]">{formatSubscriptionDate(member.createdAt) || 'Date indisponible'}</p>
+                        <p className="mt-1">Cree le</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {linkedAccount && (
+                    <div className="mt-3 flex justify-end">
+                      <Button variant="outline" size="sm" onClick={() => setSelectedAccountId(linkedAccount.accountId)}>
+                        <UserRoundCog size={14} />
+                        Ouvrir la fiche boutique
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Card>
+
       <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.2fr)_minmax(380px,0.9fr)]">
         <Card className="p-4 sm:p-5">
           <div className="flex items-center justify-between gap-3">
@@ -741,9 +1301,17 @@ export function SupportConsole() {
                           <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_STATUS_STYLES[account.status]}`}>
                             {SUBSCRIPTION_STATUS_LABELS[account.status]}
                           </span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_ACCESS_STATUS_STYLES[account.accessStatus]}`}>
+                            {SUPPORT_ACCESS_STATUS_LABELS[account.accessStatus]}
+                          </span>
                           <span className="rounded-full border border-[#2D7D7D]/10 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#2D7D7D]">
                             {account.plan === 'lifetime' ? 'A vie' : account.plan}
                           </span>
+                          {account.watchLevel !== 'normal' && (
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_WATCH_LEVEL_STYLES[account.watchLevel]}`}>
+                              {SUPPORT_WATCH_LEVEL_LABELS[account.watchLevel]}
+                            </span>
+                          )}
                           {account.pendingRequestsCount > 0 && (
                             <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
                               {account.pendingRequestsCount} demande(s) ouverte(s)
@@ -1134,9 +1702,17 @@ export function SupportConsole() {
                     <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_STATUS_STYLES[selectedAccount.status]}`}>
                       {SUBSCRIPTION_STATUS_LABELS[selectedAccount.status]}
                     </span>
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_ACCESS_STATUS_STYLES[selectedAccount.accessStatus]}`}>
+                      {SUPPORT_ACCESS_STATUS_LABELS[selectedAccount.accessStatus]}
+                    </span>
                     <span className="rounded-full border border-[#2D7D7D]/10 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#2D7D7D]">
                       {planDefinition.name}
                     </span>
+                    {selectedAccount.watchLevel !== 'normal' && (
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_WATCH_LEVEL_STYLES[selectedAccount.watchLevel]}`}>
+                        {SUPPORT_WATCH_LEVEL_LABELS[selectedAccount.watchLevel]}
+                      </span>
+                    )}
                   </div>
                   <div className="mt-3 space-y-1 text-sm text-[#5C6B73]">
                     <p className="font-medium text-[#1A3636]">{selectedAccount.ownerName}</p>
@@ -1243,6 +1819,31 @@ export function SupportConsole() {
                   })}
                 </div>
               </Card>
+
+              <div className="grid gap-3 xl:grid-cols-2">
+                <div className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#6B7682]">Note interne support</p>
+                  <p className="mt-2 text-sm leading-relaxed text-[#1A3636]">
+                    {selectedAccount.internalNote || 'Aucune note interne enregistree pour cette boutique.'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#6B7682]">Relance & suivi</p>
+                  <p className="mt-2 text-sm leading-relaxed text-[#1A3636]">
+                    {selectedAccount.followUpNote || 'Aucune relance en attente pour le moment.'}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-[#5C6B73]">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-white/70 bg-white px-2.5 py-1">
+                      <CalendarClock size={13} />
+                      Prochaine relance {formatSubscriptionDate(selectedAccount.nextFollowUpAt) || 'non planifiee'}
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-white/70 bg-white px-2.5 py-1">
+                      <Mail size={13} />
+                      Dernier contact {formatSubscriptionDateTime(selectedAccount.lastContactedAt) || 'aucun'}
+                    </span>
+                  </div>
+                </div>
+              </div>
 
               <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
                 <Card className="p-4">

@@ -6,6 +6,8 @@ import type {
   SubscriptionRequestStatus,
   SubscriptionRequestType,
   SubscriptionStatus,
+  SupportAccessStatus,
+  SupportWatchLevel,
 } from '@/types'
 
 type PlanLimitKey = 'products' | 'teamMembers' | 'monthlySales'
@@ -73,6 +75,13 @@ type RawSupportPlatformAccount = {
   monthly_sales_count?: number | string | null
   pending_requests_count?: number | string | null
   last_request_at?: string | null
+  access_status?: string | null
+  watch_level?: string | null
+  internal_note?: string | null
+  follow_up_note?: string | null
+  next_follow_up_at?: string | null
+  last_contacted_at?: string | null
+  last_sale_at?: string | null
 }
 
 type RawSupportSubscriptionAudit = {
@@ -88,6 +97,20 @@ type RawSupportSubscriptionAudit = {
   requested_plan?: string | null
   request_type?: string | null
   status?: string | null
+}
+
+type RawSupportPlatformMember = {
+  member_id: string
+  account_id: string
+  business_name?: string | null
+  owner_full_name?: string | null
+  full_name?: string | null
+  email?: string | null
+  role?: string | null
+  access_status?: string | null
+  created_at?: string | null
+  last_sale_at?: string | null
+  monthly_sales_count?: number | string | null
 }
 
 export type SubscriptionUsage = {
@@ -139,6 +162,13 @@ export type SupportPlatformAccount = {
   monthlySalesCount: number
   pendingRequestsCount: number
   lastRequestAt?: string | null
+  accessStatus: SupportAccessStatus
+  watchLevel: SupportWatchLevel
+  internalNote?: string | null
+  followUpNote?: string | null
+  nextFollowUpAt?: string | null
+  lastContactedAt?: string | null
+  lastSaleAt?: string | null
 }
 
 export type SupportSubscriptionAuditEntry = {
@@ -154,6 +184,20 @@ export type SupportSubscriptionAuditEntry = {
   requestedPlan: SubscriptionPlan
   requestType: SubscriptionRequestType
   status: SubscriptionRequestStatus
+}
+
+export type SupportPlatformMember = {
+  memberId: string
+  accountId: string
+  businessName: string
+  ownerName: string
+  fullName: string
+  email: string
+  role: 'admin' | 'employee' | 'cashier'
+  accessStatus: SupportAccessStatus
+  createdAt?: string | null
+  lastSaleAt?: string | null
+  monthlySalesCount: number
 }
 
 export type SubscriptionRequestRecord = {
@@ -188,6 +232,15 @@ export type SupportSubscriptionRequestActionInput = {
   paymentMethod?: SubscriptionPaymentMethod | null
   paymentAmount?: number | null
   paymentReference?: string | null
+}
+
+export type SupportAccountControlInput = {
+  accessStatus: SupportAccessStatus
+  watchLevel: SupportWatchLevel
+  internalNote?: string | null
+  followUpNote?: string | null
+  nextFollowUpAt?: string | null
+  lastContactedAt?: string | null
 }
 
 const PLAN_LEVELS: Record<SubscriptionPlan, number> = {
@@ -328,6 +381,28 @@ export const SUBSCRIPTION_REQUEST_TYPE_STYLES: Record<SubscriptionRequestType, s
   downgrade: 'bg-slate-500/10 text-slate-700 border border-slate-500/15',
 }
 
+export const SUPPORT_ACCESS_STATUS_LABELS: Record<SupportAccessStatus, string> = {
+  active: 'Acces actif',
+  restricted: 'Acces suspendu',
+}
+
+export const SUPPORT_ACCESS_STATUS_STYLES: Record<SupportAccessStatus, string> = {
+  active: 'bg-emerald-500/10 text-emerald-700 border border-emerald-500/15',
+  restricted: 'bg-red-500/10 text-red-700 border border-red-500/15',
+}
+
+export const SUPPORT_WATCH_LEVEL_LABELS: Record<SupportWatchLevel, string> = {
+  normal: 'Normal',
+  priority: 'Priorite',
+  critical: 'Critique',
+}
+
+export const SUPPORT_WATCH_LEVEL_STYLES: Record<SupportWatchLevel, string> = {
+  normal: 'bg-slate-500/10 text-slate-700 border border-slate-500/15',
+  priority: 'bg-amber-500/10 text-amber-700 border border-amber-500/15',
+  critical: 'bg-red-500/10 text-red-700 border border-red-500/15',
+}
+
 function normalizePlan(value: string | null | undefined): SubscriptionPlan {
   return SUBSCRIPTION_PLANS.some((plan) => plan.id === value)
     ? (value as SubscriptionPlan)
@@ -370,6 +445,15 @@ function normalizeSubscriptionPaymentMethod(value: string | null | undefined): S
   return null
 }
 
+function normalizeSupportAccessStatus(value: string | null | undefined): SupportAccessStatus {
+  return value === 'restricted' ? 'restricted' : 'active'
+}
+
+function normalizeSupportWatchLevel(value: string | null | undefined): SupportWatchLevel {
+  if (value === 'priority' || value === 'critical') return value
+  return 'normal'
+}
+
 function normalizeCount(value: number | string | null | undefined): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
@@ -407,6 +491,9 @@ function isMissingSupportRpc(error: unknown): boolean {
     || message.includes('support_console_overview')
     || message.includes('list_support_platform_accounts')
     || message.includes('list_support_subscription_request_audit')
+    || message.includes('list_support_platform_members')
+    || message.includes('upsert_support_account_control')
+    || message.includes('current_account_access_status')
 }
 
 function mapSubscriptionRequest(row: RawSubscriptionRequest): SubscriptionRequestRecord {
@@ -470,6 +557,13 @@ function mapSupportPlatformAccount(row: RawSupportPlatformAccount): SupportPlatf
     monthlySalesCount: normalizeCount(row.monthly_sales_count),
     pendingRequestsCount: normalizeCount(row.pending_requests_count),
     lastRequestAt: row.last_request_at ?? null,
+    accessStatus: normalizeSupportAccessStatus(row.access_status),
+    watchLevel: normalizeSupportWatchLevel(row.watch_level),
+    internalNote: row.internal_note ?? null,
+    followUpNote: row.follow_up_note ?? null,
+    nextFollowUpAt: row.next_follow_up_at ?? null,
+    lastContactedAt: row.last_contacted_at ?? null,
+    lastSaleAt: row.last_sale_at ?? null,
   }
 }
 
@@ -490,6 +584,24 @@ function mapSupportSubscriptionAudit(row: RawSupportSubscriptionAudit): SupportS
     requestedPlan,
     requestType: getSubscriptionRequestType(currentPlan, requestedPlan, 'active', row.request_type),
     status: normalizeRequestStatus(row.status),
+  }
+}
+
+function mapSupportPlatformMember(row: RawSupportPlatformMember): SupportPlatformMember {
+  const role = row.role === 'admin' || row.role === 'cashier' ? row.role : 'employee'
+
+  return {
+    memberId: row.member_id,
+    accountId: row.account_id,
+    businessName: row.business_name?.trim() || 'Boutique sans nom',
+    ownerName: row.owner_full_name?.trim() || 'Compte proprietaire',
+    fullName: row.full_name?.trim() || row.email?.trim() || 'Utilisateur',
+    email: row.email?.trim() || 'email indisponible',
+    role,
+    accessStatus: normalizeSupportAccessStatus(row.access_status),
+    createdAt: row.created_at ?? null,
+    lastSaleAt: row.last_sale_at ?? null,
+    monthlySalesCount: normalizeCount(row.monthly_sales_count),
   }
 }
 
@@ -678,6 +790,26 @@ export function formatSubscriptionDate(value?: string | null): string | null {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
   return new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }).format(date)
+}
+
+export function formatSubscriptionDateTime(value?: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return new Intl.DateTimeFormat('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+export function toDateInputValue(value?: string | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toISOString().slice(0, 10)
 }
 
 export function getRemainingDays(value?: string | null): number | null {
@@ -921,6 +1053,35 @@ export async function getSupportPlatformAccounts(input?: {
   return ((data ?? []) as RawSupportPlatformAccount[]).map(mapSupportPlatformAccount)
 }
 
+export async function getSupportPlatformMembers(input?: {
+  search?: string
+  role?: 'admin' | 'employee' | 'cashier' | 'all'
+  accessStatus?: SupportAccessStatus | 'all'
+  limit?: number
+}): Promise<SupportPlatformMember[]> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { data, error } = await supabase.rpc('list_support_platform_members', {
+    p_limit: input?.limit ?? 80,
+    p_search: input?.search?.trim() || null,
+    p_role: !input?.role || input.role === 'all' ? null : input.role,
+    p_access_status: !input?.accessStatus || input.accessStatus === 'all' ? null : input.accessStatus,
+  })
+
+  if (error) {
+    if (isSupportAccessDenied(error)) {
+      throw new Error('Acces support requis pour afficher les membres.')
+    }
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration console SaaS n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
+
+  return ((data ?? []) as RawSupportPlatformMember[]).map(mapSupportPlatformMember)
+}
+
 export async function getSupportSubscriptionAudit(limit = 24): Promise<SupportSubscriptionAuditEntry[]> {
   const supabase = createClient()
   await ensureBrowserSupabaseSession(supabase)
@@ -975,6 +1136,38 @@ export async function applySupportSubscriptionRequestAction(
   }
 
   return mapSubscriptionRequest(rows[0])
+}
+
+export async function upsertSupportAccountControl(
+  accountId: string,
+  input: SupportAccountControlInput
+): Promise<void> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const nextFollowUpAt = input.nextFollowUpAt
+    ? new Date(`${input.nextFollowUpAt}T12:00:00.000Z`).toISOString()
+    : null
+
+  const { error } = await supabase.rpc('upsert_support_account_control', {
+    p_account_id: accountId,
+    p_access_status: input.accessStatus,
+    p_watch_level: input.watchLevel,
+    p_internal_note: input.internalNote?.trim() || null,
+    p_follow_up_note: input.followUpNote?.trim() || null,
+    p_next_follow_up_at: nextFollowUpAt,
+    p_last_contacted_at: input.lastContactedAt ?? null,
+  })
+
+  if (error) {
+    if (isSupportAccessDenied(error)) {
+      throw new Error('Acces support requis pour modifier cette boutique.')
+    }
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration console SaaS n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
 }
 
 export async function submitSubscriptionRequest(

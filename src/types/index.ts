@@ -4,6 +4,8 @@ export type BillingCycle = 'monthly' | 'quarterly' | 'yearly' | 'manual'
 export type SubscriptionRequestStatus = 'sent' | 'in_progress' | 'activated' | 'cancelled'
 export type SubscriptionRequestType = 'activation' | 'upgrade' | 'renewal' | 'reactivation' | 'downgrade'
 export type SubscriptionPaymentMethod = 'cash' | 'wave' | 'orange_money' | 'card' | 'bank_transfer' | 'other'
+export type SupportAccessStatus = 'active' | 'restricted'
+export type SupportWatchLevel = 'normal' | 'priority' | 'critical'
 
 export interface User {
   id: string

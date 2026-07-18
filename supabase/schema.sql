@@ -61,6 +61,19 @@ CREATE TABLE IF NOT EXISTS public.support_admins (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS public.support_account_controls (
+  account_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  access_status TEXT NOT NULL DEFAULT 'active' CHECK (access_status IN ('active', 'restricted')),
+  watch_level TEXT NOT NULL DEFAULT 'normal' CHECK (watch_level IN ('normal', 'priority', 'critical')),
+  internal_note TEXT,
+  follow_up_note TEXT,
+  next_follow_up_at TIMESTAMPTZ,
+  last_contacted_at TIMESTAMPTZ,
+  updated_by_email TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS public.subscription_request_audit_logs (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   request_id UUID REFERENCES public.subscription_requests(id) ON DELETE CASCADE NOT NULL,
@@ -197,6 +210,7 @@ CREATE TABLE IF NOT EXISTS public.stock_movements (
 -- Row Level Security
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_admins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.support_account_controls ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.subscription_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.subscription_request_audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
