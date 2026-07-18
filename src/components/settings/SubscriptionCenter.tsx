@@ -508,6 +508,16 @@ export function SubscriptionCenter() {
               <LifeBuoy size={16} />
               Contacter le support
             </Button>
+            {supportAccess && (
+              <Button
+                variant="glass"
+                onClick={() => { window.location.href = '/settings/support-console' }}
+                fullWidth
+              >
+                <Sparkles size={16} />
+                Ouvrir la console SaaS
+              </Button>
+            )}
             <Button
               variant="ghost"
               onClick={() => void loadOverview()}

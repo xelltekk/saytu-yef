@@ -46,6 +46,50 @@ type RawSubscriptionRequest = {
   updated_at?: string | null
 }
 
+type RawSupportConsoleOverview = {
+  total_accounts?: number | string | null
+  total_members?: number | string | null
+  active_paid_accounts?: number | string | null
+  trial_accounts?: number | string | null
+  free_accounts?: number | string | null
+  lifetime_accounts?: number | string | null
+  pending_requests?: number | string | null
+  expiring_soon_accounts?: number | string | null
+  monthly_recurring_revenue?: number | string | null
+}
+
+type RawSupportPlatformAccount = {
+  account_id: string
+  business_name?: string | null
+  owner_full_name?: string | null
+  owner_email?: string | null
+  subscription_plan?: string | null
+  subscription_status?: string | null
+  billing_cycle?: string | null
+  created_at?: string | null
+  current_period_ends_at?: string | null
+  team_members_count?: number | string | null
+  products_count?: number | string | null
+  monthly_sales_count?: number | string | null
+  pending_requests_count?: number | string | null
+  last_request_at?: string | null
+}
+
+type RawSupportSubscriptionAudit = {
+  audit_id: string
+  request_id: string
+  action?: string | null
+  actor_email?: string | null
+  note?: string | null
+  created_at?: string | null
+  business_name?: string | null
+  requested_by_email?: string | null
+  current_plan?: string | null
+  requested_plan?: string | null
+  request_type?: string | null
+  status?: string | null
+}
+
 export type SubscriptionUsage = {
   products: number
   teamMembers: number
@@ -66,6 +110,50 @@ export type SubscriptionOverview = {
   notes?: string | null
   usage: SubscriptionUsage
   hasAdvancedFields: boolean
+}
+
+export type SupportConsoleOverview = {
+  totalAccounts: number
+  totalMembers: number
+  activePaidAccounts: number
+  trialAccounts: number
+  freeAccounts: number
+  lifetimeAccounts: number
+  pendingRequests: number
+  expiringSoonAccounts: number
+  monthlyRecurringRevenue: number
+}
+
+export type SupportPlatformAccount = {
+  accountId: string
+  businessName: string
+  ownerName: string
+  ownerEmail: string
+  plan: SubscriptionPlan
+  status: SubscriptionStatus
+  billingCycle: BillingCycle
+  createdAt?: string | null
+  currentPeriodEndsAt?: string | null
+  teamMembersCount: number
+  productsCount: number
+  monthlySalesCount: number
+  pendingRequestsCount: number
+  lastRequestAt?: string | null
+}
+
+export type SupportSubscriptionAuditEntry = {
+  auditId: string
+  requestId: string
+  action: string
+  actorEmail?: string | null
+  note?: string | null
+  createdAt?: string | null
+  businessName?: string | null
+  requestedByEmail?: string | null
+  currentPlan: SubscriptionPlan
+  requestedPlan: SubscriptionPlan
+  requestType: SubscriptionRequestType
+  status: SubscriptionRequestStatus
 }
 
 export type SubscriptionRequestRecord = {
@@ -282,6 +370,11 @@ function normalizeSubscriptionPaymentMethod(value: string | null | undefined): S
   return null
 }
 
+function normalizeCount(value: number | string | null | undefined): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 function isMissingSubscriptionRequestTable(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
 
@@ -311,6 +404,9 @@ function isMissingSupportRpc(error: unknown): boolean {
     || message.includes('list_support_subscription_requests')
     || message.includes('apply_support_subscription_request_action')
     || message.includes('submit_subscription_request_secure')
+    || message.includes('support_console_overview')
+    || message.includes('list_support_platform_accounts')
+    || message.includes('list_support_subscription_request_audit')
 }
 
 function mapSubscriptionRequest(row: RawSubscriptionRequest): SubscriptionRequestRecord {
@@ -338,6 +434,62 @@ function mapSubscriptionRequest(row: RawSubscriptionRequest): SubscriptionReques
     activatedAt: row.activated_at ?? null,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
+  }
+}
+
+function mapSupportConsoleOverview(row: RawSupportConsoleOverview): SupportConsoleOverview {
+  return {
+    totalAccounts: normalizeCount(row.total_accounts),
+    totalMembers: normalizeCount(row.total_members),
+    activePaidAccounts: normalizeCount(row.active_paid_accounts),
+    trialAccounts: normalizeCount(row.trial_accounts),
+    freeAccounts: normalizeCount(row.free_accounts),
+    lifetimeAccounts: normalizeCount(row.lifetime_accounts),
+    pendingRequests: normalizeCount(row.pending_requests),
+    expiringSoonAccounts: normalizeCount(row.expiring_soon_accounts),
+    monthlyRecurringRevenue: normalizeCount(row.monthly_recurring_revenue),
+  }
+}
+
+function mapSupportPlatformAccount(row: RawSupportPlatformAccount): SupportPlatformAccount {
+  const plan = normalizePlan(row.subscription_plan)
+  const status = normalizeStatus(row.subscription_status) ?? inferStatus(plan, row.created_at, null)
+
+  return {
+    accountId: row.account_id,
+    businessName: row.business_name?.trim() || 'Boutique sans nom',
+    ownerName: row.owner_full_name?.trim() || 'Compte proprietaire',
+    ownerEmail: row.owner_email?.trim() || 'email indisponible',
+    plan,
+    status,
+    billingCycle: normalizeCycle(row.billing_cycle, plan),
+    createdAt: row.created_at ?? null,
+    currentPeriodEndsAt: row.current_period_ends_at ?? null,
+    teamMembersCount: normalizeCount(row.team_members_count),
+    productsCount: normalizeCount(row.products_count),
+    monthlySalesCount: normalizeCount(row.monthly_sales_count),
+    pendingRequestsCount: normalizeCount(row.pending_requests_count),
+    lastRequestAt: row.last_request_at ?? null,
+  }
+}
+
+function mapSupportSubscriptionAudit(row: RawSupportSubscriptionAudit): SupportSubscriptionAuditEntry {
+  const currentPlan = normalizePlan(row.current_plan)
+  const requestedPlan = normalizePlan(row.requested_plan)
+
+  return {
+    auditId: row.audit_id,
+    requestId: row.request_id,
+    action: row.action?.trim() || 'requested',
+    actorEmail: row.actor_email ?? null,
+    note: row.note ?? null,
+    createdAt: row.created_at ?? null,
+    businessName: row.business_name ?? null,
+    requestedByEmail: row.requested_by_email ?? null,
+    currentPlan,
+    requestedPlan,
+    requestType: getSubscriptionRequestType(currentPlan, requestedPlan, 'active', row.request_type),
+    status: normalizeRequestStatus(row.status),
   }
 }
 
@@ -688,6 +840,106 @@ export async function getSupportSubscriptionRequests(limit = 12): Promise<Subscr
   }
 
   return ((data ?? []) as RawSubscriptionRequest[]).map(mapSubscriptionRequest)
+}
+
+export async function hasSupportOperatorAccess(): Promise<boolean> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { data, error } = await supabase.rpc('is_support_operator')
+
+  if (error) {
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration console SaaS n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
+
+  return Boolean(data)
+}
+
+export async function getSupportConsoleOverview(): Promise<SupportConsoleOverview> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { data, error } = await supabase.rpc('support_console_overview')
+
+  if (error) {
+    if (isSupportAccessDenied(error)) {
+      throw new Error('Acces support requis pour ouvrir la console SaaS.')
+    }
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration console SaaS n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
+
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row) {
+    return {
+      totalAccounts: 0,
+      totalMembers: 0,
+      activePaidAccounts: 0,
+      trialAccounts: 0,
+      freeAccounts: 0,
+      lifetimeAccounts: 0,
+      pendingRequests: 0,
+      expiringSoonAccounts: 0,
+      monthlyRecurringRevenue: 0,
+    }
+  }
+
+  return mapSupportConsoleOverview(row as RawSupportConsoleOverview)
+}
+
+export async function getSupportPlatformAccounts(input?: {
+  search?: string
+  plan?: SubscriptionPlan | 'all'
+  status?: SubscriptionStatus | 'all'
+  limit?: number
+}): Promise<SupportPlatformAccount[]> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { data, error } = await supabase.rpc('list_support_platform_accounts', {
+    p_limit: input?.limit ?? 60,
+    p_search: input?.search?.trim() || null,
+    p_plan: !input?.plan || input.plan === 'all' ? null : input.plan,
+    p_status: !input?.status || input.status === 'all' ? null : input.status,
+  })
+
+  if (error) {
+    if (isSupportAccessDenied(error)) {
+      throw new Error('Acces support requis pour afficher les boutiques.')
+    }
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration console SaaS n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
+
+  return ((data ?? []) as RawSupportPlatformAccount[]).map(mapSupportPlatformAccount)
+}
+
+export async function getSupportSubscriptionAudit(limit = 24): Promise<SupportSubscriptionAuditEntry[]> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { data, error } = await supabase.rpc('list_support_subscription_request_audit', {
+    p_limit: limit,
+  })
+
+  if (error) {
+    if (isSupportAccessDenied(error)) {
+      throw new Error('Acces support requis pour afficher l historique.')
+    }
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration console SaaS n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
+
+  return ((data ?? []) as RawSupportSubscriptionAudit[]).map(mapSupportSubscriptionAudit)
 }
 
 export async function applySupportSubscriptionRequestAction(
