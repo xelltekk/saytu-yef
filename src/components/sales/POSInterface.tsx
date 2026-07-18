@@ -777,33 +777,38 @@ export function POSInterface({
 
       {activeCart.length > 0 && (
         <div className="sticky bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-20 -mt-2 lg:hidden">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-[28px] border border-[#2D7D7D]/[0.08] bg-white/95 p-3 shadow-[0_12px_28px_rgba(26,54,54,0.12)] backdrop-blur">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-[28px] border border-[#2D7D7D]/[0.08] bg-white/95 p-2.5 shadow-[0_12px_28px_rgba(26,54,54,0.12)] backdrop-blur min-[400px]:gap-3 min-[400px]:p-3">
             <button
               type="button"
               onClick={() => setShowMobileCart(true)}
               aria-label={`Ouvrir le panier, ${itemCount} article(s), total ${formatCurrency(total)}`}
-              className="flex min-w-0 items-center justify-between gap-3 rounded-2xl bg-[#F4F7FB] px-3 py-3 text-left"
+              className="flex min-w-0 items-center justify-between gap-2 rounded-2xl bg-[#F4F7FB] px-2.5 py-2.5 text-left min-[400px]:gap-3 min-[400px]:px-3 min-[400px]:py-3"
             >
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl bg-[#6C5CE7]/10 text-[#6C5CE7]">
-                  <ShoppingCart size={18} />
+              <div className="flex min-w-0 items-center gap-2 min-[400px]:gap-3">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl bg-[#6C5CE7]/10 text-[#6C5CE7] min-[400px]:h-11 min-[400px]:w-11">
+                  <ShoppingCart size={16} className="min-[400px]:h-[18px] min-[400px]:w-[18px]" />
                 </div>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-[#1A3636]">{itemCount} article(s)</p>
-                  <p className="truncate text-xs text-[#6B7682]">
-                    {activeCustomerName.trim() || activeCustomerPhone.trim() || 'Client comptoir'} · {selectedPaymentMethod.label}
+                  <p className="truncate text-[10px] font-semibold uppercase tracking-[0.06em] text-[#6B7682] min-[400px]:text-[11px]">A encaisser</p>
+                  <p className="truncate text-[15px] font-bold leading-none text-[#6C5CE7] min-[400px]:text-base">
+                    {formatCurrency(total)}
                   </p>
                 </div>
               </div>
-              <div className="flex flex-shrink-0 items-center gap-2">
-                <span className="text-sm font-bold text-[#6C5CE7]">{formatCurrency(total)}</span>
-                <ArrowRight size={16} className="text-[#6C5CE7]" />
+              <div className="flex flex-shrink-0 flex-col items-end gap-0.5 text-right">
+                <span className="text-[10px] font-semibold text-[#5C6B73] min-[400px]:text-[11px]">
+                  {itemCount} article(s)
+                </span>
+                <span className="flex items-center gap-1 text-[11px] font-semibold text-[#6C5CE7] min-[400px]:text-xs">
+                  Details
+                  <ArrowRight size={14} className="text-[#6C5CE7]" />
+                </span>
               </div>
             </button>
             <Button
               variant="primary"
               size="md"
-              className="min-w-[132px] px-5"
+              className="min-w-[118px] px-4 text-[13px] min-[400px]:min-w-[132px] min-[400px]:px-5 min-[400px]:text-sm"
               onClick={handleCheckout}
               disabled={isSalesLimitReached || !canCheckout}
               title={
