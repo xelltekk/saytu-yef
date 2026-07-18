@@ -206,6 +206,8 @@ async function copyText(value: string): Promise<void> {
 
 function buildClientSummaries(sales: Sale[]): ClientSummary[] {
   const clients = new Map<string, ClientSummary>()
+  const latestNameAt = new Map<string, number>()
+  const latestPhoneAt = new Map<string, number>()
 
   sales.forEach((sale) => {
     const name = sale.customer_name?.trim() ?? ''
@@ -214,6 +216,7 @@ function buildClientSummaries(sales: Sale[]): ClientSummary[] {
 
     const normalizedPhone = normalizePhone(phone)
     const key = normalizedPhone ? `phone:${normalizedPhone}` : `name:${name.toLocaleLowerCase('fr')}`
+    const saleTimestamp = new Date(sale.created_at).getTime()
     const status = getSaleComputedStatus(sale)
     const isReversed = status === 'cancelled' || status === 'refunded'
     const current = clients.get(key) ?? {
@@ -228,8 +231,15 @@ function buildClientSummaries(sales: Sale[]): ClientSummary[] {
       sales: [],
     }
 
-    if (name) current.name = name
-    if (phone) current.phone = phone
+    if (name && saleTimestamp >= (latestNameAt.get(key) ?? Number.NEGATIVE_INFINITY)) {
+      current.name = name
+      latestNameAt.set(key, saleTimestamp)
+    }
+
+    if (phone && saleTimestamp >= (latestPhoneAt.get(key) ?? Number.NEGATIVE_INFINITY)) {
+      current.phone = phone
+      latestPhoneAt.set(key, saleTimestamp)
+    }
 
     if (!isReversed) {
       current.saleCount += 1
@@ -239,7 +249,7 @@ function buildClientSummaries(sales: Sale[]): ClientSummary[] {
       current.sales.push(sale)
     }
 
-    if (new Date(sale.created_at).getTime() > new Date(current.lastPurchase).getTime()) {
+    if (saleTimestamp > new Date(current.lastPurchase).getTime()) {
       current.lastPurchase = sale.created_at
     }
 
@@ -618,11 +628,11 @@ export default function ClientsPage() {
         )}
 
         {loading ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{[1, 2, 3, 4, 5, 6].map((item) => <div key={item} className="skeleton h-44 rounded-2xl" />)}</div>
+          <div className="space-y-2">{[1, 2, 3, 4, 5, 6].map((item) => <div key={item} className="skeleton h-24 rounded-2xl" />)}</div>
         ) : filteredClients.length === 0 ? (
           <Card><div className="py-12 text-center text-[#6B7682]"><Users size={30} className="mx-auto mb-3 opacity-40" /><p className="text-sm">Aucun client ne correspond à ce filtre.</p></div></Card>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="space-y-2">
             {filteredClients.map((client) => {
               const contactPhone = normalizePhone(client.phone)
               const debtSales = getClientDebtSales(client)
@@ -639,29 +649,29 @@ export default function ClientsPage() {
               const nextAction = getClientNextAction(client)
 
               return (
-                <Card key={client.id} className="p-4">
+                <Card key={client.id} className="p-3 sm:p-3.5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-[#1A3636]">{client.name}</p>
                       <p className="mt-0.5 text-xs text-[#6B7682]">{client.phone || 'Aucun téléphone'}</p>
                     </div>
-                    <span className={`shrink-0 rounded-lg px-2 py-1 text-[10px] font-semibold ${client.totalDue > 0 ? 'bg-amber-500/10 text-amber-700' : 'bg-emerald-500/10 text-emerald-700'}`}>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${client.totalDue > 0 ? 'bg-amber-500/10 text-amber-700' : 'bg-emerald-500/10 text-emerald-700'}`}>
                       {client.totalDue > 0 ? 'Dette ouverte' : 'Soldé'}
                     </span>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-2">
-                    <div className="rounded-xl bg-[#F4F7FB] p-3">
+                  <div className="mt-2 grid grid-cols-2 gap-2 sm:max-w-md">
+                    <div className="rounded-xl bg-[#F4F7FB] p-2.5">
                       <p className="text-[10px] uppercase text-[#6B7682]">Achats</p>
-                      <p className="mt-1 text-sm font-semibold text-[#1A3636]">{formatCurrencyCompact(client.totalPurchases)}</p>
+                      <p className="mt-1 text-xs font-semibold text-[#1A3636]">{formatCurrencyCompact(client.totalPurchases)}</p>
                     </div>
-                    <div className={`rounded-xl p-3 ${client.totalDue > 0 ? 'bg-amber-500/10' : 'bg-emerald-500/10'}`}>
+                    <div className={`rounded-xl p-2.5 ${client.totalDue > 0 ? 'bg-amber-500/10' : 'bg-emerald-500/10'}`}>
                       <p className="text-[10px] uppercase text-[#6B7682]">Reste</p>
-                      <p className={`mt-1 text-sm font-semibold ${client.totalDue > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>{formatCurrencyCompact(client.totalDue)}</p>
+                      <p className={`mt-1 text-xs font-semibold ${client.totalDue > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>{formatCurrencyCompact(client.totalDue)}</p>
                     </div>
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-2 flex flex-wrap gap-1.5">
                     <span className="rounded-full bg-[#F4F7FB] px-2.5 py-1 text-[11px] font-medium text-[#5C6B73]">
                       Versé {formatCurrencyCompact(client.totalPaid)}
                     </span>
@@ -678,12 +688,12 @@ export default function ClientsPage() {
                     )}
                   </div>
 
-                  <div className="mt-3">
+                  <div className="mt-2">
                     <div className="mb-1 flex items-center justify-between text-[11px] text-[#6B7682]">
                       <span>Progression du recouvrement</span>
                       <span>{recoveryRate}%</span>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-[#2D7D7D]/10">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-[#2D7D7D]/10">
                       <div
                         className="h-full rounded-full bg-[#2D7D7D] transition-all"
                         style={{ width: `${Math.max(recoveryRate, client.totalPaid > 0 ? 6 : 0)}%` }}
@@ -691,20 +701,20 @@ export default function ClientsPage() {
                     </div>
                   </div>
 
-                  <div className="mt-3 flex items-center justify-between text-xs text-[#6B7682]">
+                  <div className="mt-2 flex items-center justify-between text-xs text-[#6B7682]">
                     <span>{client.saleCount} vente(s)</span>
                     <span>{formatDate(client.lastPurchase)}</span>
                   </div>
 
                   {client.totalDue > 0 && (
-                    <div className={`mt-3 rounded-xl border px-3 py-2.5 text-xs ${nextAction.className}`}>
+                    <div className={`mt-2 rounded-xl border px-3 py-2 text-[11px] ${nextAction.className}`}>
                       <p className="font-semibold">{nextAction.label}</p>
                       <p className="mt-1">{nextAction.detail}</p>
                     </div>
                   )}
 
                   {latestDebtSale && (
-                    <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
+                    <div className="mt-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2">
                       <div className="flex items-center justify-between gap-3 text-xs">
                         <span className="font-medium text-[#5C6B73]">Dernière dette ouverte</span>
                         <span className="font-bold text-amber-700">{formatCurrencyCompact(getSaleAmountDue(latestDebtSale))}</span>
@@ -720,12 +730,12 @@ export default function ClientsPage() {
                     </div>
                   )}
 
-                  <div className="mt-3 grid gap-2 border-t border-[#2D7D7D]/[0.07] pt-3">
+                  <div className="mt-2 flex flex-wrap gap-2 border-t border-[#2D7D7D]/[0.07] pt-2">
                     {latestDebtSale && (
                       <button
                         type="button"
                         onClick={() => setSelectedSale(latestDebtSale)}
-                        className="flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#2D7D7D] px-3 text-xs font-semibold text-white"
+                        className="flex min-h-9 items-center justify-center gap-2 rounded-xl bg-[#2D7D7D] px-3 text-[11px] font-semibold text-white"
                       >
                         <WalletCards size={14} />
                         Encaisser {formatCurrencyCompact(getSaleAmountDue(latestDebtSale))}
@@ -736,7 +746,7 @@ export default function ClientsPage() {
                       <button
                         type="button"
                         onClick={() => setSelectedSale(latestActionSale)}
-                        className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 text-xs font-semibold text-amber-700"
+                        className="flex min-h-9 items-center justify-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 text-[11px] font-semibold text-amber-700"
                       >
                         <Phone size={14} />
                         Ajouter le téléphone client
@@ -746,7 +756,7 @@ export default function ClientsPage() {
                     <button
                       type="button"
                       onClick={() => setExpandedClientId(isExpanded ? null : client.id)}
-                      className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 px-3 text-xs font-semibold text-[#2D7D7D]"
+                      className="flex min-h-9 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 px-3 text-[11px] font-semibold text-[#2D7D7D]"
                     >
                       <ReceiptText size={14} />
                       {debtSales.length > 0 ? `Voir ${debtSales.length} dette(s)` : 'Voir les ventes'}
@@ -755,10 +765,10 @@ export default function ClientsPage() {
 
                     {client.totalDue > 0 && contactPhone && (
                       <div className="grid grid-cols-2 gap-2">
-                        <a href={`https://wa.me/${contactPhone}?text=${encodeURIComponent(reminder)}`} target="_blank" rel="noreferrer" className="flex min-h-10 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-xs font-semibold text-white">
+                        <a href={`https://wa.me/${contactPhone}?text=${encodeURIComponent(reminder)}`} target="_blank" rel="noreferrer" className="flex min-h-9 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-[11px] font-semibold text-white">
                           <MessageCircle size={14} /> WhatsApp
                         </a>
-                        <a href={`tel:+${contactPhone}`} className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 px-3 text-xs font-semibold text-[#2D7D7D]">
+                        <a href={`tel:+${contactPhone}`} className="flex min-h-9 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 px-3 text-[11px] font-semibold text-[#2D7D7D]">
                           <Phone size={14} /> Appeler
                         </a>
                       </div>
@@ -768,7 +778,7 @@ export default function ClientsPage() {
                       <button
                         type="button"
                         onClick={() => void handleCopyReminder(client.name, reminder)}
-                        className="flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 px-3 text-xs font-semibold text-[#2D7D7D]"
+                        className="flex min-h-9 items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/15 px-3 text-[11px] font-semibold text-[#2D7D7D]"
                       >
                         <Copy size={14} />
                         Copier le rappel
@@ -777,7 +787,7 @@ export default function ClientsPage() {
                   </div>
 
                   {isExpanded && (
-                    <div className="mt-3 space-y-2 rounded-2xl bg-[#F4F7FB] p-2">
+                    <div className="mt-2 space-y-2 rounded-2xl bg-[#F4F7FB] p-2">
                       {debtSales.length === 0 ? (
                         <>
                           <p className="px-2 pt-2 text-xs font-medium text-[#5C6B73]">Aucune dette ouverte. Dernières ventes du client:</p>
