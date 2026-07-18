@@ -8,12 +8,11 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input, Select } from '@/components/ui/Input'
 import { useUser } from '@/hooks/useUser'
+import { DEFAULT_NOTIFICATION_PREFERENCES, NOTIFICATION_SETTINGS_KEY } from '@/lib/notificationPreferences'
 import { createClient } from '@/lib/supabase/client'
 import { AlertCircle, Bell, Building, Check, CreditCard, Shield, User } from 'lucide-react'
 
 type SettingsTab = 'profile' | 'business' | 'billing' | 'notifications' | 'security'
-
-const NOTIFICATION_SETTINGS_KEY = 'saytu-yef:notification-preferences'
 
 function getSettingsTabFromQuery(value: string | null): SettingsTab | null {
   if (value === 'profile' || value === 'business' || value === 'billing' || value === 'notifications' || value === 'security') {
@@ -65,7 +64,7 @@ export default function SettingsPage() {
   const [savingBusiness, setSavingBusiness] = useState(false)
   const [businessMsg, setBusinessMsg] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
 
-  const [notifs, setNotifs] = useState({ lowStock: true, newSale: true, dailyReport: false, weeklyReport: true, abroadSync: true })
+  const [notifs, setNotifs] = useState(DEFAULT_NOTIFICATION_PREFERENCES)
   const [savingNotifs, setSavingNotifs] = useState(false)
   const [notifMsg, setNotifMsg] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
 

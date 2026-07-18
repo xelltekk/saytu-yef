@@ -1,9 +1,10 @@
 'use client'
-import { Bell, Search, ChevronDown, LogOut, Settings, User, X } from 'lucide-react'
+import { AlertTriangle, BarChart3, Bell, BellRing, ChevronDown, CircleDollarSign, LogOut, Package2, RefreshCw, Search, Settings, ShoppingCart, User, X } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useUser } from '@/hooks/useUser'
 import { useAccountRole } from '@/hooks/useAccountRole'
+import { useNotifications, type HeaderNotificationItem, type HeaderNotificationTone } from '@/hooks/useNotifications'
 import { canOpenSettings } from '@/lib/accountRoles'
 
 interface HeaderProps {
@@ -11,18 +12,108 @@ interface HeaderProps {
   subtitle?: string
 }
 
+function formatNotificationDate(value?: string | null) {
+  if (!value) return 'A l instant'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'A l instant'
+
+  const diffMs = Date.now() - date.getTime()
+  const diffMinutes = Math.max(0, Math.floor(diffMs / 60000))
+
+  if (diffMinutes < 1) return 'A l instant'
+  if (diffMinutes < 60) return `Il y a ${diffMinutes} min`
+
+  const diffHours = Math.floor(diffMinutes / 60)
+  if (diffHours < 24) return `Il y a ${diffHours} h`
+
+  return new Intl.DateTimeFormat('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function getNotificationToneStyles(tone: HeaderNotificationTone) {
+  if (tone === 'success') {
+    return 'border-emerald-500/15 bg-emerald-500/[0.06]'
+  }
+
+  if (tone === 'warning') {
+    return 'border-amber-500/15 bg-amber-500/[0.06]'
+  }
+
+  if (tone === 'danger') {
+    return 'border-red-500/15 bg-red-500/[0.06]'
+  }
+
+  return 'border-[#2D7D7D]/10 bg-[#F8FBFC]'
+}
+
+function getNotificationIcon(item: HeaderNotificationItem) {
+  const iconClassName =
+    item.tone === 'success'
+      ? 'text-emerald-600'
+      : item.tone === 'warning'
+        ? 'text-amber-600'
+        : item.tone === 'danger'
+          ? 'text-red-500'
+          : 'text-[#2D7D7D]'
+
+  if (item.kind === 'stock') {
+    return <Package2 size={15} className={iconClassName} />
+  }
+
+  if (item.kind === 'sale') {
+    return <ShoppingCart size={15} className={iconClassName} />
+  }
+
+  if (item.kind === 'debt') {
+    return <CircleDollarSign size={15} className={iconClassName} />
+  }
+
+  if (item.kind === 'report') {
+    return <BarChart3 size={15} className={iconClassName} />
+  }
+
+  if (item.kind === 'abroad') {
+    return <AlertTriangle size={15} className={iconClassName} />
+  }
+
+  return <BellRing size={15} className={iconClassName} />
+}
+
 export function Header({ title, subtitle }: HeaderProps) {
   const [showSearch, setShowSearch] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
+  const [showNotifications, setShowNotifications] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const notificationsRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-  const { displayName, businessName, initials, email, loading } = useUser()
+  const { user, displayName, businessName, initials, email, loading } = useUser()
   const { role } = useAccountRole()
+  const {
+    items: notifications,
+    loading: notificationsLoading,
+    error: notificationsError,
+    unreadCount,
+    reload: reloadNotifications,
+    markRead,
+    markAllRead,
+    isRead,
+  } = useNotifications({
+    userId: user?.id ?? null,
+    role,
+  })
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setShowMenu(false)
+      }
+      if (notificationsRef.current && !notificationsRef.current.contains(e.target as Node)) {
+        setShowNotifications(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -71,13 +162,118 @@ export function Header({ title, subtitle }: HeaderProps) {
             <Search size={16} />
           </button>
 
-          <button
-            className="relative w-8 h-8 rounded-xl flex items-center justify-center text-[#6B7682] hover:text-[#5C6B73] hover:bg-[#2D7D7D]/[0.06] transition-all duration-150"
-            aria-label="Notifications"
-          >
-            <Bell size={16} />
-            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#6C5CE7] ring-2 ring-white" />
-          </button>
+          <div className="relative" ref={notificationsRef}>
+            <button
+              onClick={() => {
+                setShowNotifications((current) => {
+                  const nextValue = !current
+                  if (nextValue) {
+                    void reloadNotifications()
+                  }
+                  return nextValue
+                })
+                setShowMenu(false)
+              }}
+              className="relative w-8 h-8 rounded-xl flex items-center justify-center text-[#6B7682] hover:text-[#5C6B73] hover:bg-[#2D7D7D]/[0.06] transition-all duration-150"
+              aria-label="Notifications"
+            >
+              <Bell size={16} />
+              {unreadCount > 0 && (
+                <>
+                  <span className="absolute top-1 right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-[#6C5CE7] text-[10px] font-semibold text-white flex items-center justify-center ring-2 ring-white">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                  <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#6C5CE7] ring-2 ring-white" />
+                </>
+              )}
+            </button>
+
+            {showNotifications && (
+              <div className="absolute right-0 top-full mt-2 z-50 w-[min(92vw,380px)] overflow-hidden rounded-3xl border border-[#2D7D7D]/10 bg-white shadow-[0_16px_48px_rgba(26,54,54,0.16)]">
+                <div className="flex items-center justify-between gap-3 border-b border-[#2D7D7D]/[0.07] px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-semibold text-[#1A3636]">Notifications</p>
+                    <p className="text-[11px] text-[#6B7682]">
+                      {unreadCount > 0 ? `${unreadCount} non lue(s)` : 'Tout est a jour'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void reloadNotifications()}
+                      className="inline-flex items-center gap-1 rounded-full border border-[#2D7D7D]/10 px-2.5 py-1 text-[11px] font-medium text-[#2D7D7D] hover:bg-[#2D7D7D]/[0.05] transition-colors"
+                    >
+                      <RefreshCw size={12} />
+                      Actualiser
+                    </button>
+                    {notifications.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => markAllRead()}
+                        className="text-[11px] font-medium text-[#6C5CE7] hover:text-[#5B4CCF] transition-colors"
+                      >
+                        Tout lire
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="max-h-[420px] overflow-y-auto px-3 py-3">
+                  {notificationsLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 3 }).map((_, index) => (
+                        <div key={index} className="animate-pulse rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-3">
+                          <div className="h-3 w-32 rounded-full bg-[#2D7D7D]/10" />
+                          <div className="mt-2 h-3 w-full rounded-full bg-[#2D7D7D]/10" />
+                          <div className="mt-2 h-3 w-24 rounded-full bg-[#2D7D7D]/10" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : notificationsError ? (
+                    <div className="rounded-2xl border border-red-500/15 bg-red-500/[0.06] px-3 py-3 text-[12px] text-red-600">
+                      {notificationsError}
+                    </div>
+                  ) : notifications.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-[12px] text-[#6B7682]">
+                      Aucune notification utile pour le moment.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {notifications.map((notification) => {
+                        const unread = !isRead(notification.id)
+
+                        return (
+                          <Link
+                            key={notification.id}
+                            href={notification.href}
+                            onClick={() => {
+                              markRead(notification.id)
+                              setShowNotifications(false)
+                            }}
+                            className={`block rounded-2xl border p-3 transition-all hover:border-[#6C5CE7]/25 hover:bg-white ${getNotificationToneStyles(notification.tone)} ${unread ? 'shadow-[0_4px_18px_rgba(108,92,231,0.08)]' : 'opacity-90'}`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-2xl bg-white/80 shadow-sm">
+                                {getNotificationIcon(notification)}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-3">
+                                  <p className="text-[12px] font-semibold leading-snug text-[#1A3636]">{notification.title}</p>
+                                  {unread && <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-[#6C5CE7]" />}
+                                </div>
+                                <p className="mt-1 text-[11px] leading-relaxed text-[#5C6B73]">{notification.message}</p>
+                                <p className="mt-2 text-[10px] font-medium text-[#6B7682]">{formatNotificationDate(notification.createdAt)}</p>
+                              </div>
+                            </div>
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="relative ml-1" ref={menuRef}>
             <button
