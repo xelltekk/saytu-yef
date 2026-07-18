@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input, Select, Textarea } from '@/components/ui/Input'
+import { Modal } from '@/components/ui/Modal'
 import { formatCurrency } from '@/lib/utils'
 import {
   applySupportSubscriptionRequestAction,
@@ -42,13 +43,17 @@ import type {
 import {
   BadgeDollarSign,
   Building2,
+  CheckCircle2,
   Clock3,
   CreditCard,
+  Eye,
   History,
   LifeBuoy,
+  Mail,
   RefreshCw,
   Search,
   ShieldCheck,
+  Sparkles,
   Users,
   Wallet,
 } from 'lucide-react'
@@ -128,6 +133,123 @@ function LoadingSkeleton() {
   )
 }
 
+function normalizeSupportText(value?: string | null) {
+  return value?.trim().toLowerCase() ?? ''
+}
+
+function accountMatchesSupportEntry(
+  account: SupportPlatformAccount,
+  input?: { email?: string | null; businessName?: string | null }
+) {
+  const ownerEmail = normalizeSupportText(account.ownerEmail)
+  const businessName = normalizeSupportText(account.businessName)
+  const entryEmail = normalizeSupportText(input?.email)
+  const entryBusiness = normalizeSupportText(input?.businessName)
+
+  return (
+    (ownerEmail.length > 0 && ownerEmail === entryEmail) ||
+    (businessName.length > 0 && businessName === entryBusiness)
+  )
+}
+
+function getPlanDefinition(plan: SubscriptionPlan) {
+  return SUBSCRIPTION_PLANS.find((item) => item.id === plan) ?? SUBSCRIPTION_PLANS[0]
+}
+
+function getLimitLabel(limit: number | null) {
+  return limit === null ? 'Illimite' : `${limit}`
+}
+
+function getUsageRatio(value: number, limit: number | null) {
+  if (limit === null || limit <= 0) return 0
+  return Math.round((value / limit) * 100)
+}
+
+function getUsageTone(ratio: number, limit: number | null) {
+  if (limit === null) {
+    return {
+      badge: 'Sans plafond',
+      track: 'bg-[#2D7D7D]/10',
+      fill: 'bg-[#2D7D7D]',
+      text: 'text-[#2D7D7D]',
+    }
+  }
+
+  if (ratio >= 100) {
+    return {
+      badge: 'Au plafond',
+      track: 'bg-red-500/10',
+      fill: 'bg-red-500',
+      text: 'text-red-700',
+    }
+  }
+
+  if (ratio >= 80) {
+    return {
+      badge: 'A surveiller',
+      track: 'bg-amber-500/10',
+      fill: 'bg-amber-500',
+      text: 'text-amber-700',
+    }
+  }
+
+  return {
+    badge: 'Confortable',
+    track: 'bg-emerald-500/10',
+    fill: 'bg-emerald-500',
+    text: 'text-emerald-700',
+  }
+}
+
+function getSupportRecommendation(account: SupportPlatformAccount) {
+  const planDefinition = getPlanDefinition(account.plan)
+  const teamRatio = getUsageRatio(account.teamMembersCount, planDefinition.limits.teamMembers)
+  const productsRatio = getUsageRatio(account.productsCount, planDefinition.limits.products)
+
+  if (account.pendingRequestsCount > 0) {
+    return {
+      title: 'Demande support ouverte',
+      body: 'Une demande est deja en file. Priorite a son traitement avant toute relance commerciale.',
+      tone: 'border-amber-500/20 bg-amber-500/10 text-amber-700',
+    }
+  }
+
+  if (
+    account.plan !== 'free' &&
+    account.plan !== 'lifetime' &&
+    account.currentPeriodEndsAt &&
+    (getRemainingDays(account.currentPeriodEndsAt) ?? 999) <= 7
+  ) {
+    return {
+      title: 'Renouvellement a anticiper',
+      body: 'La boutique arrive proche de l echeance. Bon candidat pour relance proactive ou renouvellement.',
+      tone: 'border-red-500/20 bg-red-500/10 text-red-700',
+    }
+  }
+
+  if (account.plan === 'free' && (productsRatio >= 80 || account.monthlySalesCount >= 7)) {
+    return {
+      title: 'Candidat Starter',
+      body: 'L usage actuel approche les limites du plan gratuit. Une proposition Starter a du sens.',
+      tone: 'border-violet-500/20 bg-violet-500/10 text-violet-700',
+    }
+  }
+
+  if (account.plan === 'starter' && (teamRatio >= 100 || productsRatio >= 90)) {
+    return {
+      title: 'Candidat Pro',
+      body: 'Le compte commence a toucher les limites Starter. Une montee en Pro peut eviter un blocage.',
+      tone: 'border-[#2D7D7D]/20 bg-[#2D7D7D]/10 text-[#2D7D7D]',
+    }
+  }
+
+  return {
+    title: 'Compte stable',
+    body: 'Aucun point critique detecte pour le moment. Le suivi peut rester sur un rythme normal.',
+    tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700',
+  }
+}
+
 export function SupportConsole() {
   const [hasAccess, setHasAccess] = useState<boolean | null>(null)
   const [bootLoading, setBootLoading] = useState(true)
@@ -151,6 +273,7 @@ export function SupportConsole() {
   const [search, setSearch] = useState('')
   const [planFilter, setPlanFilter] = useState<SubscriptionPlan | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<SubscriptionStatus | 'all'>('all')
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
 
   const [supportActionTarget, setSupportActionTarget] = useState<string | null>(null)
   const [supportNotes, setSupportNotes] = useState<Record<string, string>>({})
@@ -194,6 +317,29 @@ export function SupportConsole() {
       setAccountsLoading(false)
     }
   }, [planFilter, search, statusFilter])
+
+  const focusAccountInList = useCallback(async (account: SupportPlatformAccount) => {
+    const nextSearch = account.ownerEmail
+    setSearch(nextSearch)
+    setPlanFilter('all')
+    setStatusFilter('all')
+    setAccountsLoading(true)
+    setAccountsError('')
+
+    try {
+      const nextAccounts = await getSupportPlatformAccounts({
+        search: nextSearch,
+        plan: 'all',
+        status: 'all',
+        limit: 80,
+      })
+      setAccounts(nextAccounts)
+    } catch (error) {
+      setAccountsError(error instanceof Error ? error.message : 'Impossible de filtrer cette boutique.')
+    } finally {
+      setAccountsLoading(false)
+    }
+  }, [])
 
   const loadPanels = useCallback(async () => {
     setQueueLoading(true)
@@ -364,6 +510,31 @@ export function SupportConsole() {
     ],
     []
   )
+
+  const selectedAccount = useMemo(
+    () => accounts.find((account) => account.accountId === selectedAccountId) ?? null,
+    [accounts, selectedAccountId]
+  )
+
+  const relatedAccountRequests = useMemo(() => {
+    if (!selectedAccount) return []
+    return queue.filter((request) =>
+      accountMatchesSupportEntry(selectedAccount, {
+        email: request.requestedByEmail,
+        businessName: request.businessName,
+      })
+    )
+  }, [queue, selectedAccount])
+
+  const relatedAccountAudit = useMemo(() => {
+    if (!selectedAccount) return []
+    return auditEntries.filter((entry) =>
+      accountMatchesSupportEntry(selectedAccount, {
+        email: entry.requestedByEmail,
+        businessName: entry.businessName,
+      })
+    )
+  }, [auditEntries, selectedAccount])
 
   if (bootLoading) {
     return <LoadingSkeleton />
@@ -625,6 +796,13 @@ export function SupportConsole() {
                           Echeance {formatSubscriptionDate(account.currentPeriodEndsAt)}
                         </span>
                       )}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setSelectedAccountId(account.accountId)}>
+                        <Eye size={14} />
+                        Voir la fiche support
+                      </Button>
                     </div>
                   </div>
                 )
@@ -916,6 +1094,279 @@ export function SupportConsole() {
           </div>
         )}
       </Card>
+
+      <Modal
+        isOpen={selectedAccount !== null}
+        onClose={() => setSelectedAccountId(null)}
+        size="xl"
+        title={selectedAccount ? `Fiche support - ${selectedAccount.businessName}` : 'Fiche support'}
+      >
+        {selectedAccount && (() => {
+          const planDefinition = getPlanDefinition(selectedAccount.plan)
+          const recommendation = getSupportRecommendation(selectedAccount)
+          const usageBlocks = [
+            {
+              key: 'team',
+              label: 'Equipe',
+              value: selectedAccount.teamMembersCount,
+              limit: planDefinition.limits.teamMembers,
+            },
+            {
+              key: 'products',
+              label: 'Produits',
+              value: selectedAccount.productsCount,
+              limit: planDefinition.limits.products,
+            },
+            {
+              key: 'sales',
+              label: 'Ventes / mois',
+              value: selectedAccount.monthlySalesCount,
+              limit: planDefinition.limits.monthlySales,
+            },
+          ]
+
+          return (
+            <div className="space-y-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-lg font-semibold text-[#1A3636]">{selectedAccount.businessName}</span>
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_STATUS_STYLES[selectedAccount.status]}`}>
+                      {SUBSCRIPTION_STATUS_LABELS[selectedAccount.status]}
+                    </span>
+                    <span className="rounded-full border border-[#2D7D7D]/10 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#2D7D7D]">
+                      {planDefinition.name}
+                    </span>
+                  </div>
+                  <div className="mt-3 space-y-1 text-sm text-[#5C6B73]">
+                    <p className="font-medium text-[#1A3636]">{selectedAccount.ownerName}</p>
+                    <p className="inline-flex items-center gap-2">
+                      <Mail size={14} className="text-[#2D7D7D]" />
+                      {selectedAccount.ownerEmail}
+                    </p>
+                    <p>
+                      Cree le {formatSubscriptionDate(selectedAccount.createdAt) || 'date indisponible'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] px-4 py-3 text-sm text-[#5C6B73]">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#6B7682]">
+                    Abonnement
+                  </p>
+                  <p className="mt-2 font-semibold text-[#1A3636]">
+                    {planDefinition.price > 0 ? `${formatCurrency(planDefinition.price)} ${planDefinition.period}` : planDefinition.period}
+                  </p>
+                  <p className="mt-1">{BILLING_CYCLE_LABELS[selectedAccount.billingCycle]}</p>
+                  <p className="mt-1">
+                    {selectedAccount.currentPeriodEndsAt
+                      ? `Echeance ${formatSubscriptionDate(selectedAccount.currentPeriodEndsAt)}`
+                      : selectedAccount.plan === 'lifetime'
+                        ? 'Validite a vie'
+                        : 'Aucune echeance definie'}
+                  </p>
+                </div>
+              </div>
+
+              <div className={`rounded-2xl border px-4 py-3 text-sm ${recommendation.tone}`}>
+                <div className="flex items-start gap-2">
+                  <Sparkles size={16} className="mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="font-semibold">{recommendation.title}</p>
+                    <p className="mt-1 leading-relaxed">{recommendation.body}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <MetricTile
+                  label="Demandes ouvertes"
+                  value={`${selectedAccount.pendingRequestsCount}`}
+                  helper="file support en cours"
+                />
+                <MetricTile
+                  label="Derniere demande"
+                  value={formatSubscriptionDate(selectedAccount.lastRequestAt) || 'Aucune'}
+                  helper="historique abonnement"
+                />
+                <MetricTile
+                  label="Plan"
+                  value={planDefinition.name}
+                  helper={selectedAccount.plan === 'lifetime' ? 'perpetuel' : planDefinition.desc}
+                />
+                <MetricTile
+                  label="Statut"
+                  value={SUBSCRIPTION_STATUS_LABELS[selectedAccount.status]}
+                  helper={selectedAccount.currentPeriodEndsAt ? `echeance ${formatSubscriptionDate(selectedAccount.currentPeriodEndsAt)}` : 'sans date limite'}
+                />
+              </div>
+
+              <Card className="p-4">
+                <div className="flex items-center gap-2">
+                  <Users size={16} className="text-[#2D7D7D]" />
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#1A3636]">Usage et limites du plan</h3>
+                    <p className="mt-1 text-xs text-[#6B7682]">
+                      Lecture rapide pour voir si la boutique approche d une montee de formule.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  {usageBlocks.map((item) => {
+                    const ratio = getUsageRatio(item.value, item.limit)
+                    const tone = getUsageTone(ratio, item.limit)
+                    return (
+                      <div key={item.key} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#6B7682]">
+                            {item.label}
+                          </p>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${tone.text} ${tone.track}`}>
+                            {tone.badge}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-2xl font-bold text-[#1A3636]">{item.value}</p>
+                        <p className="mt-1 text-xs text-[#6B7682]">
+                          Limite {getLimitLabel(item.limit)}
+                        </p>
+                        <div className={`mt-3 h-2 rounded-full ${tone.track}`}>
+                          <div
+                            className={`h-2 rounded-full ${tone.fill}`}
+                            style={{ width: `${Math.min(item.limit === null ? 20 : ratio, 100)}%` }}
+                          />
+                        </div>
+                        <p className="mt-2 text-xs font-medium text-[#5C6B73]">
+                          {item.limit === null ? 'Sans plafond' : `${Math.max(ratio, 0)}% de la limite`}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </Card>
+
+              <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+                <Card className="p-4">
+                  <div className="flex items-center gap-2">
+                    <CreditCard size={16} className="text-[#2D7D7D]" />
+                    <div>
+                      <h3 className="text-sm font-semibold text-[#1A3636]">Demandes liees a cette boutique</h3>
+                      <p className="mt-1 text-xs text-[#6B7682]">
+                        File en cours visible directement depuis la fiche support.
+                      </p>
+                    </div>
+                  </div>
+
+                  {relatedAccountRequests.length === 0 ? (
+                    <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+                      Aucune demande ouverte liee a cette boutique.
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      {relatedAccountRequests.map((request) => (
+                        <div key={request.id} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_REQUEST_TYPE_STYLES[request.requestType]}`}>
+                              {SUBSCRIPTION_REQUEST_TYPE_LABELS[request.requestType]}
+                            </span>
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_REQUEST_STATUS_STYLES[request.status]}`}>
+                              {SUBSCRIPTION_REQUEST_STATUS_LABELS[request.status]}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm font-semibold text-[#1A3636]">
+                            {getSubscriptionRequestSummary(request.requestType, request.currentPlan, request.requestedPlan)}
+                          </p>
+                          <p className="mt-1 text-xs text-[#6B7682]">
+                            Ref {getSubscriptionRequestReference(request.id)} - {formatSubscriptionDate(request.createdAt) || 'date indisponible'}
+                          </p>
+                          {(request.supportNote || request.notes) && (
+                            <div className="mt-2 rounded-2xl border border-white/70 bg-white px-3 py-2 text-xs text-[#5C6B73]">
+                              {request.supportNote || request.notes}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+
+                <Card className="p-4">
+                  <div className="flex items-center gap-2">
+                    <History size={16} className="text-[#2D7D7D]" />
+                    <div>
+                      <h3 className="text-sm font-semibold text-[#1A3636]">Historique recent</h3>
+                      <p className="mt-1 text-xs text-[#6B7682]">
+                        Les dernieres actions support pour cette boutique.
+                      </p>
+                    </div>
+                  </div>
+
+                  {relatedAccountAudit.length === 0 ? (
+                    <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+                      Aucun historique support lie a ce compte pour le moment.
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      {relatedAccountAudit.slice(0, 5).map((entry) => (
+                        <div key={entry.auditId} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${AUDIT_ACTION_STYLES[entry.action] ?? 'bg-slate-500/10 text-slate-700 border border-slate-500/15'}`}>
+                              {AUDIT_ACTION_LABELS[entry.action] ?? entry.action}
+                            </span>
+                            <span className="text-xs text-[#6B7682]">
+                              {formatSubscriptionDate(entry.createdAt) || 'date indisponible'}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm font-medium text-[#1A3636]">
+                            {getSubscriptionRequestSummary(entry.requestType, entry.currentPlan, entry.requestedPlan)}
+                          </p>
+                          <p className="mt-1 text-xs text-[#6B7682]">
+                            {entry.actorEmail || 'systeme'}
+                          </p>
+                          {entry.note && (
+                            <div className="mt-2 rounded-2xl border border-white/70 bg-white px-3 py-2 text-xs text-[#5C6B73]">
+                              {entry.note}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-4 rounded-2xl border border-[#2D7D7D]/10 bg-white px-4 py-3 text-sm text-[#5C6B73]">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle2 size={16} className="mt-0.5 text-[#2D7D7D]" />
+                      <div>
+                        <p className="font-semibold text-[#1A3636]">Actions rapides</p>
+                        <p className="mt-1 leading-relaxed">
+                          Utilise le filtre principal pour isoler cette boutique ou contacte directement le proprietaire pour suivi.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            variant="glass"
+                            size="sm"
+                            onClick={() => {
+                              void focusAccountInList(selectedAccount)
+                              setSelectedAccountId(null)
+                            }}
+                          >
+                            Isoler dans la liste
+                          </Button>
+                          <Link
+                            href={`mailto:${selectedAccount.ownerEmail}?subject=${encodeURIComponent(`Suivi support Saytu Yef - ${selectedAccount.businessName}`)}`}
+                            className="inline-flex h-8 items-center justify-center rounded-full border border-[#2D7D7D]/20 px-4 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/5"
+                          >
+                            Envoyer un email
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            </div>
+          )
+        })()}
+      </Modal>
 
     </div>
   )
