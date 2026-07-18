@@ -75,8 +75,18 @@ function getClientRecentSales(client: ClientSummary): Sale[] {
 }
 
 function getClientRecoveryRate(client: ClientSummary): number {
-  if (client.totalPurchases <= 0) return 100
-  return Math.max(0, Math.min(100, Math.round((client.totalPaid / client.totalPurchases) * 100)))
+  if (client.totalPurchases <= 0) {
+    return client.totalDue > 0 ? 0 : 100
+  }
+
+  const rawRate = (client.totalPaid / client.totalPurchases) * 100
+  const boundedRate = Math.max(0, Math.min(100, Math.floor(rawRate)))
+
+  if (client.totalDue > 0) {
+    return Math.min(99, boundedRate)
+  }
+
+  return 100
 }
 
 function getSaleStatusClasses(status: Sale['payment_status']): string {
@@ -641,22 +651,31 @@ export default function ClientsPage() {
               const latestSale = recentSales[0] ?? null
               const oldestDebtSale = getClientOldestDebtSale(client)
               const isExpanded = expandedClientId === client.id
+              const isSettled = client.totalDue <= 0
               const recoveryRate = getClientRecoveryRate(client)
               const latestActionSale = latestDebtSale ?? latestSale
               const oldestDebtAgeDays = oldestDebtSale ? getDaysSince(oldestDebtSale.created_at) : 0
               const debtAgeBadge = oldestDebtSale ? getDebtAgeBadge(oldestDebtAgeDays) : null
               const reminder = buildDebtReminderMessage(client.name, client.totalDue)
               const nextAction = getClientNextAction(client)
+              const cardBorderClass = isSettled ? 'border-emerald-500/25' : 'border-red-500/25'
+              const duePanelClass = isSettled ? 'bg-emerald-500/10' : 'bg-red-500/10'
+              const dueTextClass = isSettled ? 'text-emerald-700' : 'text-red-600'
+              const statusBadgeClass = isSettled ? 'bg-emerald-500/10 text-emerald-700' : 'bg-red-500/10 text-red-600'
+              const recoveryBadgeClass = isSettled ? 'bg-emerald-500/10 text-emerald-700' : 'bg-red-500/10 text-red-600'
+              const progressTrackClass = isSettled ? 'bg-emerald-500/10' : 'bg-red-500/10'
+              const progressBarClass = isSettled ? 'bg-emerald-600' : 'bg-red-500'
+              const latestDebtClass = isSettled ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-red-500/20 bg-red-500/5'
 
               return (
-                <Card key={client.id} className="p-3 sm:p-3.5">
+                <Card key={client.id} className={`border-2 p-3 sm:p-3.5 ${cardBorderClass}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-[#1A3636]">{client.name}</p>
                       <p className="mt-0.5 text-xs text-[#6B7682]">{client.phone || 'Aucun téléphone'}</p>
                     </div>
-                    <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${client.totalDue > 0 ? 'bg-amber-500/10 text-amber-700' : 'bg-emerald-500/10 text-emerald-700'}`}>
-                      {client.totalDue > 0 ? 'Dette ouverte' : 'Soldé'}
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${statusBadgeClass}`}>
+                      {isSettled ? 'Soldé' : 'Dette ouverte'}
                     </span>
                   </div>
 
@@ -665,9 +684,9 @@ export default function ClientsPage() {
                       <p className="text-[10px] uppercase text-[#6B7682]">Achats</p>
                       <p className="mt-1 text-xs font-semibold text-[#1A3636]">{formatCurrencyCompact(client.totalPurchases)}</p>
                     </div>
-                    <div className={`rounded-xl p-2.5 ${client.totalDue > 0 ? 'bg-amber-500/10' : 'bg-emerald-500/10'}`}>
+                    <div className={`rounded-xl p-2.5 ${duePanelClass}`}>
                       <p className="text-[10px] uppercase text-[#6B7682]">Reste</p>
-                      <p className={`mt-1 text-xs font-semibold ${client.totalDue > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>{formatCurrencyCompact(client.totalDue)}</p>
+                      <p className={`mt-1 text-xs font-semibold ${dueTextClass}`}>{formatCurrencyCompact(client.totalDue)}</p>
                     </div>
                   </div>
 
@@ -675,10 +694,10 @@ export default function ClientsPage() {
                     <span className="rounded-full bg-[#F4F7FB] px-2.5 py-1 text-[11px] font-medium text-[#5C6B73]">
                       Versé {formatCurrencyCompact(client.totalPaid)}
                     </span>
-                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${debtSales.length > 0 ? 'bg-amber-500/10 text-amber-700' : 'bg-emerald-500/10 text-emerald-700'}`}>
-                      {debtSales.length > 0 ? `${debtSales.length} dette(s) ouverte(s)` : 'Compte soldé'}
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${isSettled ? 'bg-emerald-500/10 text-emerald-700' : 'bg-red-500/10 text-red-600'}`}>
+                      {isSettled ? 'Compte soldé' : `${debtSales.length} dette(s) ouverte(s)`}
                     </span>
-                    <span className="rounded-full bg-[#2D7D7D]/10 px-2.5 py-1 text-[11px] font-medium text-[#2D7D7D]">
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${recoveryBadgeClass}`}>
                       {recoveryRate}% recouvré
                     </span>
                     {debtAgeBadge && (
@@ -693,10 +712,10 @@ export default function ClientsPage() {
                       <span>Progression du recouvrement</span>
                       <span>{recoveryRate}%</span>
                     </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-[#2D7D7D]/10">
+                    <div className={`h-1.5 overflow-hidden rounded-full ${progressTrackClass}`}>
                       <div
-                        className="h-full rounded-full bg-[#2D7D7D] transition-all"
-                        style={{ width: `${Math.max(recoveryRate, client.totalPaid > 0 ? 6 : 0)}%` }}
+                        className={`h-full rounded-full transition-all ${progressBarClass}`}
+                        style={{ width: `${recoveryRate}%` }}
                       />
                     </div>
                   </div>
@@ -714,12 +733,12 @@ export default function ClientsPage() {
                   )}
 
                   {latestDebtSale && (
-                    <div className="mt-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                    <div className={`mt-2 rounded-xl border px-3 py-2 ${latestDebtClass}`}>
                       <div className="flex items-center justify-between gap-3 text-xs">
                         <span className="font-medium text-[#5C6B73]">Dernière dette ouverte</span>
-                        <span className="font-bold text-amber-700">{formatCurrencyCompact(getSaleAmountDue(latestDebtSale))}</span>
+                        <span className={`font-bold ${dueTextClass}`}>{formatCurrencyCompact(getSaleAmountDue(latestDebtSale))}</span>
                       </div>
-                      <p className="mt-1 text-[11px] text-amber-700">
+                      <p className={`mt-1 text-[11px] ${dueTextClass}`}>
                         Reçu {latestDebtSale.id.slice(0, 8).toUpperCase()} · {formatDate(latestDebtSale.created_at)}
                       </p>
                       {oldestDebtSale && (

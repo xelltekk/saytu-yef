@@ -22,30 +22,7 @@ export function formatCurrency(amount: number, currency = 'XOF'): string {
 }
 
 export function formatCurrencyCompact(amount: number, currency = 'XOF'): string {
-  if (currency !== 'XOF') {
-    return formatCurrency(amount, currency)
-  }
-
-  const absolute = Math.abs(amount)
-  const sign = amount < 0 ? '-' : ''
-
-  if (absolute < 1000) {
-    return `${sign}${absolute} FCFA`
-  }
-
-  if (absolute < 1_000_000) {
-    return `${sign}${Math.round(absolute / 1000)} k FCFA`
-  }
-
-  if (absolute < 10_000_000) {
-    return `${sign}${(absolute / 1_000_000).toFixed(1).replace('.', ',')} M FCFA`
-  }
-
-  if (absolute < 1_000_000_000) {
-    return `${sign}${Math.round(absolute / 1_000_000)} M FCFA`
-  }
-
-  return `${sign}${(absolute / 1_000_000_000).toFixed(1).replace('.', ',')} Md FCFA`
+  return formatCurrency(amount, currency)
 }
 
 export function formatDate(dateString: string): string {
