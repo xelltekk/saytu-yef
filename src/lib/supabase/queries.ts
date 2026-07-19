@@ -102,10 +102,17 @@ function normalizeSupabaseError(error: unknown, fallback = 'Erreur base de donne
       ? error.message
       : fallback
 
+  if (message.includes("Could not find the 'barcode' column of 'products' in the schema cache")) {
+    return new Error(
+      "La base locale Supabase n'a pas encore la colonne code-barres sur les variantes produit. Appliquez d'abord la migration SQL barcode, puis rechargez la page."
+    )
+  }
+
   if (
     message.includes("Could not find the 'color' column of 'products' in the schema cache")
     || message.includes("Could not find the 'size' column of 'products' in the schema cache")
     || message.includes("Could not find the 'product_group_id' column of 'products' in the schema cache")
+    || message.includes("Could not find the 'barcode' column of 'products' in the schema cache")
   ) {
     return new Error(
       'La base locale Supabase n’a pas encore les colonnes de variantes produit. Appliquez d’abord les migrations SQL taille/couleur et product_group_id, puis rechargez la page.'
@@ -276,6 +283,7 @@ function buildGroupedVariantPayload(
     currency: shared.currency,
     status: shared.status,
     sku: variant.sku,
+    barcode: variant.barcode?.trim() || undefined,
     size: variant.size?.trim() || undefined,
     color: variant.color?.trim() || undefined,
     buying_price: variant.buying_price,

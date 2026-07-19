@@ -90,6 +90,7 @@ export const useSalesStore = create<SalesState>()(
             size: product.size,
             color: product.color,
             sku: product.sku,
+            barcode: product.barcode,
           }]
         }),
       }

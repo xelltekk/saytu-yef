@@ -15,6 +15,7 @@ import {
   Package,
   Phone,
   Plus,
+  Printer,
   RefreshCw,
   Search,
   SlidersHorizontal,
@@ -32,6 +33,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { CategoryManager } from './CategoryManager'
+import { BarcodeLabelsModal } from './BarcodeLabelsModal'
 import { StockAdjustmentModal } from './StockAdjustmentModal'
 import { StockMovementHistoryModal } from './StockMovementHistoryModal'
 import {
@@ -81,6 +83,10 @@ function normalizePhone(phone?: string): string {
   if (digits.startsWith('00')) digits = digits.slice(2)
   if (digits.length === 9 && digits.startsWith('7')) digits = `221${digits}`
   return digits
+}
+
+function normalizeScannableValue(value?: string | null) {
+  return value?.trim().replace(/\s+/g, '').toLocaleLowerCase('fr') || ''
 }
 
 function getGroupStockTone(group: ProductGroup) {
@@ -175,6 +181,7 @@ export function ProductTable({
   const [adjustmentProduct, setAdjustmentProduct] = useState<Product | null>(null)
   const [historyProduct, setHistoryProduct] = useState<Product | null>(null)
   const [activeGroupMenu, setActiveGroupMenu] = useState<string | null>(null)
+  const [barcodeLabelTarget, setBarcodeLabelTarget] = useState<{ groupId: string; variantId?: string | null } | null>(null)
 
   const mergeActivatedProduct = useCallback((list: Product[]) => {
     if (!activatedProduct || list.some((product) => product.id === activatedProduct.id)) {
@@ -216,14 +223,20 @@ export function ProductTable({
   }, [inventoryView, readOnly])
 
   const productGroups = useMemo(() => buildProductGroups(products), [products])
+  const barcodeLabelGroup = useMemo(() => (
+    barcodeLabelTarget ? productGroups.find((group) => group.id === barcodeLabelTarget.groupId) ?? null : null
+  ), [barcodeLabelTarget, productGroups])
 
   const handleInventoryScan = useCallback((rawValue: string) => {
     const scannedValue = rawValue.trim()
     if (!scannedValue) return
 
-    const normalizedValue = scannedValue.toLocaleLowerCase('fr')
+    const normalizedValue = normalizeScannableValue(scannedValue)
     const matchedGroup = productGroups.find((group) => (
-      group.variants.some((variant) => variant.sku?.trim().toLocaleLowerCase('fr') === normalizedValue)
+      group.variants.some((variant) => (
+        normalizeScannableValue(variant.barcode) === normalizedValue
+        || normalizeScannableValue(variant.sku) === normalizedValue
+      ))
     ))
 
     setSearch(scannedValue)
@@ -233,7 +246,7 @@ export function ProductTable({
     if (!matchedGroup) {
       setFeedback({
         type: 'error',
-        message: `Code introuvable : ${scannedValue}. Verifiez la reference SKU / code-barres de la variante.`,
+        message: `Code introuvable : ${scannedValue}. Verifiez le code-barres ou la reference de la variante.`,
       })
       return
     }
@@ -311,7 +324,7 @@ export function ProductTable({
           group.description,
           group.category?.name,
           group.supplier?.name,
-          ...group.variants.flatMap((variant) => [variant.sku, variant.size, variant.color]),
+          ...group.variants.flatMap((variant) => [variant.barcode, variant.sku, variant.size, variant.color]),
         ]
           .filter(Boolean)
           .some((value) => value!.toLocaleLowerCase('fr').includes(query))
@@ -479,6 +492,7 @@ export function ProductTable({
     const rows = visibleVariants.map((variant) => ({
       Produit: variant.name,
       Variante: getProductVariantSummary(variant) || 'Standard',
+      Code_barres: variant.barcode ?? '',
       SKU: variant.sku ?? '',
       Categorie: variant.category?.name ?? '',
       Fournisseur: variant.supplier?.name ?? '',
@@ -498,6 +512,7 @@ export function ProductTable({
     const headers = Object.keys(rows[0] ?? {
       Produit: '',
       Variante: '',
+      Code_barres: '',
       SKU: '',
       Categorie: '',
       Fournisseur: '',
@@ -577,9 +592,16 @@ export function ProductTable({
             <div className="flex flex-wrap items-center gap-2">
               <p className="truncate text-sm font-semibold text-[#1A3636]">{variantSummary}</p>
               <Badge variant={stockBadgeVariant}>{stock.label}</Badge>
-              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-[#5C6B73]">
-                SKU {variant.sku || 'Sans reference'}
-              </span>
+              {variant.barcode && (
+                <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-[#5C6B73]">
+                  Code {variant.barcode}
+                </span>
+              )}
+              {variant.sku && (
+                <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-[#5C6B73]">
+                  Ref {variant.sku}
+                </span>
+              )}
             </div>
             <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
               {variant.size && (
@@ -628,6 +650,17 @@ export function ProductTable({
                 Ajuster
               </Button>
             )}
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={<Printer size={14} />}
+              onClick={() => {
+                setBarcodeLabelTarget({ groupId: group.id, variantId: variant.id })
+                setActiveGroupMenu(null)
+              }}
+            >
+              Etiquette
+            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -755,16 +788,19 @@ export function ProductTable({
               <input
                 type="search"
                 aria-label="Rechercher un produit"
-                placeholder="Rechercher ou scanner un produit, une taille, une couleur ou une reference..."
+                placeholder="Rechercher ou scanner un produit, un code-barres, une taille, une couleur ou une reference..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter') return
                   if (!search.trim()) return
 
-                  const normalizedSearch = search.trim().toLocaleLowerCase('fr')
+                  const normalizedSearch = normalizeScannableValue(search)
                   const hasExactSkuMatch = productGroups.some((group) => (
-                    group.variants.some((variant) => variant.sku?.trim().toLocaleLowerCase('fr') === normalizedSearch)
+                    group.variants.some((variant) => (
+                      normalizeScannableValue(variant.barcode) === normalizedSearch
+                      || normalizeScannableValue(variant.sku) === normalizedSearch
+                    ))
                   ))
 
                   if (!hasExactSkuMatch) return
@@ -1344,6 +1380,17 @@ export function ProductTable({
                           <button
                             type="button"
                             onClick={() => {
+                              setBarcodeLabelTarget({ groupId: group.id })
+                              setActiveGroupMenu(null)
+                            }}
+                            className="flex min-h-11 w-full items-center gap-2 px-3 text-sm text-[#1A3636] hover:bg-[#F4F7FB]"
+                          >
+                            <Printer size={14} />
+                            Imprimer etiquettes
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
                               toggleExpandedGroup(group.id)
                               setActiveGroupMenu(null)
                             }}
@@ -1400,6 +1447,13 @@ export function ProductTable({
       <StockMovementHistoryModal
         product={historyProduct}
         onClose={() => setHistoryProduct(null)}
+      />
+
+      <BarcodeLabelsModal
+        group={barcodeLabelGroup}
+        focusVariantId={barcodeLabelTarget?.variantId ?? null}
+        isOpen={barcodeLabelTarget !== null}
+        onClose={() => setBarcodeLabelTarget(null)}
       />
 
       <Modal

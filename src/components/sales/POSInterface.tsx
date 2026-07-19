@@ -16,6 +16,7 @@ import {
 import { UsageLimitNotice } from '@/components/subscriptions/UsageLimitNotice'
 import { useBarcodeScanner } from '@/hooks/useBarcodeScanner'
 import { useSubscriptionOverview } from '@/hooks/useSubscriptionOverview'
+import { normalizeBarcodeValue } from '@/lib/barcodes'
 import { getPlanDefinition, getUsageLimit, getUsageRatio } from '@/lib/subscriptions'
 import { buildProductGroups, getProductGroupPriceLabel } from '@/lib/productGroups'
 import { Button } from '@/components/ui/Button'
@@ -282,14 +283,17 @@ export function POSInterface({
   ), [selectedVariantColor, selectedVariantSize, variantPickerVariants])
 
   const findProductByScanCode = useCallback((rawValue: string) => {
-    const normalizedValue = rawValue.trim().toLocaleLowerCase('fr')
+    const normalizedValue = normalizeBarcodeValue(rawValue).toLocaleLowerCase('fr')
     if (!normalizedValue) return null
 
     return products.find((product) => (
       product.status === 'active'
       && product.quantity > 0
       && product.currency === 'XOF'
-      && product.sku?.trim().toLocaleLowerCase('fr') === normalizedValue
+      && (
+        normalizeBarcodeValue(product.barcode || '').toLocaleLowerCase('fr') === normalizedValue
+        || normalizeBarcodeValue(product.sku || '').toLocaleLowerCase('fr') === normalizedValue
+      )
     )) ?? null
   }, [products])
 
@@ -310,6 +314,7 @@ export function POSInterface({
       size: product.size,
       color: product.color,
       sku: product.sku,
+      barcode: product.barcode,
     }
     addToCart(item)
   }, [addToCart, getRemainingQuantity])
@@ -323,7 +328,7 @@ export function POSInterface({
       setSearch(scannedValue)
       setScannerNotice({
         type: 'error',
-        message: `Code introuvable : ${scannedValue}. Verifiez la reference SKU du produit.`,
+        message: `Code introuvable : ${scannedValue}. Verifiez le code-barres ou la reference du produit.`,
       })
       return
     }
@@ -648,7 +653,7 @@ export function POSInterface({
             <input
               type="search"
               aria-label="Rechercher un produit"
-              placeholder="Rechercher ou scanner un code produit..."
+              placeholder="Rechercher ou scanner un code-barres..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={(event) => {
@@ -665,7 +670,7 @@ export function POSInterface({
           </div>
 
           <p className="-mt-2 text-[11px] text-[#6B7682]">
-            Lecteur 2D compatible: scannez la reference SKU d&apos;une variante pour l&apos;ajouter directement au panier.
+            Lecteur 2D compatible: scannez le code-barres ou la reference SKU d&apos;une variante pour l&apos;ajouter directement au panier.
           </p>
 
           {hasCartContext && (

@@ -5,6 +5,7 @@ import { Camera, ImageIcon, Plus, Trash2, Upload, Wand2, X } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
+import { generateVariantBarcode } from '@/lib/barcodes'
 import { compressImage, generateSKU, getProfitMargin, getProductVariantSummary } from '@/lib/utils'
 import { createProductGroup, getCategories, getProducts, getSuppliers, updateProductGroup } from '@/lib/supabase/queries'
 import type { Category, Product, ProductGroup, ProductVariantDraft, Supplier } from '@/types'
@@ -20,6 +21,7 @@ type VariantRow = {
   key: string
   id?: string
   sku: string
+  barcode: string
   size: string
   color: string
   buying_price: string
@@ -48,6 +50,7 @@ function createEmptyVariant(overrides: Partial<VariantRow> = {}): VariantRow {
   return {
     key: createVariantKey(),
     sku: '',
+    barcode: '',
     size: '',
     color: '',
     buying_price: '',
@@ -66,6 +69,7 @@ function mapGroupVariants(productGroup?: ProductGroup | null): VariantRow[] {
   return productGroup.variants.map((variant) => createEmptyVariant({
     id: variant.id,
     sku: variant.sku || '',
+    barcode: variant.barcode || '',
     size: variant.size || '',
     color: variant.color || '',
     buying_price: variant.buying_price.toString(),
@@ -84,6 +88,10 @@ function buildVariantSku(productName: string, variant: VariantRow, index: number
   ].filter(Boolean).join(' ')
 
   return generateSKU(seed || productName || `PRD-${index + 1}`)
+}
+
+function buildVariantBarcode(productName: string, variant: VariantRow, index: number) {
+  return generateVariantBarcode(productName, { size: variant.size, color: variant.color }, index)
 }
 
 function buildVariantTitle(variant: VariantRow, index: number) {
@@ -210,10 +218,24 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
     updateVariant(key, { sku: buildVariantSku(form.name, variants[targetIndex], targetIndex) })
   }
 
+  const handleGenerateVariantBarcode = (key: string) => {
+    const targetIndex = variants.findIndex((variant) => variant.key === key)
+    if (targetIndex === -1) return
+
+    updateVariant(key, { barcode: buildVariantBarcode(form.name, variants[targetIndex], targetIndex) })
+  }
+
   const handleGenerateAllSkus = () => {
     setVariants((current) => current.map((variant, index) => ({
       ...variant,
       sku: variant.sku.trim() || buildVariantSku(form.name, variant, index),
+    })))
+  }
+
+  const handleGenerateAllBarcodes = () => {
+    setVariants((current) => current.map((variant, index) => ({
+      ...variant,
+      barcode: variant.barcode.trim() || buildVariantBarcode(form.name, variant, index),
     })))
   }
 
@@ -233,6 +255,7 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
 
     const nextVariants: ProductVariantDraft[] = []
     const usedSkus = new Set<string>()
+    const usedBarcodes = new Set<string>()
 
     for (const [index, variant] of variants.entries()) {
       const buyingPrice = variant.buying_price === '' ? 0 : Number(variant.buying_price)
@@ -240,6 +263,7 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
       const quantity = variant.quantity === '' ? 0 : Number(variant.quantity)
       const minQuantity = variant.min_quantity === '' ? 5 : Number(variant.min_quantity)
       const sku = (variant.sku.trim() || buildVariantSku(form.name, variant, index)).trim()
+      const barcode = (variant.barcode.trim() || buildVariantBarcode(form.name, variant, index)).trim()
 
       if (!Number.isFinite(buyingPrice) || buyingPrice < 0) {
         setError(`${buildVariantTitle(variant, index)} : prix d'achat invalide.`)
@@ -268,6 +292,13 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
       }
       usedSkus.add(normalizedSku)
 
+      const normalizedBarcode = barcode.toLocaleLowerCase('fr')
+      if (usedBarcodes.has(normalizedBarcode)) {
+        setError(`Le code-barres « ${barcode} » est duplique dans les variantes.`)
+        return
+      }
+      usedBarcodes.add(normalizedBarcode)
+
       const duplicateSku = existingProducts.some((existingProduct) => (
         existingProduct.sku?.trim().toLocaleLowerCase('fr') === normalizedSku
         && !currentVariantIds.has(existingProduct.id)
@@ -277,9 +308,19 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
         return
       }
 
+      const duplicateBarcode = existingProducts.some((existingProduct) => (
+        existingProduct.barcode?.trim().toLocaleLowerCase('fr') === normalizedBarcode
+        && !currentVariantIds.has(existingProduct.id)
+      ))
+      if (duplicateBarcode) {
+        setError(`Le code-barres Â« ${barcode} Â» est deja utilise par une autre variante.`)
+        return
+      }
+
       nextVariants.push({
         id: variant.id,
         sku,
+        barcode,
         size: variant.size.trim() || undefined,
         color: variant.color.trim() || undefined,
         buying_price: buyingPrice,
@@ -324,6 +365,7 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
           || message.includes("Could not find the 'color' column of 'products' in the schema cache")
           || message.includes("Could not find the 'size' column of 'products' in the schema cache")
           || message.includes("Could not find the 'product_group_id' column of 'products' in the schema cache")
+          || message.includes("Could not find the 'barcode' column of 'products' in the schema cache")
           ? "La base locale Supabase n'a pas encore les colonnes de variantes produit. Appliquez d'abord les migrations SQL taille/couleur et product_group_id, puis rechargez la page."
           : message
       )
@@ -439,10 +481,19 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
             <div>
               <p className="text-sm font-semibold text-[#1A3636]">Variantes du produit</p>
               <p className="mt-1 text-xs text-[#6B7682]">
-                Un seul produit parent, puis un stock distinct par taille et couleur. Vous pouvez scanner directement dans le champ code-barres / SKU.
+                Un seul produit parent, puis un stock distinct par taille et couleur. Chaque variante peut avoir son propre code-barres et sa reference interne.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                leftIcon={<Wand2 size={14} />}
+                onClick={handleGenerateAllBarcodes}
+              >
+                Generer les code-barres
+              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -511,11 +562,32 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
 
                   <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto]">
                     <Input
-                      label="Code-barres / SKU"
-                      placeholder="ex: 1234567890123 ou TSH-M-NOIR"
+                      label="Code-barres"
+                      placeholder="ex: 1234567890123 ou SYV-TSH-NOIR-7K4F2Q8M"
+                      value={variant.barcode}
+                      onChange={(event) => updateVariant(variant.key, { barcode: event.target.value })}
+                      hint="Unique par variante. Genere automatiquement si laisse vide."
+                    />
+                    <div className="self-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        leftIcon={<Wand2 size={14} />}
+                        onClick={() => handleGenerateVariantBarcode(variant.key)}
+                      >
+                        Generer
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <Input
+                      label="SKU / reference interne"
+                      placeholder="ex: TSH-M-NOIR"
                       value={variant.sku}
                       onChange={(event) => updateVariant(variant.key, { sku: event.target.value })}
-                      hint="Unique par variante. Compatible avec un lecteur code-barres 1D / 2D."
+                      hint="Unique par variante. Utilise pour la recherche interne et les exports."
                     />
                     <div className="self-end">
                       <Button

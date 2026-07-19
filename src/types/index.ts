@@ -37,6 +37,7 @@ export interface Product {
   product_group_id?: string | null
   name: string
   sku: string
+  barcode?: string
   description?: string
   size?: string
   color?: string
@@ -84,6 +85,7 @@ export interface ProductGroup {
 export interface ProductVariantDraft {
   id?: string
   sku: string
+  barcode?: string
   size?: string
   color?: string
   buying_price: number
@@ -185,6 +187,7 @@ export interface CartItem extends SaleItem {
   size?: string
   color?: string
   sku?: string
+  barcode?: string
 }
 
 export interface SalePayment {

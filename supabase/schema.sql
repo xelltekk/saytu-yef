@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS public.products (
   product_group_id UUID,
   name TEXT NOT NULL,
   sku TEXT,
+  barcode TEXT,
   description TEXT,
   size TEXT,
   color TEXT,
@@ -797,6 +798,9 @@ GRANT EXECUTE ON FUNCTION public.reverse_sale_with_stock(UUID, TEXT, TEXT) TO au
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_products_user_id ON public.products(user_id);
 CREATE INDEX IF NOT EXISTS idx_products_group_id ON public.products(product_group_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_products_user_barcode_unique
+  ON public.products(user_id, lower(btrim(barcode)))
+  WHERE barcode IS NOT NULL AND btrim(barcode) <> '';
 CREATE INDEX IF NOT EXISTS idx_products_category ON public.products(category_id);
 CREATE INDEX IF NOT EXISTS idx_sales_user_id ON public.sales(user_id);
 CREATE INDEX IF NOT EXISTS idx_sales_seller_id_created_at ON public.sales(seller_id, created_at DESC);
