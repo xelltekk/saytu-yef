@@ -24,6 +24,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { UsageLimitNotice } from '@/components/subscriptions/UsageLimitNotice'
+import { useBarcodeScanner } from '@/hooks/useBarcodeScanner'
 import { useSubscriptionOverview } from '@/hooks/useSubscriptionOverview'
 import { getPlanDefinition, getUsageLimit, getUsageRatio } from '@/lib/subscriptions'
 import { buildProductGroups, getProductGroupPriceLabel } from '@/lib/productGroups'
@@ -215,6 +216,39 @@ export function ProductTable({
   }, [inventoryView, readOnly])
 
   const productGroups = useMemo(() => buildProductGroups(products), [products])
+
+  const handleInventoryScan = useCallback((rawValue: string) => {
+    const scannedValue = rawValue.trim()
+    if (!scannedValue) return
+
+    const normalizedValue = scannedValue.toLocaleLowerCase('fr')
+    const matchedGroup = productGroups.find((group) => (
+      group.variants.some((variant) => variant.sku?.trim().toLocaleLowerCase('fr') === normalizedValue)
+    ))
+
+    setSearch(scannedValue)
+    setInventoryView('products')
+    setShowMobileFilters(false)
+
+    if (!matchedGroup) {
+      setFeedback({
+        type: 'error',
+        message: `Code introuvable : ${scannedValue}. Verifiez la reference SKU / code-barres de la variante.`,
+      })
+      return
+    }
+
+    setExpandedGroupIds((current) => current.includes(matchedGroup.id) ? current : [matchedGroup.id, ...current])
+    setFeedback({
+      type: 'success',
+      message: `${matchedGroup.name} retrouve via scan. La liste a ete filtree sur la reference ${scannedValue}.`,
+    })
+  }, [productGroups])
+
+  useBarcodeScanner({
+    enabled: !loading,
+    onScan: handleInventoryScan,
+  })
 
   const categoryOptions = useMemo(() => (
     Array.from(
@@ -721,9 +755,23 @@ export function ProductTable({
               <input
                 type="search"
                 aria-label="Rechercher un produit"
-                placeholder="Rechercher un produit, une taille, une couleur ou une reference..."
+                placeholder="Rechercher ou scanner un produit, une taille, une couleur ou une reference..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') return
+                  if (!search.trim()) return
+
+                  const normalizedSearch = search.trim().toLocaleLowerCase('fr')
+                  const hasExactSkuMatch = productGroups.some((group) => (
+                    group.variants.some((variant) => variant.sku?.trim().toLocaleLowerCase('fr') === normalizedSearch)
+                  ))
+
+                  if (!hasExactSkuMatch) return
+
+                  event.preventDefault()
+                  handleInventoryScan(search)
+                }}
                 className="h-12 w-full rounded-full border border-[#2D7D7D]/[0.14] bg-[#F8FAFD] pl-11 pr-4 text-sm text-[#1A3636] placeholder:text-[#6B7682] transition-all focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)]"
               />
             </div>
@@ -766,6 +814,10 @@ export function ProductTable({
               {showMobileFilters ? 'Masquer les filtres' : 'Filtres'}
             </Button>
           </div>
+
+          <p className="text-[11px] text-[#6B7682]">
+            Lecteur 2D compatible: scannez une reference SKU / code-barres pour retrouver instantanement la variante dans l&apos;inventaire.
+          </p>
 
           <div className={`${showMobileFilters ? 'grid' : 'hidden'} grid-cols-1 gap-3 md:grid md:grid-cols-4`}>
             <label className="space-y-1">

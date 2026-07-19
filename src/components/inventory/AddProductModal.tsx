@@ -439,7 +439,7 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
             <div>
               <p className="text-sm font-semibold text-[#1A3636]">Variantes du produit</p>
               <p className="mt-1 text-xs text-[#6B7682]">
-                Un seul produit parent, puis un stock distinct par taille et couleur.
+                Un seul produit parent, puis un stock distinct par taille et couleur. Vous pouvez scanner directement dans le champ code-barres / SKU.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -511,11 +511,11 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
 
                   <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto]">
                     <Input
-                      label="SKU / Reference"
-                      placeholder="ex: TSH-M-NOIR"
+                      label="Code-barres / SKU"
+                      placeholder="ex: 1234567890123 ou TSH-M-NOIR"
                       value={variant.sku}
                       onChange={(event) => updateVariant(variant.key, { sku: event.target.value })}
-                      hint="Unique par variante."
+                      hint="Unique par variante. Compatible avec un lecteur code-barres 1D / 2D."
                     />
                     <div className="self-end">
                       <Button

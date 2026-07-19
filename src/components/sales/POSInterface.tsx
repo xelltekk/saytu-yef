@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight,
   Minus,
@@ -14,6 +14,7 @@ import {
   User,
 } from 'lucide-react'
 import { UsageLimitNotice } from '@/components/subscriptions/UsageLimitNotice'
+import { useBarcodeScanner } from '@/hooks/useBarcodeScanner'
 import { useSubscriptionOverview } from '@/hooks/useSubscriptionOverview'
 import { getPlanDefinition, getUsageLimit, getUsageRatio } from '@/lib/subscriptions'
 import { buildProductGroups, getProductGroupPriceLabel } from '@/lib/productGroups'
@@ -74,6 +75,7 @@ export function POSInterface({
   const [productsError, setProductsError] = useState('')
   const [stockNotice, setStockNotice] = useState('')
   const [currencyNotice, setCurrencyNotice] = useState('')
+  const [scannerNotice, setScannerNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [showClearCartConfirm, setShowClearCartConfirm] = useState(false)
   const [variantPickerGroup, setVariantPickerGroup] = useState<ProductGroup | null>(null)
   const [selectedVariantSize, setSelectedVariantSize] = useState('')
@@ -162,6 +164,12 @@ export function POSInterface({
   }, [cart.length])
 
   useEffect(() => {
+    if (!scannerNotice) return
+    const timeout = window.setTimeout(() => setScannerNotice(null), 3500)
+    return () => window.clearTimeout(timeout)
+  }, [scannerNotice])
+
+  useEffect(() => {
     setSelectedVariantSize('')
     setSelectedVariantColor('')
   }, [variantPickerGroup?.id])
@@ -192,10 +200,10 @@ export function POSInterface({
     `Mode ${selectedPaymentMethod.label}`,
   ].filter(Boolean)
 
-  const getRemainingQuantity = (product: Product) => {
+  const getRemainingQuantity = useCallback((product: Product) => {
     const inCart = activeCart.find((item) => item.product_id === product.id)?.quantity ?? 0
     return Math.max(0, product.quantity - inCart)
-  }
+  }, [activeCart])
 
   const groupedProducts = useMemo(() => buildProductGroups(products), [products])
 
@@ -273,7 +281,19 @@ export function POSInterface({
     })
   ), [selectedVariantColor, selectedVariantSize, variantPickerVariants])
 
-  const handleAddToCart = (product: Product) => {
+  const findProductByScanCode = useCallback((rawValue: string) => {
+    const normalizedValue = rawValue.trim().toLocaleLowerCase('fr')
+    if (!normalizedValue) return null
+
+    return products.find((product) => (
+      product.status === 'active'
+      && product.quantity > 0
+      && product.currency === 'XOF'
+      && product.sku?.trim().toLocaleLowerCase('fr') === normalizedValue
+    )) ?? null
+  }, [products])
+
+  const handleAddToCart = useCallback((product: Product) => {
     const remaining = getRemainingQuantity(product)
     if (remaining <= 0) return
 
@@ -292,7 +312,34 @@ export function POSInterface({
       sku: product.sku,
     }
     addToCart(item)
-  }
+  }, [addToCart, getRemainingQuantity])
+
+  const handleBarcodeScan = useCallback((rawValue: string) => {
+    const scannedValue = rawValue.trim()
+    if (!scannedValue) return
+
+    const matchedProduct = findProductByScanCode(scannedValue)
+    if (!matchedProduct) {
+      setSearch(scannedValue)
+      setScannerNotice({
+        type: 'error',
+        message: `Code introuvable : ${scannedValue}. Verifiez la reference SKU du produit.`,
+      })
+      return
+    }
+
+    handleAddToCart(matchedProduct)
+    setSearch('')
+    setScannerNotice({
+      type: 'success',
+      message: `${formatProductLabel(matchedProduct)} ajoute au panier via scan.`,
+    })
+  }, [findProductByScanCode, handleAddToCart])
+
+  useBarcodeScanner({
+    enabled: !loadingProducts,
+    onScan: handleBarcodeScan,
+  })
 
   const handleSelectGroup = (group: ProductGroup) => {
     const availableVariants = group.variants.filter((variant) => getRemainingQuantity(variant) > 0)
@@ -601,12 +648,25 @@ export function POSInterface({
             <input
               type="search"
               aria-label="Rechercher un produit"
-              placeholder="Rechercher un produit, une taille ou une couleur..."
+              placeholder="Rechercher ou scanner un code produit..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return
+
+                const matchedProduct = findProductByScanCode(search)
+                if (!matchedProduct) return
+
+                event.preventDefault()
+                handleBarcodeScan(search)
+              }}
               className="h-12 w-full rounded-full border border-[#2D7D7D]/[0.14] bg-white pl-10 pr-4 text-sm text-[#1A3636] placeholder:text-[#6B7682] transition-all focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)]"
             />
           </div>
+
+          <p className="-mt-2 text-[11px] text-[#6B7682]">
+            Lecteur 2D compatible: scannez la reference SKU d&apos;une variante pour l&apos;ajouter directement au panier.
+          </p>
 
           {hasCartContext && (
             <>
@@ -670,6 +730,19 @@ export function POSInterface({
             <div className="flex items-start justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700">
               <span>{stockNotice}</span>
               <button type="button" onClick={() => setStockNotice('')} className="font-semibold">Fermer</button>
+            </div>
+          )}
+
+          {scannerNotice && (
+            <div
+              className={`flex items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-xs ${
+                scannerNotice.type === 'success'
+                  ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-700'
+                  : 'border border-red-500/20 bg-red-500/10 text-red-600'
+              }`}
+            >
+              <span>{scannerNotice.message}</span>
+              <button type="button" onClick={() => setScannerNotice(null)} className="font-semibold">Fermer</button>
             </div>
           )}
 
