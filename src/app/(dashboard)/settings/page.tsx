@@ -371,21 +371,18 @@ export default function SettingsPage() {
               <Card className="p-4 sm:p-5">
                 <h3 className="mb-5 text-sm font-semibold text-[#1A3636]">Preferences de notifications</h3>
                 <div className="space-y-3">
-                  {([
-                    { key: 'lowStock', label: 'Stock faible', desc: 'Alerte quand un produit atteint le stock minimum' },
-                    { key: 'newSale', label: 'Nouvelle vente', desc: 'Notification pour chaque vente completee' },
-                    { key: 'dailyReport', label: 'Rapport journalier', desc: 'Resume des ventes a 20h chaque jour' },
-                    { key: 'weeklyReport', label: 'Rapport hebdomadaire', desc: 'Rapport complet chaque lundi matin' },
-                    { key: 'abroadSync', label: 'Synchronisation etranger', desc: 'Quand vos produits saisis a l etranger sont synchronises' },
-                  ] as const).map((notice) => (
-                    <div key={notice.key} className="flex items-center justify-between rounded-xl border border-[#2D7D7D]/[0.06] bg-[#F4F7FB] p-3">
+                  <div className="rounded-xl border border-[#2D7D7D]/[0.06] bg-[#F4F7FB] p-3">
+                    <div className="flex items-center justify-between gap-3">
                       <div className="pr-3">
-                        <p className="text-sm font-medium text-[#1A3636]">{notice.label}</p>
-                        <p className="text-xs text-[#6B7682]">{notice.desc}</p>
+                        <p className="text-sm font-medium text-[#1A3636]">Stock faible</p>
+                        <p className="text-xs text-[#6B7682]">Afficher uniquement les alertes de stock faible dans la cloche du haut.</p>
                       </div>
-                      <Toggle checked={notifs[notice.key]} onChange={(value) => setNotifs((current) => ({ ...current, [notice.key]: value }))} />
+                      <Toggle checked={notifs.lowStock} onChange={(value) => setNotifs({ lowStock: value })} />
                     </div>
-                  ))}
+                    <p className="mt-3 text-xs text-[#6B7682]">
+                      Les autres notifications ont ete retirees pour garder une cloche plus simple et utile au quotidien.
+                    </p>
+                  </div>
                   <Feedback state={notifMsg} />
                   <div className="flex justify-end">
                     <Button variant="primary" onClick={saveNotifs} isLoading={savingNotifs} disabled={loading} className="w-full sm:w-auto">

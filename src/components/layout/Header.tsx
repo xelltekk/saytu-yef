@@ -1,5 +1,5 @@
 'use client'
-import { AlertTriangle, BarChart3, Bell, BellRing, ChevronDown, CircleDollarSign, LogOut, Package2, RefreshCw, Search, Settings, ShoppingCart, User, X } from 'lucide-react'
+import { Bell, ChevronDown, LogOut, Package2, RefreshCw, Search, Settings, User, X } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useUser } from '@/hooks/useUser'
@@ -36,52 +36,18 @@ function formatNotificationDate(value?: string | null) {
 }
 
 function getNotificationToneStyles(tone: HeaderNotificationTone) {
-  if (tone === 'success') {
-    return 'border-emerald-500/15 bg-emerald-500/[0.06]'
-  }
-
   if (tone === 'warning') {
     return 'border-amber-500/15 bg-amber-500/[0.06]'
   }
 
-  if (tone === 'danger') {
-    return 'border-red-500/15 bg-red-500/[0.06]'
-  }
-
-  return 'border-[#2D7D7D]/10 bg-[#F8FBFC]'
+  return 'border-red-500/15 bg-red-500/[0.06]'
 }
 
 function getNotificationIcon(item: HeaderNotificationItem) {
   const iconClassName =
-    item.tone === 'success'
-      ? 'text-emerald-600'
-      : item.tone === 'warning'
-        ? 'text-amber-600'
-        : item.tone === 'danger'
-          ? 'text-red-500'
-          : 'text-[#2D7D7D]'
+    item.tone === 'warning' ? 'text-amber-600' : 'text-red-500'
 
-  if (item.kind === 'stock') {
-    return <Package2 size={15} className={iconClassName} />
-  }
-
-  if (item.kind === 'sale') {
-    return <ShoppingCart size={15} className={iconClassName} />
-  }
-
-  if (item.kind === 'debt') {
-    return <CircleDollarSign size={15} className={iconClassName} />
-  }
-
-  if (item.kind === 'report') {
-    return <BarChart3 size={15} className={iconClassName} />
-  }
-
-  if (item.kind === 'abroad') {
-    return <AlertTriangle size={15} className={iconClassName} />
-  }
-
-  return <BellRing size={15} className={iconClassName} />
+  return <Package2 size={15} className={iconClassName} />
 }
 
 export function Header({ title, subtitle }: HeaderProps) {
@@ -174,17 +140,14 @@ export function Header({ title, subtitle }: HeaderProps) {
                 })
                 setShowMenu(false)
               }}
-              className="relative w-8 h-8 rounded-xl flex items-center justify-center text-[#6B7682] hover:text-[#5C6B73] hover:bg-[#2D7D7D]/[0.06] transition-all duration-150"
+              className="relative flex h-10 w-10 items-center justify-center rounded-xl text-[#6B7682] hover:bg-[#2D7D7D]/[0.06] hover:text-[#5C6B73] transition-all duration-150"
               aria-label="Notifications"
             >
-              <Bell size={16} />
+              <Bell size={18} />
               {unreadCount > 0 && (
-                <>
-                  <span className="absolute top-1 right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-[#6C5CE7] text-[10px] font-semibold text-white flex items-center justify-center ring-2 ring-white">
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
-                  <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#6C5CE7] ring-2 ring-white" />
-                </>
+                <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-white bg-[#6C5CE7] px-1 text-[10px] font-semibold leading-none text-white shadow-[0_2px_8px_rgba(108,92,231,0.28)]">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
               )}
             </button>
 

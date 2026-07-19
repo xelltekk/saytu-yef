@@ -1,19 +1,11 @@
 export type NotificationPreferences = {
   lowStock: boolean
-  newSale: boolean
-  dailyReport: boolean
-  weeklyReport: boolean
-  abroadSync: boolean
 }
 
 export const NOTIFICATION_SETTINGS_KEY = 'saytu-yef:notification-preferences'
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   lowStock: true,
-  newSale: true,
-  dailyReport: false,
-  weeklyReport: true,
-  abroadSync: true,
 }
 
 export function loadNotificationPreferences(): NotificationPreferences {
