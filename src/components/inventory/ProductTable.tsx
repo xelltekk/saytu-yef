@@ -1095,7 +1095,107 @@ export function ProductTable({
                       </div>
                     </div>
 
-                    <div className="hidden sm:flex sm:items-center sm:gap-3">
+                    <div className="hidden sm:block xl:hidden">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F8FAFD] p-1.5">
+                          {group.image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={group.image_url} alt={group.name} className="h-full w-full object-contain object-center" />
+                          ) : (
+                            <Package size={20} className="text-[#6B7682]" />
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="min-w-0 max-w-full truncate text-base font-semibold text-[#1A3636]">{group.name}</h3>
+                            <Badge variant={stockTone.variant}>{stockTone.label}</Badge>
+                            <span className="rounded-full bg-[#F4F7FB] px-2 py-0.5 text-[10px] font-semibold text-[#5C6B73]">
+                              {group.variant_count} variante(s)
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                            {group.category && (
+                              <span
+                                className="rounded-full px-2 py-0.5 font-semibold"
+                                style={{ background: `${group.category.color}15`, color: group.category.color }}
+                              >
+                                {group.category.name}
+                              </span>
+                            )}
+                            {group.supplier && (
+                              <span className="rounded-full bg-[#2D7D7D]/10 px-2 py-0.5 font-semibold text-[#2D7D7D]">
+                                {group.supplier.name}
+                              </span>
+                            )}
+                            {group.sizes.length > 0 && (
+                              <span className="rounded-full bg-[#6C5CE7]/10 px-2 py-0.5 font-semibold text-[#5A4BD4]">
+                                T. {summarizeValues(group.sizes)}
+                              </span>
+                            )}
+                            {group.colors.length > 0 && (
+                              <span className="rounded-full bg-[#2D7D7D]/10 px-2 py-0.5 font-semibold text-[#2D7D7D]">
+                                C. {summarizeValues(group.colors)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveGroupMenu(activeGroupMenu === group.id ? null : group.id)}
+                          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-[#6B7682] transition-colors hover:bg-[#F4F7FB]"
+                          aria-label={`Actions pour ${group.name}`}
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-2 gap-2 border-t border-[#2D7D7D]/[0.08] pt-3">
+                        <div className="rounded-2xl bg-[#F8FAFD] p-3">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Prix</p>
+                          <p className="mt-1 text-sm font-semibold leading-snug text-[#6C5CE7] break-words">
+                            {getProductGroupPriceLabel(group)}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-[#F8FAFD] p-3">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Stock</p>
+                          <p className="mt-1 text-sm font-semibold text-[#1A3636]">{group.quantity} unite(s)</p>
+                          <p className="mt-1 text-[11px] text-[#6B7682]">{stockTone.helper}</p>
+                        </div>
+                        <div className="rounded-2xl bg-[#F8FAFD] p-3">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Marge</p>
+                          <p className="mt-1 text-sm font-semibold text-emerald-600">{groupMargin.toFixed(0)}%</p>
+                        </div>
+                        <div className="rounded-2xl bg-[#F8FAFD] p-3">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Variantes</p>
+                          <p className="mt-1 text-sm font-semibold text-[#1A3636]">{group.variant_count}</p>
+                          {totalRestock > 0 ? (
+                            <p className="mt-1 text-[11px] text-amber-600">Reappro +{totalRestock}</p>
+                          ) : (
+                            <p className="mt-1 text-[11px] text-[#6B7682]">Aucune alerte</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                        {!readOnly && (
+                          <Button variant="ghost" size="sm" onClick={() => onEditProduct(group)}>
+                            Modifier
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          leftIcon={isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          onClick={() => toggleExpandedGroup(group.id)}
+                        >
+                          {isExpanded ? 'Masquer' : 'Variantes'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="hidden xl:flex xl:items-center xl:gap-3">
                       <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F8FAFD] p-1.5">
                         {group.image_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -1106,8 +1206,8 @@ export function ProductTable({
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="truncate text-sm font-semibold text-[#1A3636]">{group.name}</h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="min-w-0 max-w-full truncate text-sm font-semibold text-[#1A3636]">{group.name}</h3>
                           <Badge variant={stockTone.variant}>{stockTone.label}</Badge>
                           <span className="rounded-full bg-[#F4F7FB] px-2 py-0.5 text-[10px] font-semibold text-[#5C6B73]">
                             {group.variant_count} variante(s)
@@ -1126,7 +1226,7 @@ export function ProductTable({
 
                       <div className="w-28 flex-shrink-0 text-right">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Prix</p>
-                        <p className="mt-1 text-sm font-semibold text-[#6C5CE7]">{getProductGroupPriceLabel(group)}</p>
+                        <p className="mt-1 text-sm font-semibold leading-snug text-[#6C5CE7] break-words">{getProductGroupPriceLabel(group)}</p>
                       </div>
 
                       <div className="w-20 flex-shrink-0 text-right">
