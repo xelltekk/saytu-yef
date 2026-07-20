@@ -16,7 +16,7 @@ import {
 import { UsageLimitNotice } from '@/components/subscriptions/UsageLimitNotice'
 import { useBarcodeScanner } from '@/hooks/useBarcodeScanner'
 import { useSubscriptionOverview } from '@/hooks/useSubscriptionOverview'
-import { normalizeBarcodeValue } from '@/lib/barcodes'
+import { normalizeBarcodeLookupValue } from '@/lib/barcodes'
 import { getPlanDefinition, getUsageLimit, getUsageRatio } from '@/lib/subscriptions'
 import { buildProductGroups, getProductGroupPriceLabel } from '@/lib/productGroups'
 import { Button } from '@/components/ui/Button'
@@ -210,17 +210,31 @@ export function POSInterface({
 
   const filteredGroups = useMemo(() => {
     const query = search.trim().toLocaleLowerCase('fr')
+    const normalizedQuery = normalizeBarcodeLookupValue(search)
 
     return groupedProducts.filter((group) => {
-      if (!query) return true
+      if (!query && !normalizedQuery) return true
 
-      return [
+      const matchesText = [
         group.name,
         group.category?.name,
-        ...group.variants.flatMap((variant) => [variant.sku, variant.size, variant.color]),
+        ...group.variants.flatMap((variant) => [variant.size, variant.color]),
       ]
         .filter(Boolean)
         .some((value) => value!.toLocaleLowerCase('fr').includes(query))
+
+      if (matchesText) return true
+      if (!normalizedQuery) return false
+
+      return group.variants.some((variant) => {
+        const barcode = normalizeBarcodeLookupValue(variant.barcode)
+        const sku = normalizeBarcodeLookupValue(variant.sku)
+
+        return (
+          (barcode && barcode.includes(normalizedQuery))
+          || (sku && sku.includes(normalizedQuery))
+        )
+      })
     })
   }, [groupedProducts, search])
 
@@ -283,7 +297,7 @@ export function POSInterface({
   ), [selectedVariantColor, selectedVariantSize, variantPickerVariants])
 
   const findProductByScanCode = useCallback((rawValue: string) => {
-    const normalizedValue = normalizeBarcodeValue(rawValue).toLocaleLowerCase('fr')
+    const normalizedValue = normalizeBarcodeLookupValue(rawValue)
     if (!normalizedValue) return null
 
     return products.find((product) => (
@@ -291,8 +305,8 @@ export function POSInterface({
       && product.quantity > 0
       && product.currency === 'XOF'
       && (
-        normalizeBarcodeValue(product.barcode || '').toLocaleLowerCase('fr') === normalizedValue
-        || normalizeBarcodeValue(product.sku || '').toLocaleLowerCase('fr') === normalizedValue
+        normalizeBarcodeLookupValue(product.barcode) === normalizedValue
+        || normalizeBarcodeLookupValue(product.sku) === normalizedValue
       )
     )) ?? null
   }, [products])
@@ -658,12 +672,14 @@ export function POSInterface({
               onChange={(event) => setSearch(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') return
+                const rawValue = event.currentTarget.value.trim()
+                if (!rawValue) return
 
-                const matchedProduct = findProductByScanCode(search)
+                const matchedProduct = findProductByScanCode(rawValue)
                 if (!matchedProduct) return
 
                 event.preventDefault()
-                handleBarcodeScan(search)
+                handleBarcodeScan(rawValue)
               }}
               className="h-12 w-full rounded-full border border-[#2D7D7D]/[0.14] bg-white pl-10 pr-4 text-sm text-[#1A3636] placeholder:text-[#6B7682] transition-all focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)]"
             />

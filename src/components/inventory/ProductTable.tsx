@@ -32,6 +32,7 @@ import { buildProductGroups, getProductGroupPriceLabel } from '@/lib/productGrou
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import { normalizeBarcodeLookupValue } from '@/lib/barcodes'
 import { CategoryManager } from './CategoryManager'
 import { BarcodeLabelsModal } from './BarcodeLabelsModal'
 import { StockAdjustmentModal } from './StockAdjustmentModal'
@@ -86,7 +87,7 @@ function normalizePhone(phone?: string): string {
 }
 
 function normalizeScannableValue(value?: string | null) {
-  return value?.trim().replace(/\s+/g, '').toLocaleLowerCase('fr') || ''
+  return normalizeBarcodeLookupValue(value).toLocaleLowerCase('fr')
 }
 
 function getGroupStockTone(group: ProductGroup) {
@@ -316,18 +317,26 @@ export function ProductTable({
 
   const filteredGroups = useMemo(() => {
     const query = search.trim().toLocaleLowerCase('fr')
+    const normalizedQuery = normalizeScannableValue(search)
 
     return productGroups
       .filter((group) => {
-        const matchesSearch = !query || [
+        const matchesText = !query || [
           group.name,
           group.description,
           group.category?.name,
           group.supplier?.name,
-          ...group.variants.flatMap((variant) => [variant.barcode, variant.sku, variant.size, variant.color]),
+          ...group.variants.flatMap((variant) => [variant.size, variant.color]),
         ]
           .filter(Boolean)
           .some((value) => value!.toLocaleLowerCase('fr').includes(query))
+
+        const matchesScannable = !!normalizedQuery && group.variants.some((variant) => (
+          normalizeScannableValue(variant.barcode).includes(normalizedQuery)
+          || normalizeScannableValue(variant.sku).includes(normalizedQuery)
+        ))
+
+        const matchesSearch = matchesText || matchesScannable
 
         const matchesCategory = categoryFilter === 'all' || group.category_id === categoryFilter
         const matchesSupplier = supplierFilter === 'all'
@@ -793,9 +802,10 @@ export function ProductTable({
                 onChange={(event) => setSearch(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter') return
-                  if (!search.trim()) return
+                  const rawValue = event.currentTarget.value.trim()
+                  if (!rawValue) return
 
-                  const normalizedSearch = normalizeScannableValue(search)
+                  const normalizedSearch = normalizeScannableValue(rawValue)
                   const hasExactSkuMatch = productGroups.some((group) => (
                     group.variants.some((variant) => (
                       normalizeScannableValue(variant.barcode) === normalizedSearch
@@ -806,7 +816,7 @@ export function ProductTable({
                   if (!hasExactSkuMatch) return
 
                   event.preventDefault()
-                  handleInventoryScan(search)
+                  handleInventoryScan(rawValue)
                 }}
                 className="h-12 w-full rounded-full border border-[#2D7D7D]/[0.14] bg-[#F8FAFD] pl-11 pr-4 text-sm text-[#1A3636] placeholder:text-[#6B7682] transition-all focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)]"
               />

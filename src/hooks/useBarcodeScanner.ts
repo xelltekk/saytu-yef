@@ -21,8 +21,8 @@ function isEditableElement(target: EventTarget | null) {
 export function useBarcodeScanner({
   enabled = true,
   minLength = 4,
-  maxInterKeyDelayMs = 45,
-  idleTimeoutMs = 120,
+  maxInterKeyDelayMs = 85,
+  idleTimeoutMs = 180,
   onScan,
 }: UseBarcodeScannerOptions) {
   const onScanRef = useRef(onScan)

@@ -22,6 +22,7 @@ export type BarcodeLabelEntry = {
 }
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
+const INTERNAL_EAN_PREFIX = '29'
 
 function sanitizeBarcodeSeed(value: string) {
   return value
@@ -40,6 +41,44 @@ function createEntropy(length = 8) {
   }
 
   return Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('')
+}
+
+function createNumericEntropy(length = 6) {
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(length))
+    return Array.from(bytes, (byte) => String(byte % 10)).join('')
+  }
+
+  return Array.from({ length }, () => String(Math.floor(Math.random() * 10))).join('')
+}
+
+function hashSeedToDigits(value: string, length: number) {
+  let hash = 0
+
+  for (const char of value) {
+    hash = ((hash * 31) + char.charCodeAt(0)) >>> 0
+  }
+
+  let digits = ''
+  while (digits.length < length) {
+    hash = ((hash * 1664525) + 1013904223) >>> 0
+    digits += String(hash % 10)
+  }
+
+  return digits.slice(0, length)
+}
+
+function getEan13CheckDigit(value12: string) {
+  const digits = value12.replace(/\D/g, '')
+  if (digits.length !== 12) {
+    throw new Error('Un code EAN13 doit contenir 12 chiffres avant la cle de controle.')
+  }
+
+  const sum = digits
+    .split('')
+    .reduce((total, digit, index) => total + Number(digit) * (index % 2 === 0 ? 1 : 3), 0)
+
+  return String((10 - (sum % 10)) % 10)
 }
 
 function escapeHtml(value: string) {
@@ -85,6 +124,14 @@ export function normalizeBarcodeValue(value: string) {
   return value.trim().replace(/\s+/g, '').toUpperCase()
 }
 
+export function normalizeBarcodeLookupValue(value?: string | null) {
+  return (value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+}
+
 export function getBarcodeFormat(value: string): BarcodeFormat {
   const normalized = normalizeBarcodeValue(value)
   if (/^\d{13}$/.test(normalized)) return 'EAN13'
@@ -94,12 +141,19 @@ export function getBarcodeFormat(value: string): BarcodeFormat {
 }
 
 export function generateVariantBarcode(productName: string, variant: VariantSeed = {}, index = 0) {
-  const productSeed = sanitizeBarcodeSeed(productName).slice(0, 4) || 'PRD'
-  const variantSeed = sanitizeBarcodeSeed(
-    [variant.size?.trim(), variant.color?.trim()].filter(Boolean).join(' ')
-  ).slice(0, 4) || `V${index + 1}`
+  const seed = [
+    sanitizeBarcodeSeed(productName),
+    sanitizeBarcodeSeed(variant.size?.trim() || ''),
+    sanitizeBarcodeSeed(variant.color?.trim() || ''),
+    String(index + 1).padStart(2, '0'),
+    createEntropy(4),
+    createNumericEntropy(4),
+  ]
+    .filter(Boolean)
+    .join('|')
 
-  return `SYV-${productSeed}-${variantSeed}-${createEntropy(8)}`
+  const body = `${INTERNAL_EAN_PREFIX}${hashSeedToDigits(seed, 10)}`
+  return `${body}${getEan13CheckDigit(body)}`
 }
 
 export function renderBarcodeSvg(value: string) {
@@ -113,13 +167,14 @@ export function renderBarcodeSvg(value: string) {
   }
 
   const svg = document.createElementNS(SVG_NAMESPACE, 'svg')
+  const format = getBarcodeFormat(normalized)
   JsBarcode(svg, normalized, {
-    format: getBarcodeFormat(normalized),
+    format,
     lineColor: '#1A3636',
     background: '#ffffff',
-    width: normalized.length >= 16 ? 1.35 : 1.7,
-    height: 46,
-    margin: 0,
+    width: format === 'CODE128' ? 2 : 2.4,
+    height: format === 'CODE128' ? 52 : 64,
+    margin: 2,
     displayValue: false,
   })
 
@@ -235,9 +290,9 @@ export function printBarcodeLabels(labels: BarcodeLabelEntry[], title = 'Etiquet
         }
 
         .barcode-wrap svg {
-          width: 100%;
-          max-width: 56mm;
-          height: 15mm;
+          width: 56mm;
+          max-width: 100%;
+          height: 18mm;
         }
 
         .barcode-value {
