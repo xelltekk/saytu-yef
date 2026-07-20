@@ -1,18 +1,20 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Printer, Tag } from 'lucide-react'
+import { Download, Printer, Tag } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { buildBarcodeLabelEntries, printBarcodeLabels } from '@/lib/barcodes'
-import { formatCurrency, getProductVariantSummary } from '@/lib/utils'
-import type { ProductGroup } from '@/types'
+import { buildBarcodeLabelEntries, exportBarcodeLabelsPdf, printBarcodeLabels } from '@/lib/barcodes'
+import { formatCurrency, formatProductLabel, getProductVariantSummary } from '@/lib/utils'
+import type { Product, ProductGroup } from '@/types'
 
 interface BarcodeLabelsModalProps {
   group: ProductGroup | null
+  products?: Product[] | null
   focusVariantId?: string | null
   isOpen: boolean
   onClose: () => void
+  title?: string
 }
 
 type LabelRowState = {
@@ -26,14 +28,10 @@ type LabelRowState = {
   missingBarcode: boolean
 }
 
-function createRows(group: ProductGroup, focusVariantId?: string | null): LabelRowState[] {
-  const variants = focusVariantId
-    ? group.variants.filter((variant) => variant.id === focusVariantId)
-    : group.variants
-
-  return variants.map((variant) => ({
+function createRows(products: Product[], groupName?: string): LabelRowState[] {
+  return products.map((variant) => ({
     id: variant.id,
-    label: getProductVariantSummary(variant) || group.name,
+    label: groupName ? (getProductVariantSummary(variant) || groupName) : formatProductLabel(variant),
     barcode: variant.barcode?.trim() || '',
     sku: variant.sku?.trim() || '',
     priceLabel: formatCurrency(variant.selling_price, variant.currency),
@@ -43,20 +41,41 @@ function createRows(group: ProductGroup, focusVariantId?: string | null): LabelR
   }))
 }
 
+function resolveSourceProducts(group: ProductGroup | null, products?: Product[] | null, focusVariantId?: string | null) {
+  if (products?.length) {
+    return products
+  }
+
+  if (!group) return []
+
+  return focusVariantId
+    ? group.variants.filter((variant) => variant.id === focusVariantId)
+    : group.variants
+}
+
 export function BarcodeLabelsModal({
   group,
+  products,
   focusVariantId,
   isOpen,
   onClose,
+  title,
 }: BarcodeLabelsModalProps) {
   const [rows, setRows] = useState<LabelRowState[]>([])
   const [error, setError] = useState('')
+  const [isExportingPdf, setIsExportingPdf] = useState(false)
+
+  const sourceProducts = useMemo(
+    () => resolveSourceProducts(group, products, focusVariantId),
+    [focusVariantId, group, products]
+  )
+  const sourceLabel = group?.name || title || "Etiquettes de l'inventaire"
 
   useEffect(() => {
-    if (!isOpen || !group) return
+    if (!isOpen || sourceProducts.length === 0) return
     setError('')
-    setRows(createRows(group, focusVariantId))
-  }, [focusVariantId, group, isOpen])
+    setRows(createRows(sourceProducts, group?.name || undefined))
+  }, [group?.name, isOpen, sourceProducts])
 
   const selectedCount = useMemo(() => rows.filter((row) => row.selected && !row.missingBarcode).length, [rows])
   const totalCopies = useMemo(() => rows.reduce((sum, row) => (
@@ -75,21 +94,23 @@ export function BarcodeLabelsModal({
     )))
   }
 
-  const handlePrint = () => {
-    if (!group) return
-
-    const products = group.variants.filter((variant) => {
+  const getSelectedEntries = () => {
+    const selectedProducts = sourceProducts.filter((variant) => {
       const row = rows.find((candidate) => candidate.id === variant.id)
       return !!row?.selected && !row.missingBarcode
     })
 
-    const entries = buildBarcodeLabelEntries(products).map((entry) => {
+    return buildBarcodeLabelEntries(selectedProducts).map((entry) => {
       const row = rows.find((candidate) => candidate.id === entry.id)
       return {
         ...entry,
         copies: Math.max(1, Number(row?.copies) || 1),
       }
     })
+  }
+
+  const handlePrint = () => {
+    const entries = getSelectedEntries()
 
     if (entries.length === 0) {
       setError("Selectionnez au moins une variante avec code-barres avant d'imprimer.")
@@ -97,11 +118,30 @@ export function BarcodeLabelsModal({
     }
 
     try {
-      printBarcodeLabels(entries, `Etiquettes ${group.name}`)
+      printBarcodeLabels(entries, sourceLabel)
       onClose()
     } catch (printError) {
       console.error(printError)
       setError(printError instanceof Error ? printError.message : "Impossible d'imprimer les etiquettes.")
+    }
+  }
+
+  const handleExportPdf = async () => {
+    const entries = getSelectedEntries()
+
+    if (entries.length === 0) {
+      setError("Selectionnez au moins une variante avec code-barres avant d'exporter.")
+      return
+    }
+
+    setIsExportingPdf(true)
+    try {
+      await exportBarcodeLabelsPdf(entries, sourceLabel)
+    } catch (exportError) {
+      console.error(exportError)
+      setError(exportError instanceof Error ? exportError.message : "Impossible d'exporter les etiquettes en PDF.")
+    } finally {
+      setIsExportingPdf(false)
     }
   }
 
@@ -115,6 +155,14 @@ export function BarcodeLabelsModal({
         <>
           <Button variant="ghost" onClick={onClose}>Fermer</Button>
           <Button
+            variant="outline"
+            leftIcon={<Download size={15} />}
+            onClick={() => void handleExportPdf()}
+            disabled={selectedCount === 0 || isExportingPdf}
+          >
+            {isExportingPdf ? 'Export PDF...' : `Exporter PDF (${totalCopies})`}
+          </Button>
+          <Button
             variant="primary"
             leftIcon={<Printer size={15} />}
             onClick={handlePrint}
@@ -125,10 +173,10 @@ export function BarcodeLabelsModal({
         </>
       )}
     >
-      {!group ? null : (
+      {sourceProducts.length === 0 ? null : (
         <div className="space-y-4">
           <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-[#F8FBFC] px-4 py-3 text-sm text-[#5C6B73]">
-            {group.name} · {selectedCount} variante(s) selectionnee(s) · {totalCopies} etiquette(s) au total
+            {sourceLabel} · {selectedCount} variante(s) selectionnee(s) · {totalCopies} etiquette(s) au total
           </div>
 
           {error && (

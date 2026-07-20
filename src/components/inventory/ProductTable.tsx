@@ -183,6 +183,7 @@ export function ProductTable({
   const [historyProduct, setHistoryProduct] = useState<Product | null>(null)
   const [activeGroupMenu, setActiveGroupMenu] = useState<string | null>(null)
   const [barcodeLabelTarget, setBarcodeLabelTarget] = useState<{ groupId: string; variantId?: string | null } | null>(null)
+  const [showInventoryBarcodeLabels, setShowInventoryBarcodeLabels] = useState(false)
 
   const mergeActivatedProduct = useCallback((list: Product[]) => {
     if (!activatedProduct || list.some((product) => product.id === activatedProduct.id)) {
@@ -371,6 +372,9 @@ export function ProductTable({
   }, [categoryFilter, productGroups, search, sortBy, stockFilter, supplierFilter])
 
   const visibleVariants = useMemo(() => filteredGroups.flatMap((group) => group.variants), [filteredGroups])
+  const exportableLabelVariants = useMemo(() => visibleVariants.filter((variant) => (
+    Boolean(variant.barcode?.trim() || variant.sku?.trim())
+  )), [visibleVariants])
 
   const restockCandidates = useMemo<RestockCandidate[]>(() => (
     visibleVariants
@@ -835,6 +839,15 @@ export function ProductTable({
               )}
               <Button variant="outline" size="sm" leftIcon={<Download size={14} />} onClick={exportCsv}>
                 Exporter
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                leftIcon={<Printer size={14} />}
+                onClick={() => setShowInventoryBarcodeLabels(true)}
+                disabled={exportableLabelVariants.length === 0}
+              >
+                Etiquettes PDF
               </Button>
               {!readOnly && (
                 <Button variant="outline" size="sm" leftIcon={<Tags size={14} />} onClick={() => setShowCategories(true)}>
@@ -1464,6 +1477,14 @@ export function ProductTable({
         focusVariantId={barcodeLabelTarget?.variantId ?? null}
         isOpen={barcodeLabelTarget !== null}
         onClose={() => setBarcodeLabelTarget(null)}
+      />
+
+      <BarcodeLabelsModal
+        group={null}
+        products={exportableLabelVariants}
+        isOpen={showInventoryBarcodeLabels}
+        onClose={() => setShowInventoryBarcodeLabels(false)}
+        title="Etiquettes inventaire"
       />
 
       <Modal

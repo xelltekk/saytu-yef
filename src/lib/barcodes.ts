@@ -90,6 +90,19 @@ function escapeHtml(value: string) {
     .replace(/'/g, '&#39;')
 }
 
+function slugifyFilename(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase() || 'etiquettes-code-barres'
+}
+
+function mmToPt(value: number) {
+  return (value * 72) / 25.4
+}
+
 function printHTMLDocument(title: string, html: string) {
   if (typeof document === 'undefined') {
     throw new Error("L'impression n'est disponible que dans le navigateur.")
@@ -181,18 +194,90 @@ export function renderBarcodeSvg(value: string) {
   return svg.outerHTML
 }
 
-export function printBarcodeLabels(labels: BarcodeLabelEntry[], title = 'Etiquettes code-barres') {
-  const expandedLabels = labels.flatMap((label) => (
+function expandBarcodeLabels(labels: BarcodeLabelEntry[]) {
+  return labels.flatMap((label) => (
     Array.from({ length: Math.max(1, label.copies) }, (_, index) => ({
       ...label,
       copyKey: `${label.id}-${index}`,
       variantLabel: getProductVariantSummary(label),
       barcodeValue: normalizeBarcodeValue(label.barcode),
-      barcodeSvg: renderBarcodeSvg(label.barcode),
       priceLabel: formatCurrency(label.selling_price, label.currency || 'XOF'),
       productLabel: formatProductLabel(label),
     }))
   ))
+}
+
+function renderBarcodeCanvas(value: string) {
+  if (typeof document === 'undefined') {
+    throw new Error('Le rendu barcode demande un contexte navigateur.')
+  }
+
+  const normalized = normalizeBarcodeValue(value)
+  if (!normalized) {
+    throw new Error('Code-barres vide.')
+  }
+
+  const canvas = document.createElement('canvas')
+  const format = getBarcodeFormat(normalized)
+  JsBarcode(canvas, normalized, {
+    format,
+    lineColor: '#1A3636',
+    background: '#ffffff',
+    width: format === 'CODE128' ? 2 : 2.4,
+    height: format === 'CODE128' ? 52 : 64,
+    margin: 6,
+    displayValue: false,
+  })
+
+  return canvas
+}
+
+function wrapPdfText(text: string, maxWidth: number, measure: (value: string) => number) {
+  const words = text.split(/\s+/).filter(Boolean)
+  if (words.length === 0) return ['']
+
+  const lines: string[] = []
+  let current = ''
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word
+    if (measure(next) <= maxWidth) {
+      current = next
+      continue
+    }
+
+    if (current) {
+      lines.push(current)
+      current = ''
+    }
+
+    if (measure(word) <= maxWidth) {
+      current = word
+      continue
+    }
+
+    let segment = ''
+    for (const char of word) {
+      const nextSegment = `${segment}${char}`
+      if (measure(nextSegment) <= maxWidth) {
+        segment = nextSegment
+      } else {
+        if (segment) lines.push(segment)
+        segment = char
+      }
+    }
+    current = segment
+  }
+
+  if (current) lines.push(current)
+  return lines
+}
+
+export function printBarcodeLabels(labels: BarcodeLabelEntry[], title = 'Etiquettes code-barres') {
+  const expandedLabels = expandBarcodeLabels(labels).map((label) => ({
+    ...label,
+    barcodeSvg: renderBarcodeSvg(label.barcode),
+  }))
 
   if (expandedLabels.length === 0) {
     throw new Error('Aucune etiquette a imprimer.')
@@ -328,6 +413,174 @@ export function printBarcodeLabels(labels: BarcodeLabelEntry[], title = 'Etiquet
   </html>`
 
   printHTMLDocument(title, html)
+}
+
+export async function exportBarcodeLabelsPdf(labels: BarcodeLabelEntry[], title = 'Etiquettes code-barres') {
+  if (typeof document === 'undefined' || typeof window === 'undefined') {
+    throw new Error("L'export PDF n'est disponible que dans le navigateur.")
+  }
+
+  const expandedLabels = expandBarcodeLabels(labels)
+  if (expandedLabels.length === 0) {
+    throw new Error('Aucune etiquette a exporter.')
+  }
+
+  const [{ PDFDocument, StandardFonts, rgb }, barcodeImages] = await Promise.all([
+    import('pdf-lib'),
+    Promise.all(expandedLabels.map(async (label) => ({
+      id: label.copyKey,
+      pngDataUrl: renderBarcodeCanvas(label.barcode).toDataURL('image/png'),
+    }))),
+  ])
+
+  const barcodeImageMap = new Map(barcodeImages.map((image) => [image.id, image.pngDataUrl]))
+
+  const pdf = await PDFDocument.create()
+  pdf.setTitle(title)
+  pdf.setProducer('Saytu Yef')
+  pdf.setCreator('Saytu Yef')
+
+  const fontRegular = await pdf.embedFont(StandardFonts.Helvetica)
+  const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold)
+
+  const pageWidth = mmToPt(210)
+  const pageHeight = mmToPt(297)
+  const margin = mmToPt(6)
+  const gap = mmToPt(4)
+  const columns = 3
+  const labelWidth = (pageWidth - (margin * 2) - (gap * (columns - 1))) / columns
+  const labelHeight = mmToPt(36)
+  const rowsPerPage = Math.max(1, Math.floor((pageHeight - (margin * 2) + gap) / (labelHeight + gap)))
+  const labelsPerPage = columns * rowsPerPage
+
+  const colors = {
+    border: rgb(0.86, 0.9, 0.94),
+    text: rgb(0.1, 0.21, 0.21),
+    muted: rgb(0.36, 0.42, 0.45),
+    accent: rgb(0.42, 0.36, 0.91),
+  }
+
+  for (let pageIndex = 0; pageIndex * labelsPerPage < expandedLabels.length; pageIndex += 1) {
+    const page = pdf.addPage([pageWidth, pageHeight])
+    const pageLabels = expandedLabels.slice(pageIndex * labelsPerPage, (pageIndex + 1) * labelsPerPage)
+
+    for (const [index, label] of pageLabels.entries()) {
+      const column = index % columns
+      const row = Math.floor(index / columns)
+      const x = margin + (column * (labelWidth + gap))
+      const y = pageHeight - margin - ((row + 1) * labelHeight) - (row * gap)
+
+      page.drawRectangle({
+        x,
+        y,
+        width: labelWidth,
+        height: labelHeight,
+        borderColor: colors.border,
+        borderWidth: 0.75,
+      })
+
+      const padding = mmToPt(3)
+      const titleFontSize = 10.5
+      const priceFontSize = 9.5
+      const variantFontSize = 7.5
+      const codeFontSize = 7.5
+      const skuFontSize = 6.5
+      const titleWidth = labelWidth - (padding * 2) - mmToPt(22)
+      const titleLines = wrapPdfText(
+        label.productLabel,
+        titleWidth,
+        (value) => fontBold.widthOfTextAtSize(value, titleFontSize)
+      ).slice(0, 2)
+
+      let cursorY = y + labelHeight - padding - titleFontSize
+      titleLines.forEach((line) => {
+        page.drawText(line, {
+          x: x + padding,
+          y: cursorY,
+          size: titleFontSize,
+          font: fontBold,
+          color: colors.text,
+        })
+        cursorY -= titleFontSize + 1
+      })
+
+      page.drawText(label.priceLabel, {
+        x: x + labelWidth - padding - fontBold.widthOfTextAtSize(label.priceLabel, priceFontSize),
+        y: y + labelHeight - padding - priceFontSize,
+        size: priceFontSize,
+        font: fontBold,
+        color: colors.accent,
+      })
+
+      if (label.variantLabel) {
+        const variantLines = wrapPdfText(
+          label.variantLabel,
+          labelWidth - (padding * 2),
+          (value) => fontRegular.widthOfTextAtSize(value, variantFontSize)
+        ).slice(0, 2)
+
+        variantLines.forEach((line) => {
+          page.drawText(line, {
+            x: x + padding,
+            y: cursorY,
+            size: variantFontSize,
+            font: fontRegular,
+            color: colors.muted,
+          })
+          cursorY -= variantFontSize + 1
+        })
+      }
+
+      const barcodePng = barcodeImageMap.get(label.copyKey)
+      if (!barcodePng) continue
+
+      const barcodeImage = await pdf.embedPng(barcodePng)
+      const barcodeBoxWidth = labelWidth - (padding * 2)
+      const barcodeBoxHeight = mmToPt(16)
+      const barcodeY = y + mmToPt(9)
+      const barcodeScale = Math.min(barcodeBoxWidth / barcodeImage.width, barcodeBoxHeight / barcodeImage.height)
+      const barcodeWidth = barcodeImage.width * barcodeScale
+      const barcodeHeight = barcodeImage.height * barcodeScale
+
+      page.drawImage(barcodeImage, {
+        x: x + ((labelWidth - barcodeWidth) / 2),
+        y: barcodeY,
+        width: barcodeWidth,
+        height: barcodeHeight,
+      })
+
+      page.drawText(label.barcodeValue, {
+        x: x + ((labelWidth - fontBold.widthOfTextAtSize(label.barcodeValue, codeFontSize)) / 2),
+        y: y + mmToPt(5.6),
+        size: codeFontSize,
+        font: fontBold,
+        color: colors.text,
+      })
+
+      if (label.sku?.trim()) {
+        const skuLabel = `Ref: ${label.sku.trim()}`
+        page.drawText(skuLabel, {
+          x: x + ((labelWidth - fontRegular.widthOfTextAtSize(skuLabel, skuFontSize)) / 2),
+          y: y + mmToPt(2.7),
+          size: skuFontSize,
+          font: fontRegular,
+          color: colors.muted,
+        })
+      }
+    }
+  }
+
+  const pdfBytes = await pdf.save()
+  const pdfByteArray = Uint8Array.from(pdfBytes)
+  const blob = new Blob([pdfByteArray.buffer], { type: 'application/pdf' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${slugifyFilename(title)}.pdf`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 export function buildBarcodeLabelEntries(products: Product[]) {
