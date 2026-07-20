@@ -272,22 +272,22 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
       footer={
         showReversal ? (
           <>
-            <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setShowReversal(false)} disabled={reversing}>Retour</Button>
-            <Button variant="danger" className="w-full sm:w-auto" onClick={() => void handleReverseSale()} isLoading={reversing}>
+            <Button variant="ghost" className="w-full md:w-auto" onClick={() => setShowReversal(false)} disabled={reversing}>Retour</Button>
+            <Button variant="danger" className="w-full md:w-auto" onClick={() => void handleReverseSale()} isLoading={reversing}>
               {reversalTarget === 'refunded' ? 'Confirmer le remboursement' : 'Confirmer l’annulation'}
             </Button>
           </>
         ) : editing ? (
           <>
-            <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setEditing(false)}>Annuler</Button>
-            <Button variant="primary" className="w-full sm:w-auto" onClick={handleSave} isLoading={saving}>Enregistrer</Button>
+            <Button variant="ghost" className="w-full md:w-auto" onClick={() => setEditing(false)}>Annuler</Button>
+            <Button variant="primary" className="w-full md:w-auto" onClick={handleSave} isLoading={saving}>Enregistrer</Button>
           </>
         ) : (
           <>
-            <Button variant="ghost" className="w-full sm:w-auto" onClick={onClose}>Fermer</Button>
+            <Button variant="ghost" className="w-full md:w-auto" onClick={onClose}>Fermer</Button>
             <Button
               variant="outline"
-              className="w-full sm:w-auto"
+              className="w-full md:w-auto"
               leftIcon={<Printer size={15} />}
               onClick={() => receipt && printReceipt(receipt)}
               disabled={!receipt}
@@ -296,7 +296,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
             </Button>
             <Button
               variant="outline"
-              className="w-full sm:w-auto"
+              className="w-full md:w-auto"
               leftIcon={<Printer size={15} />}
               onClick={() => invoice && printInvoice(invoice)}
               disabled={!invoice}
@@ -306,14 +306,14 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
             {isAdmin && computedStatus !== 'cancelled' && computedStatus !== 'refunded' && (
               <Button
                 variant="danger"
-                className="w-full sm:w-auto"
+                className="w-full md:w-auto"
                 leftIcon={<RotateCcw size={15} />}
                 onClick={() => setShowReversal(true)}
               >
                 {amountPaid > 0 ? 'Rembourser' : 'Annuler'}
               </Button>
             )}
-            <Button variant="primary" className="w-full sm:w-auto" onClick={() => setEditing(true)}>Modifier</Button>
+            <Button variant="primary" className="w-full md:w-auto" onClick={() => setEditing(true)}>Modifier</Button>
           </>
         )
       }
