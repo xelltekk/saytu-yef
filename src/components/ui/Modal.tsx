@@ -90,7 +90,7 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', footer }:
         aria-label={title ? undefined : 'Fenêtre de dialogue'}
         tabIndex={-1}
         className={cn(
-          'relative w-full max-h-[calc(100dvh-0.5rem)] rounded-[28px] sm:rounded-2xl border border-[#2D7D7D]/[0.1] bg-white shadow-[0_20px_60px_rgba(26,54,54,0.25)] fade-in',
+          'relative flex w-full max-h-[calc(100dvh-0.5rem)] flex-col overflow-hidden rounded-[28px] border border-[#2D7D7D]/[0.1] bg-white shadow-[0_20px_60px_rgba(26,54,54,0.25)] fade-in sm:rounded-2xl',
           sizes[size]
         )}
       >
@@ -107,9 +107,9 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', footer }:
             </button>
           </div>
         )}
-        <div className="max-h-[calc(100dvh-8.5rem)] overflow-y-auto p-4 sm:max-h-[70vh] sm:p-5">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">{children}</div>
         {footer && (
-          <div className="flex flex-col-reverse gap-3 border-t border-[#2D7D7D]/[0.07] p-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:[&>*]:max-w-full sm:p-5">
+          <div className="shrink-0 border-t border-[#2D7D7D]/[0.07] p-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:p-5">
             {footer}
           </div>
         )}
