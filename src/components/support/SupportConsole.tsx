@@ -10,6 +10,7 @@ import { formatCurrency } from '@/lib/utils'
 import {
   applySupportSubscriptionRequestAction,
   BILLING_CYCLE_LABELS,
+  createSupportTicket,
   doesSubscriptionActivationRequirePayment,
   formatSubscriptionDate,
   formatSubscriptionDateTime,
@@ -23,9 +24,18 @@ import {
   getSupportPlatformAccounts,
   getSupportSubscriptionAudit,
   getSupportSubscriptionRequests,
+  getSupportTickets,
   hasSupportOperatorAccess,
+  SUPPORT_CRM_STAGE_LABELS,
+  SUPPORT_CRM_STAGE_STYLES,
   SUPPORT_ACCESS_STATUS_LABELS,
   SUPPORT_ACCESS_STATUS_STYLES,
+  SUPPORT_TICKET_CATEGORY_LABELS,
+  SUPPORT_TICKET_CHANNEL_LABELS,
+  SUPPORT_TICKET_PRIORITY_LABELS,
+  SUPPORT_TICKET_PRIORITY_STYLES,
+  SUPPORT_TICKET_STATUS_LABELS,
+  SUPPORT_TICKET_STATUS_STYLES,
   SUPPORT_WATCH_LEVEL_LABELS,
   SUPPORT_WATCH_LEVEL_STYLES,
   SUBSCRIPTION_PAYMENT_METHOD_LABELS,
@@ -40,9 +50,16 @@ import {
   type SubscriptionRequestRecord,
   type SupportAccountControlInput,
   type SupportConsoleOverview,
+  type SupportCrmStage,
   type SupportPlatformAccount,
   type SupportPlatformMember,
   type SupportSubscriptionAuditEntry,
+  type SupportTicket,
+  type SupportTicketCategory,
+  type SupportTicketChannel,
+  type SupportTicketPriority,
+  type SupportTicketStatus,
+  updateSupportTicket,
   upsertSupportAccountControl,
 } from '@/lib/subscriptions'
 import type {
@@ -53,8 +70,10 @@ import type {
   SupportWatchLevel,
 } from '@/types'
 import {
+  ArrowUpRight,
   Ban,
   BadgeDollarSign,
+  BellRing,
   Building2,
   CalendarClock,
   CheckCircle2,
@@ -68,6 +87,7 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
+  TrendingUp,
   UserRoundCog,
   Users,
   Wallet,
@@ -86,6 +106,22 @@ type SupportAccountControlDraft = {
   followUpNote: string
   nextFollowUpAt: string
   lastContactedAt?: string | null
+  crmStage: SupportCrmStage
+  crmValueEstimate: string
+  crmNextStep: string
+  crmOwnerEmail: string
+}
+
+type SupportTicketDraft = {
+  subject: string
+  details: string
+  category: SupportTicketCategory
+  status: SupportTicketStatus
+  priority: SupportTicketPriority
+  requesterEmail: string
+  assignedToEmail: string
+  channel: SupportTicketChannel
+  dueAt: string
 }
 
 const SUBSCRIPTION_PAYMENT_OPTIONS: Array<{ value: string; label: string }> = [
@@ -96,6 +132,60 @@ const SUBSCRIPTION_PAYMENT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'bank_transfer', label: SUBSCRIPTION_PAYMENT_METHOD_LABELS.bank_transfer },
   { value: 'other', label: SUBSCRIPTION_PAYMENT_METHOD_LABELS.other },
 ]
+
+const SUPPORT_TICKET_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'open', label: SUPPORT_TICKET_STATUS_LABELS.open },
+  { value: 'in_progress', label: SUPPORT_TICKET_STATUS_LABELS.in_progress },
+  { value: 'waiting_customer', label: SUPPORT_TICKET_STATUS_LABELS.waiting_customer },
+  { value: 'resolved', label: SUPPORT_TICKET_STATUS_LABELS.resolved },
+  { value: 'closed', label: SUPPORT_TICKET_STATUS_LABELS.closed },
+]
+
+const SUPPORT_TICKET_PRIORITY_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'low', label: SUPPORT_TICKET_PRIORITY_LABELS.low },
+  { value: 'medium', label: SUPPORT_TICKET_PRIORITY_LABELS.medium },
+  { value: 'high', label: SUPPORT_TICKET_PRIORITY_LABELS.high },
+  { value: 'urgent', label: SUPPORT_TICKET_PRIORITY_LABELS.urgent },
+]
+
+const SUPPORT_TICKET_CATEGORY_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'billing', label: SUPPORT_TICKET_CATEGORY_LABELS.billing },
+  { value: 'technical', label: SUPPORT_TICKET_CATEGORY_LABELS.technical },
+  { value: 'onboarding', label: SUPPORT_TICKET_CATEGORY_LABELS.onboarding },
+  { value: 'commercial', label: SUPPORT_TICKET_CATEGORY_LABELS.commercial },
+  { value: 'incident', label: SUPPORT_TICKET_CATEGORY_LABELS.incident },
+  { value: 'other', label: SUPPORT_TICKET_CATEGORY_LABELS.other },
+]
+
+const SUPPORT_TICKET_CHANNEL_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'internal', label: SUPPORT_TICKET_CHANNEL_LABELS.internal },
+  { value: 'email', label: SUPPORT_TICKET_CHANNEL_LABELS.email },
+  { value: 'phone', label: SUPPORT_TICKET_CHANNEL_LABELS.phone },
+  { value: 'whatsapp', label: SUPPORT_TICKET_CHANNEL_LABELS.whatsapp },
+  { value: 'onsite', label: SUPPORT_TICKET_CHANNEL_LABELS.onsite },
+  { value: 'other', label: SUPPORT_TICKET_CHANNEL_LABELS.other },
+]
+
+const SUPPORT_CRM_STAGE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'monitoring', label: SUPPORT_CRM_STAGE_LABELS.monitoring },
+  { value: 'prospect', label: SUPPORT_CRM_STAGE_LABELS.prospect },
+  { value: 'follow_up', label: SUPPORT_CRM_STAGE_LABELS.follow_up },
+  { value: 'negotiation', label: SUPPORT_CRM_STAGE_LABELS.negotiation },
+  { value: 'won', label: SUPPORT_CRM_STAGE_LABELS.won },
+  { value: 'risk', label: SUPPORT_CRM_STAGE_LABELS.risk },
+]
+
+const EMPTY_TICKET_DRAFT: SupportTicketDraft = {
+  subject: '',
+  details: '',
+  category: 'other',
+  status: 'open',
+  priority: 'medium',
+  requesterEmail: '',
+  assignedToEmail: '',
+  channel: 'internal',
+  dueAt: '',
+}
 
 const AUDIT_ACTION_LABELS: Record<string, string> = {
   requested: 'Nouvelle demande',
@@ -352,6 +442,167 @@ function getBillingFollowUpLabel(account: SupportPlatformAccount) {
   return 'Suivi support recommande'
 }
 
+function getUsagePressure(account: SupportPlatformAccount) {
+  const planDefinition = getPlanDefinition(account.plan)
+  const productRatio = getUsageRatio(account.productsCount, planDefinition.limits.products)
+  const teamRatio = getUsageRatio(account.teamMembersCount, planDefinition.limits.teamMembers)
+  const monthlySalesRatio = getUsageRatio(account.monthlySalesCount, planDefinition.limits.monthlySales)
+
+  return Math.max(productRatio, teamRatio, monthlySalesRatio)
+}
+
+function isFollowUpDue(date?: string | null) {
+  const daysLeft = getRemainingDays(date)
+  return daysLeft !== null && daysLeft <= 0
+}
+
+function getPriorityAccountSummary(account: SupportPlatformAccount) {
+  const daysLeft = getRemainingDays(account.currentPeriodEndsAt)
+
+  if (account.accessStatus === 'restricted') {
+    return {
+      title: 'Compte suspendu',
+      detail: 'Verifier la raison du blocage et decider d une reactivation.',
+      tone: 'border-red-500/20 bg-red-500/10 text-red-700',
+    }
+  }
+
+  if (account.pendingRequestsCount > 0) {
+    return {
+      title: 'Demande a traiter',
+      detail: `${account.pendingRequestsCount} demande(s) support en attente pour cette boutique.`,
+      tone: 'border-amber-500/20 bg-amber-500/10 text-amber-700',
+    }
+  }
+
+  if (account.status === 'past_due' || account.status === 'expired' || account.status === 'suspended') {
+    return {
+      title: 'Facturation critique',
+      detail: `Statut actuel: ${SUBSCRIPTION_STATUS_LABELS[account.status]}.`,
+      tone: 'border-red-500/20 bg-red-500/10 text-red-700',
+    }
+  }
+
+  if (isFollowUpDue(account.nextFollowUpAt)) {
+    return {
+      title: 'Relance a faire',
+      detail: 'La prochaine relance support est echue ou prevue pour aujourd hui.',
+      tone: 'border-[#2D7D7D]/20 bg-[#2D7D7D]/10 text-[#2D7D7D]',
+    }
+  }
+
+  if (daysLeft !== null && daysLeft <= 3) {
+    return {
+      title: 'Echeance proche',
+      detail: daysLeft <= 0 ? 'L echeance est aujourd hui.' : `Echeance dans ${daysLeft} jour(s).`,
+      tone: 'border-amber-500/20 bg-amber-500/10 text-amber-700',
+    }
+  }
+
+  return {
+    title: 'Surveillance active',
+    detail: 'Compte a garder dans le radar support.',
+    tone: 'border-slate-500/20 bg-slate-500/10 text-slate-700',
+  }
+}
+
+function getGrowthOpportunity(account: SupportPlatformAccount) {
+  if (account.accessStatus !== 'active') return null
+  if (account.plan === 'enterprise' || account.plan === 'lifetime') return null
+
+  const pressure = getUsagePressure(account)
+
+  if ((account.plan === 'free' || account.status === 'trial') && (pressure >= 60 || account.monthlySalesCount >= 6)) {
+    return {
+      nextPlan: 'starter' as SubscriptionPlan,
+      title: 'Passage conseille vers Starter',
+      detail: `Usage deja bien lance: ${account.monthlySalesCount} vente(s) ce mois et ${pressure}% de pression sur les limites.`,
+      tone: 'border-violet-500/20 bg-violet-500/10 text-violet-700',
+    }
+  }
+
+  if (account.plan === 'starter' && (pressure >= 75 || account.teamMembersCount >= 3)) {
+    return {
+      nextPlan: 'pro' as SubscriptionPlan,
+      title: 'Passage conseille vers Pro',
+      detail: `Le plan Starter commence a se tendre avec ${pressure}% de pression.`,
+      tone: 'border-[#2D7D7D]/20 bg-[#2D7D7D]/10 text-[#2D7D7D]',
+    }
+  }
+
+  if (account.plan === 'pro' && account.teamMembersCount >= 8) {
+    return {
+      nextPlan: 'enterprise' as SubscriptionPlan,
+      title: 'Compte proche d un besoin Enterprise',
+      detail: 'Equipe deja large, bon candidat pour accompagnement dedie.',
+      tone: 'border-sky-500/20 bg-sky-500/10 text-sky-700',
+    }
+  }
+
+  return null
+}
+
+function buildAccountControlDraft(account: SupportPlatformAccount): SupportAccountControlDraft {
+  return {
+    accessStatus: account.accessStatus,
+    watchLevel: account.watchLevel,
+    internalNote: account.internalNote ?? '',
+    followUpNote: account.followUpNote ?? '',
+    nextFollowUpAt: toDateInputValue(account.nextFollowUpAt),
+    lastContactedAt: account.lastContactedAt ?? null,
+    crmStage: account.crmStage,
+    crmValueEstimate: account.crmValueEstimate ? String(Math.round(account.crmValueEstimate)) : '',
+    crmNextStep: account.crmNextStep ?? '',
+    crmOwnerEmail: account.crmOwnerEmail ?? '',
+  }
+}
+
+function buildTicketDraft(ticket?: SupportTicket | null): SupportTicketDraft {
+  if (!ticket) {
+    return { ...EMPTY_TICKET_DRAFT }
+  }
+
+  return {
+    subject: ticket.subject,
+    details: ticket.details ?? '',
+    category: ticket.category,
+    status: ticket.status,
+    priority: ticket.priority,
+    requesterEmail: ticket.requesterEmail ?? '',
+    assignedToEmail: ticket.assignedToEmail ?? '',
+    channel: ticket.channel,
+    dueAt: toDateInputValue(ticket.dueAt),
+  }
+}
+
+function getDaysSince(date?: string | null) {
+  if (!date) return null
+  const time = new Date(date).getTime()
+  if (Number.isNaN(time)) return null
+  return Math.floor((Date.now() - time) / (1000 * 60 * 60 * 24))
+}
+
+function isTicketOpenStatus(status: SupportTicketStatus) {
+  return status === 'open' || status === 'in_progress' || status === 'waiting_customer'
+}
+
+function getCrmStageRank(stage: SupportCrmStage) {
+  switch (stage) {
+    case 'negotiation':
+      return 5
+    case 'follow_up':
+      return 4
+    case 'prospect':
+      return 3
+    case 'risk':
+      return 2
+    case 'won':
+      return 1
+    default:
+      return 0
+  }
+}
+
 export function SupportConsole() {
   const [hasAccess, setHasAccess] = useState<boolean | null>(null)
   const [bootLoading, setBootLoading] = useState(true)
@@ -362,31 +613,42 @@ export function SupportConsole() {
   const [members, setMembers] = useState<SupportPlatformMember[]>([])
   const [queue, setQueue] = useState<SubscriptionRequestRecord[]>([])
   const [auditEntries, setAuditEntries] = useState<SupportSubscriptionAuditEntry[]>([])
+  const [tickets, setTickets] = useState<SupportTicket[]>([])
 
   const [accountsLoading, setAccountsLoading] = useState(true)
   const [membersLoading, setMembersLoading] = useState(true)
   const [queueLoading, setQueueLoading] = useState(true)
   const [auditLoading, setAuditLoading] = useState(true)
+  const [ticketsLoading, setTicketsLoading] = useState(true)
 
   const [pageError, setPageError] = useState('')
   const [accountsError, setAccountsError] = useState('')
   const [membersError, setMembersError] = useState('')
   const [queueError, setQueueError] = useState('')
   const [auditError, setAuditError] = useState('')
+  const [ticketsError, setTicketsError] = useState('')
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
 
   const [search, setSearch] = useState('')
   const [memberSearch, setMemberSearch] = useState('')
+  const [ticketSearch, setTicketSearch] = useState('')
   const [planFilter, setPlanFilter] = useState<SubscriptionPlan | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<SubscriptionStatus | 'all'>('all')
   const [memberRoleFilter, setMemberRoleFilter] = useState<'all' | SupportPlatformMember['role']>('all')
+  const [ticketStatusFilter, setTicketStatusFilter] = useState<SupportTicketStatus | 'all'>('all')
+  const [ticketCategoryFilter, setTicketCategoryFilter] = useState<SupportTicketCategory | 'all'>('all')
+  const [ticketPriorityFilter, setTicketPriorityFilter] = useState<SupportTicketPriority | 'all'>('all')
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
+  const [newTicketAccountId, setNewTicketAccountId] = useState('')
 
   const [supportActionTarget, setSupportActionTarget] = useState<string | null>(null)
   const [accountControlTarget, setAccountControlTarget] = useState<string | null>(null)
+  const [ticketActionTarget, setTicketActionTarget] = useState<string | null>(null)
   const [supportNotes, setSupportNotes] = useState<Record<string, string>>({})
   const [supportPayments, setSupportPayments] = useState<Record<string, SupportPaymentDraft>>({})
   const [accountControlDrafts, setAccountControlDrafts] = useState<Record<string, SupportAccountControlDraft>>({})
+  const [ticketDrafts, setTicketDrafts] = useState<Record<string, SupportTicketDraft>>({})
+  const [newTicketDraft, setNewTicketDraft] = useState<SupportTicketDraft>(EMPTY_TICKET_DRAFT)
 
   const seedSupportDrafts = useCallback((requests: SubscriptionRequestRecord[]) => {
     setSupportNotes(
@@ -424,17 +686,16 @@ export function SupportConsole() {
         Object.fromEntries(
           nextAccounts.map((account) => [
             account.accountId,
-            {
-              accessStatus: account.accessStatus,
-              watchLevel: account.watchLevel,
-              internalNote: account.internalNote ?? '',
-              followUpNote: account.followUpNote ?? '',
-              nextFollowUpAt: toDateInputValue(account.nextFollowUpAt),
-              lastContactedAt: account.lastContactedAt ?? null,
-            },
+            buildAccountControlDraft(account),
           ])
         )
       )
+      setNewTicketAccountId((current) => {
+        if (current && nextAccounts.some((account) => account.accountId === current)) {
+          return current
+        }
+        return nextAccounts[0]?.accountId ?? ''
+      })
     } catch (error) {
       setAccountsError(error instanceof Error ? error.message : 'Impossible de charger les boutiques.')
     } finally {
@@ -476,12 +737,48 @@ export function SupportConsole() {
         limit: 80,
       })
       setAccounts(nextAccounts)
+      setAccountControlDrafts(
+        Object.fromEntries(
+          nextAccounts.map((nextAccount) => [
+            nextAccount.accountId,
+            buildAccountControlDraft(nextAccount),
+          ])
+        )
+      )
     } catch (error) {
       setAccountsError(error instanceof Error ? error.message : 'Impossible de filtrer cette boutique.')
     } finally {
       setAccountsLoading(false)
     }
   }, [])
+
+  const loadTickets = useCallback(async () => {
+    setTicketsLoading(true)
+    setTicketsError('')
+
+    try {
+      const nextTickets = await getSupportTickets({
+        search: ticketSearch,
+        status: ticketStatusFilter,
+        category: ticketCategoryFilter,
+        priority: ticketPriorityFilter,
+        limit: 120,
+      })
+      setTickets(nextTickets)
+      setTicketDrafts(
+        Object.fromEntries(
+          nextTickets.map((ticket) => [
+            ticket.ticketId,
+            buildTicketDraft(ticket),
+          ])
+        )
+      )
+    } catch (error) {
+      setTicketsError(error instanceof Error ? error.message : 'Impossible de charger les tickets support.')
+    } finally {
+      setTicketsLoading(false)
+    }
+  }, [ticketCategoryFilter, ticketPriorityFilter, ticketSearch, ticketStatusFilter])
 
   const loadPanels = useCallback(async () => {
     setQueueLoading(true)
@@ -526,17 +823,18 @@ export function SupportConsole() {
         setMembers([])
         setQueue([])
         setAuditEntries([])
+        setTickets([])
         return
       }
 
-      await Promise.all([loadPanels(), loadAccounts(), loadMembers()])
+      await Promise.all([loadPanels(), loadAccounts(), loadMembers(), loadTickets()])
     } catch (error) {
       setHasAccess(false)
       setPageError(error instanceof Error ? error.message : 'Impossible d ouvrir la console SaaS.')
     } finally {
       setBootLoading(false)
     }
-  }, [loadAccounts, loadMembers, loadPanels])
+  }, [loadAccounts, loadMembers, loadPanels, loadTickets])
 
   useEffect(() => {
     void initialize()
@@ -557,6 +855,11 @@ export function SupportConsole() {
   const handleMemberFilters = async () => {
     if (hasAccess !== true) return
     await loadMembers()
+  }
+
+  const handleTicketFilters = async () => {
+    if (hasAccess !== true) return
+    await loadTickets()
   }
 
   const getSupportPaymentDraft = useCallback((request: SubscriptionRequestRecord): SupportPaymentDraft => {
@@ -585,14 +888,7 @@ export function SupportConsole() {
   )
 
   const getAccountControlDraft = useCallback((account: SupportPlatformAccount): SupportAccountControlDraft => {
-    return accountControlDrafts[account.accountId] ?? {
-      accessStatus: account.accessStatus,
-      watchLevel: account.watchLevel,
-      internalNote: account.internalNote ?? '',
-      followUpNote: account.followUpNote ?? '',
-      nextFollowUpAt: toDateInputValue(account.nextFollowUpAt),
-      lastContactedAt: account.lastContactedAt ?? null,
-    }
+    return accountControlDrafts[account.accountId] ?? buildAccountControlDraft(account)
   }, [accountControlDrafts])
 
   const handleAccountControlChange = useCallback((
@@ -618,6 +914,14 @@ export function SupportConsole() {
 
     try {
       const currentDraft = getAccountControlDraft(account)
+      const parsedCrmValueEstimate = currentDraft.crmValueEstimate.trim().length > 0
+        ? Number(currentDraft.crmValueEstimate)
+        : null
+
+      if (currentDraft.crmValueEstimate.trim().length > 0 && (!Number.isFinite(parsedCrmValueEstimate) || (parsedCrmValueEstimate ?? 0) < 0)) {
+        throw new Error('Valeur CRM invalide. Utilise un montant positif.')
+      }
+
       await upsertSupportAccountControl(account.accountId, {
         accessStatus: override?.accessStatus ?? currentDraft.accessStatus,
         watchLevel: override?.watchLevel ?? currentDraft.watchLevel,
@@ -625,6 +929,10 @@ export function SupportConsole() {
         followUpNote: override?.followUpNote ?? currentDraft.followUpNote,
         nextFollowUpAt: override?.nextFollowUpAt ?? currentDraft.nextFollowUpAt,
         lastContactedAt: override?.lastContactedAt ?? currentDraft.lastContactedAt ?? null,
+        crmStage: override?.crmStage ?? currentDraft.crmStage,
+        crmValueEstimate: override?.crmValueEstimate ?? parsedCrmValueEstimate,
+        crmNextStep: override?.crmNextStep ?? currentDraft.crmNextStep,
+        crmOwnerEmail: override?.crmOwnerEmail ?? currentDraft.crmOwnerEmail,
       })
 
       setFeedback({ type: 'success', msg: 'Fiche boutique mise a jour.' })
@@ -638,6 +946,103 @@ export function SupportConsole() {
       setAccountControlTarget(null)
     }
   }, [getAccountControlDraft, loadAccounts, loadMembers])
+
+  const getTicketDraft = useCallback((ticket: SupportTicket): SupportTicketDraft => {
+    return ticketDrafts[ticket.ticketId] ?? buildTicketDraft(ticket)
+  }, [ticketDrafts])
+
+  const handleTicketDraftChange = useCallback((
+    ticket: SupportTicket,
+    field: keyof SupportTicketDraft,
+    value: string
+  ) => {
+    setTicketDrafts((current) => ({
+      ...current,
+      [ticket.ticketId]: {
+        ...getTicketDraft(ticket),
+        [field]: value,
+      },
+    }))
+  }, [getTicketDraft])
+
+  const handleNewTicketDraftChange = useCallback((
+    field: keyof SupportTicketDraft,
+    value: string
+  ) => {
+    setNewTicketDraft((current) => ({ ...current, [field]: value }))
+  }, [])
+
+  const handleCreateTicket = useCallback(async () => {
+    if (!newTicketAccountId) {
+      setFeedback({ type: 'error', msg: 'Choisis d abord la boutique concernee.' })
+      return
+    }
+
+    if (newTicketDraft.subject.trim().length < 4) {
+      setFeedback({ type: 'error', msg: 'Le sujet du ticket doit contenir au moins 4 caracteres.' })
+      return
+    }
+
+    setTicketActionTarget('create')
+    setFeedback(null)
+
+    try {
+      await createSupportTicket({
+        accountId: newTicketAccountId,
+        subject: newTicketDraft.subject,
+        details: newTicketDraft.details,
+        category: newTicketDraft.category,
+        priority: newTicketDraft.priority,
+        requesterEmail: newTicketDraft.requesterEmail,
+        assignedToEmail: newTicketDraft.assignedToEmail,
+        channel: newTicketDraft.channel,
+        dueAt: newTicketDraft.dueAt,
+      })
+
+      setNewTicketDraft((current) => ({
+        ...EMPTY_TICKET_DRAFT,
+        requesterEmail: current.requesterEmail,
+        assignedToEmail: current.assignedToEmail,
+      }))
+      setFeedback({ type: 'success', msg: 'Ticket support cree.' })
+      await loadTickets()
+    } catch (error) {
+      setFeedback({
+        type: 'error',
+        msg: error instanceof Error ? error.message : 'Creation du ticket impossible.',
+      })
+    } finally {
+      setTicketActionTarget(null)
+    }
+  }, [loadTickets, newTicketAccountId, newTicketDraft])
+
+  const handleUpdateTicket = useCallback(async (ticket: SupportTicket) => {
+    setTicketActionTarget(ticket.ticketId)
+    setFeedback(null)
+
+    try {
+      const draft = getTicketDraft(ticket)
+      await updateSupportTicket(ticket.ticketId, {
+        status: draft.status,
+        priority: draft.priority,
+        assignedToEmail: draft.assignedToEmail,
+        channel: draft.channel,
+        dueAt: draft.dueAt,
+        details: draft.details,
+        subject: draft.subject,
+      })
+
+      setFeedback({ type: 'success', msg: 'Ticket support mis a jour.' })
+      await loadTickets()
+    } catch (error) {
+      setFeedback({
+        type: 'error',
+        msg: error instanceof Error ? error.message : 'Mise a jour du ticket impossible.',
+      })
+    } finally {
+      setTicketActionTarget(null)
+    }
+  }, [getTicketDraft, loadTickets])
 
   const handleSupportAction = useCallback(
     async (request: SubscriptionRequestRecord, action: 'mark_in_progress' | 'activate' | 'cancel') => {
@@ -737,6 +1142,146 @@ export function SupportConsole() {
     [accounts]
   )
 
+  const priorityAccounts = useMemo(
+    () => [...accounts]
+      .filter((account) => {
+        const daysLeft = getRemainingDays(account.currentPeriodEndsAt)
+
+        return (
+          account.accessStatus === 'restricted'
+          || account.watchLevel === 'critical'
+          || account.pendingRequestsCount > 0
+          || account.status === 'past_due'
+          || account.status === 'suspended'
+          || account.status === 'expired'
+          || isFollowUpDue(account.nextFollowUpAt)
+          || (daysLeft !== null && daysLeft <= 3)
+        )
+      })
+      .sort((left, right) => buildAccountPriorityScore(right) - buildAccountPriorityScore(left))
+      .slice(0, 5),
+    [accounts]
+  )
+
+  const growthAccounts = useMemo(
+    () => [...accounts]
+      .map((account) => ({
+        account,
+        opportunity: getGrowthOpportunity(account),
+      }))
+      .filter((item): item is { account: SupportPlatformAccount; opportunity: NonNullable<ReturnType<typeof getGrowthOpportunity>> } => item.opportunity !== null)
+      .sort((left, right) => getUsagePressure(right.account) - getUsagePressure(left.account))
+      .slice(0, 5),
+    [accounts]
+  )
+
+  const queueSpotlight = useMemo(
+    () => [...queue]
+      .filter((request) => request.status === 'sent' || request.status === 'in_progress')
+      .sort((left, right) => new Date(left.createdAt ?? 0).getTime() - new Date(right.createdAt ?? 0).getTime())
+      .slice(0, 5),
+    [queue]
+  )
+
+  const openTickets = useMemo(
+    () => tickets.filter((ticket) => isTicketOpenStatus(ticket.status)),
+    [tickets]
+  )
+
+  const urgentOpenTickets = useMemo(
+    () => openTickets.filter((ticket) => ticket.priority === 'urgent'),
+    [openTickets]
+  )
+
+  const crmAccounts = useMemo(
+    () => [...accounts]
+      .map((account) => {
+        const opportunity = getGrowthOpportunity(account)
+        const stage: SupportCrmStage = account.crmStage !== 'monitoring'
+          ? account.crmStage
+          : opportunity
+            ? 'prospect'
+            : 'monitoring'
+        const suggestedValue = opportunity ? getPlanDefinition(opportunity.nextPlan).price : 0
+
+        return {
+          account,
+          opportunity,
+          stage,
+          valueEstimate: account.crmValueEstimate ?? suggestedValue,
+        }
+      })
+      .filter((item) => item.stage !== 'monitoring' || item.opportunity !== null)
+      .sort((left, right) => {
+        const stageDelta = getCrmStageRank(right.stage) - getCrmStageRank(left.stage)
+        if (stageDelta !== 0) return stageDelta
+        if (right.valueEstimate !== left.valueEstimate) {
+          return right.valueEstimate - left.valueEstimate
+        }
+        return getUsagePressure(right.account) - getUsagePressure(left.account)
+      })
+      .slice(0, 8),
+    [accounts]
+  )
+
+  const crmPipelineValue = useMemo(
+    () => crmAccounts.reduce((sum, item) => sum + Math.max(item.valueEstimate, 0), 0),
+    [crmAccounts]
+  )
+
+  const visibleTickets = useMemo(
+    () => [...tickets]
+      .sort((left, right) => {
+        const openDelta = Number(isTicketOpenStatus(right.status)) - Number(isTicketOpenStatus(left.status))
+        if (openDelta !== 0) return openDelta
+
+        const priorityRanks: Record<SupportTicketPriority, number> = {
+          urgent: 4,
+          high: 3,
+          medium: 2,
+          low: 1,
+        }
+
+        const priorityDelta = priorityRanks[right.priority] - priorityRanks[left.priority]
+        if (priorityDelta !== 0) return priorityDelta
+
+        const leftDue = left.dueAt ? new Date(left.dueAt).getTime() : Number.POSITIVE_INFINITY
+        const rightDue = right.dueAt ? new Date(right.dueAt).getTime() : Number.POSITIVE_INFINITY
+        if (leftDue !== rightDue) return leftDue - rightDue
+
+        return new Date(right.createdAt ?? 0).getTime() - new Date(left.createdAt ?? 0).getTime()
+      })
+      .slice(0, 12),
+    [tickets]
+  )
+
+  const crmStageSummary = useMemo(() => ({
+    prospect: accounts.filter((account) => account.crmStage === 'prospect').length,
+    followUp: accounts.filter((account) => account.crmStage === 'follow_up').length,
+    negotiation: accounts.filter((account) => account.crmStage === 'negotiation').length,
+    won: accounts.filter((account) => account.crmStage === 'won').length,
+    risk: accounts.filter((account) => account.crmStage === 'risk').length,
+  }), [accounts])
+
+  const restrictedAccountsCount = useMemo(
+    () => accounts.filter((account) => account.accessStatus === 'restricted').length,
+    [accounts]
+  )
+
+  const inactiveAccountsCount = useMemo(
+    () => accounts.filter((account) => {
+      const daysSinceSale = getDaysSince(account.lastSaleAt)
+      const daysSinceCreate = getDaysSince(account.createdAt)
+
+      if (daysSinceSale !== null) {
+        return daysSinceSale >= 30
+      }
+
+      return daysSinceCreate !== null && daysSinceCreate >= 14
+    }).length,
+    [accounts]
+  )
+
   const memberSummary = useMemo(() => ({
     admins: members.filter((member) => member.role === 'admin').length,
     cashiers: members.filter((member) => member.role === 'cashier').length,
@@ -767,6 +1312,11 @@ export function SupportConsole() {
       })
     )
   }, [auditEntries, selectedAccount])
+
+  const selectedAccountTickets = useMemo(() => {
+    if (!selectedAccount) return []
+    return tickets.filter((ticket) => ticket.accountId === selectedAccount.accountId)
+  }, [selectedAccount, tickets])
 
   if (bootLoading) {
     return <LoadingSkeleton />
@@ -911,6 +1461,262 @@ export function SupportConsole() {
           </div>
         </div>
       </Card>
+
+      <Card className="p-4 sm:p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-[#1A3636]">Analytics SaaS avancees</h3>
+            <p className="mt-1 text-sm text-[#6B7682]">
+              Lecture rapide du support, du risque et du pipeline commercial de la plateforme.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-[#6B7682]">
+            <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{crmStageSummary.negotiation} nego</span>
+            <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{urgentOpenTickets.length} urgent(s)</span>
+            <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{inactiveAccountsCount} inactif(s)</span>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <MetricTile
+            label="Tickets ouverts"
+            value={`${openTickets.length}`}
+            helper={`${urgentOpenTickets.length} priorite(s) urgente(s)`}
+          />
+          <MetricTile
+            label="Comptes restreints"
+            value={`${restrictedAccountsCount}`}
+            helper={`${memberSummary.restricted} membre(s) impacte(s)`}
+          />
+          <MetricTile
+            label="Pipeline commercial"
+            value={formatCurrency(crmPipelineValue)}
+            helper={`${crmAccounts.length} boutique(s) suivie(s)`}
+          />
+          <MetricTile
+            label="Boutiques inactives"
+            value={`${inactiveAccountsCount}`}
+            helper="30 jours sans vente ou plus"
+          />
+        </div>
+      </Card>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <Card className="p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-[#1A3636]">Priorites du jour</h3>
+              <p className="mt-1 text-sm text-[#6B7682]">
+                Les comptes qui demandent une action support immediate.
+              </p>
+            </div>
+            <div className="rounded-full bg-[#F4F7FB] px-3 py-1 text-xs font-semibold text-[#5C6B73]">
+              {priorityAccounts.length}
+            </div>
+          </div>
+
+          {accountsLoading ? (
+            <div className="mt-4 space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="animate-pulse rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                  <div className="h-4 w-36 rounded-full bg-[#2D7D7D]/10" />
+                  <div className="mt-2 h-3 w-48 rounded-full bg-[#2D7D7D]/10" />
+                  <div className="mt-3 h-8 rounded-full bg-[#2D7D7D]/10" />
+                </div>
+              ))}
+            </div>
+          ) : priorityAccounts.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+              Rien d urgent pour le moment. La file support est sous controle.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {priorityAccounts.map((account) => {
+                const summary = getPriorityAccountSummary(account)
+                return (
+                  <div key={account.accountId} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate text-sm font-semibold text-[#1A3636]">{account.businessName}</span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${summary.tone}`}>
+                            {summary.title}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-[#6B7682]">{account.ownerEmail}</p>
+                        <p className="mt-2 text-sm text-[#1A3636]">{summary.detail}</p>
+                      </div>
+                      <BellRing size={16} className="mt-1 flex-shrink-0 text-[#2D7D7D]" />
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setSelectedAccountId(account.accountId)}>
+                        <Eye size={14} />
+                        Ouvrir la fiche
+                      </Button>
+                      <Button
+                        variant="glass"
+                        size="sm"
+                        onClick={() => void focusAccountInList(account)}
+                      >
+                        <ArrowUpRight size={14} />
+                        Isoler
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+
+        <Card className="p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-[#1A3636]">Opportunites commerciales</h3>
+              <p className="mt-1 text-sm text-[#6B7682]">
+                Les boutiques les plus proches d une montee de formule.
+              </p>
+            </div>
+            <div className="rounded-full bg-[#F4F7FB] px-3 py-1 text-xs font-semibold text-[#5C6B73]">
+              {growthAccounts.length}
+            </div>
+          </div>
+
+          {accountsLoading ? (
+            <div className="mt-4 space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="animate-pulse rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                  <div className="h-4 w-32 rounded-full bg-[#2D7D7D]/10" />
+                  <div className="mt-2 h-3 w-48 rounded-full bg-[#2D7D7D]/10" />
+                  <div className="mt-3 h-8 rounded-full bg-[#2D7D7D]/10" />
+                </div>
+              ))}
+            </div>
+          ) : growthAccounts.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+              Aucune opportunite evidente de vente additionnelle sur les filtres en cours.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {growthAccounts.map(({ account, opportunity }) => {
+                const nextPlan = getPlanDefinition(opportunity.nextPlan)
+
+                return (
+                  <div key={account.accountId} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate text-sm font-semibold text-[#1A3636]">{account.businessName}</span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${opportunity.tone}`}>
+                            {nextPlan.name}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm font-medium text-[#1A3636]">{opportunity.title}</p>
+                        <p className="mt-1 text-sm text-[#5C6B73]">{opportunity.detail}</p>
+                      </div>
+                      <TrendingUp size={16} className="mt-1 flex-shrink-0 text-[#6C5CE7]" />
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link
+                        href={`mailto:${account.ownerEmail}?subject=${encodeURIComponent(`Proposition ${nextPlan.name} - ${account.businessName}`)}`}
+                        className="inline-flex h-9 items-center justify-center rounded-full border border-[#2D7D7D]/20 px-4 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/5"
+                      >
+                        Contacter la boutique
+                      </Link>
+                      <Button variant="outline" size="sm" onClick={() => setSelectedAccountId(account.accountId)}>
+                        <Eye size={14} />
+                        Voir la fiche
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+
+        <Card className="p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-[#1A3636]">Demandes a traiter maintenant</h3>
+              <p className="mt-1 text-sm text-[#6B7682]">
+                Vue compacte de la file abonnement pour ne pas perdre le tempo.
+              </p>
+            </div>
+            <div className="rounded-full bg-[#F4F7FB] px-3 py-1 text-xs font-semibold text-[#5C6B73]">
+              {queueSpotlight.length}
+            </div>
+          </div>
+
+          {queueLoading ? (
+            <div className="mt-4 space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="animate-pulse rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                  <div className="h-4 w-40 rounded-full bg-[#2D7D7D]/10" />
+                  <div className="mt-2 h-3 w-52 rounded-full bg-[#2D7D7D]/10" />
+                  <div className="mt-3 h-8 rounded-full bg-[#2D7D7D]/10" />
+                </div>
+              ))}
+            </div>
+          ) : queueSpotlight.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+              Aucune demande en attente immediate. La file est vide.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {queueSpotlight.map((request) => {
+                const linkedAccount = accounts.find((account) =>
+                  accountMatchesSupportEntry(account, {
+                    email: request.requestedByEmail,
+                    businessName: request.businessName,
+                  })
+                ) ?? null
+                const isBusy = supportActionTarget === request.id
+
+                return (
+                  <div key={request.id} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold text-[#1A3636]">
+                        {request.businessName || 'Boutique sans nom'}
+                      </span>
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_REQUEST_TYPE_STYLES[request.requestType]}`}>
+                        {SUBSCRIPTION_REQUEST_TYPE_LABELS[request.requestType]}
+                      </span>
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUBSCRIPTION_REQUEST_STATUS_STYLES[request.status]}`}>
+                        {SUBSCRIPTION_REQUEST_STATUS_LABELS[request.status]}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm text-[#1A3636]">
+                      {getSubscriptionRequestSummary(request.requestType, request.currentPlan, request.requestedPlan)}
+                    </p>
+                    <p className="mt-1 text-xs text-[#6B7682]">
+                      {formatSubscriptionDate(request.createdAt) || 'date indisponible'} - {request.requestedByEmail || 'email indisponible'}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {request.status === 'sent' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleSupportAction(request, 'mark_in_progress')}
+                          disabled={isBusy}
+                        >
+                          Prendre en charge
+                        </Button>
+                      )}
+                      {linkedAccount && (
+                        <Button variant="glass" size="sm" onClick={() => setSelectedAccountId(linkedAccount.accountId)}>
+                          <Eye size={14} />
+                          Fiche boutique
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+      </div>
 
       <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
         <Card className="p-4 sm:p-5">
@@ -1239,6 +2045,379 @@ export function SupportConsole() {
           </div>
         )}
       </Card>
+
+      <div className="grid gap-4 2xl:grid-cols-[1.05fr_0.95fr]">
+        <Card className="p-4 sm:p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-[#1A3636]">Pipeline commercial CRM</h3>
+              <p className="mt-1 text-sm text-[#6B7682]">
+                Relances, negociation et potentiel de montee en formule regroupes au meme endroit.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-[#6B7682]">
+              <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{crmStageSummary.prospect} prospect(s)</span>
+              <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{crmStageSummary.followUp} relance(s)</span>
+              <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{crmStageSummary.negotiation} nego</span>
+            </div>
+          </div>
+
+          {accountsLoading ? (
+            <div className="mt-4 space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="animate-pulse rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                  <div className="h-4 w-40 rounded-full bg-[#2D7D7D]/10" />
+                  <div className="mt-3 h-24 rounded-2xl bg-[#2D7D7D]/10" />
+                </div>
+              ))}
+            </div>
+          ) : crmAccounts.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+              Aucune opportunite CRM visible pour l&apos;instant. Les prochaines boutiques a suivre apparaitront ici.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {crmAccounts.map(({ account, opportunity, stage, valueEstimate }) => {
+                const draft = getAccountControlDraft(account)
+                const isSaving = accountControlTarget === account.accountId
+
+                return (
+                  <div key={account.accountId} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate text-sm font-semibold text-[#1A3636]">{account.businessName}</span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_CRM_STAGE_STYLES[stage]}`}>
+                            {SUPPORT_CRM_STAGE_LABELS[stage]}
+                          </span>
+                          {opportunity && (
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${opportunity.tone}`}>
+                              {opportunity.title}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-2 text-xs text-[#6B7682]">{account.ownerEmail}</p>
+                        <p className="mt-2 text-sm text-[#1A3636]">
+                          {draft.crmNextStep || opportunity?.detail || 'Definir la prochaine etape commerciale pour cette boutique.'}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-white/70 bg-white px-3 py-2 text-right">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#6B7682]">Valeur estimee</p>
+                        <p className="mt-1 text-lg font-semibold text-[#1A3636]">{formatCurrency(valueEstimate)}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <Select
+                        label="Etape CRM"
+                        value={draft.crmStage}
+                        onChange={(event) => handleAccountControlChange(account, 'crmStage', event.target.value)}
+                        options={SUPPORT_CRM_STAGE_OPTIONS}
+                      />
+                      <Input
+                        label="Valeur estimee"
+                        inputMode="numeric"
+                        value={draft.crmValueEstimate}
+                        onChange={(event) => handleAccountControlChange(account, 'crmValueEstimate', event.target.value)}
+                        placeholder="10000"
+                      />
+                      <Input
+                        label="Responsable"
+                        value={draft.crmOwnerEmail}
+                        onChange={(event) => handleAccountControlChange(account, 'crmOwnerEmail', event.target.value)}
+                        placeholder="support@xelltekk.com"
+                      />
+                      <Input
+                        label="Prochaine relance"
+                        type="date"
+                        value={draft.nextFollowUpAt}
+                        onChange={(event) => handleAccountControlChange(account, 'nextFollowUpAt', event.target.value)}
+                      />
+                    </div>
+
+                    <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
+                      <Textarea
+                        label="Prochaine etape commerciale"
+                        rows={2}
+                        value={draft.crmNextStep}
+                        onChange={(event) => handleAccountControlChange(account, 'crmNextStep', event.target.value)}
+                        placeholder="Ex: appeler demain pour proposer Starter, envoyer devis Pro, planifier demo..."
+                      />
+                      <div className="flex flex-wrap items-end gap-2 xl:justify-end">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedAccountId(account.accountId)
+                            setNewTicketAccountId(account.accountId)
+                            setNewTicketDraft((current) => ({
+                              ...current,
+                              requesterEmail: current.requesterEmail || account.ownerEmail,
+                            }))
+                          }}
+                        >
+                          <Eye size={14} />
+                          Ouvrir la fiche
+                        </Button>
+                        <Button
+                          variant="glass"
+                          size="sm"
+                          onClick={() => void saveAccountControl(account)}
+                          disabled={isSaving}
+                        >
+                          {isSaving ? 'Enregistrement...' : 'Enregistrer le suivi'}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+
+        <Card className="p-4 sm:p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-[#1A3636]">Module support / tickets</h3>
+              <p className="mt-1 text-sm text-[#6B7682]">
+                Cree, assigne et fais avancer les demandes techniques, commerciales ou de facturation.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-[#6B7682]">
+              <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{openTickets.length} ouverts</span>
+              <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{urgentOpenTickets.length} urgents</span>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Select
+                label="Boutique"
+                value={newTicketAccountId}
+                onChange={(event) => setNewTicketAccountId(event.target.value)}
+                options={[
+                  { value: '', label: 'Choisir une boutique' },
+                  ...accounts.map((account) => ({
+                    value: account.accountId,
+                    label: account.businessName,
+                  })),
+                ]}
+              />
+              <Input
+                label="Sujet"
+                value={newTicketDraft.subject}
+                onChange={(event) => handleNewTicketDraftChange('subject', event.target.value)}
+                placeholder="Ex: Validation paiement Wave, bug synchro stock..."
+              />
+              <Select
+                label="Categorie"
+                value={newTicketDraft.category}
+                onChange={(event) => handleNewTicketDraftChange('category', event.target.value)}
+                options={SUPPORT_TICKET_CATEGORY_OPTIONS}
+              />
+              <Select
+                label="Priorite"
+                value={newTicketDraft.priority}
+                onChange={(event) => handleNewTicketDraftChange('priority', event.target.value)}
+                options={SUPPORT_TICKET_PRIORITY_OPTIONS}
+              />
+              <Select
+                label="Canal"
+                value={newTicketDraft.channel}
+                onChange={(event) => handleNewTicketDraftChange('channel', event.target.value)}
+                options={SUPPORT_TICKET_CHANNEL_OPTIONS}
+              />
+              <Input
+                label="Email demandeur"
+                value={newTicketDraft.requesterEmail}
+                onChange={(event) => handleNewTicketDraftChange('requesterEmail', event.target.value)}
+                placeholder="client@boutique.com"
+              />
+              <Input
+                label="Assigne a"
+                value={newTicketDraft.assignedToEmail}
+                onChange={(event) => handleNewTicketDraftChange('assignedToEmail', event.target.value)}
+                placeholder="contact@xelltekk.com"
+              />
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+              <Textarea
+                label="Details"
+                rows={2}
+                value={newTicketDraft.details}
+                onChange={(event) => handleNewTicketDraftChange('details', event.target.value)}
+                placeholder="Contexte, etapes, preuve recue, attente du client..."
+              />
+              <Input
+                label="Echeance"
+                type="date"
+                value={newTicketDraft.dueAt}
+                onChange={(event) => handleNewTicketDraftChange('dueAt', event.target.value)}
+              />
+            </div>
+            <div className="mt-3 flex justify-end">
+              <Button onClick={() => void handleCreateTicket()} disabled={ticketActionTarget === 'create'}>
+                {ticketActionTarget === 'create' ? 'Creation...' : 'Creer le ticket'}
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px_180px_140px]">
+            <Input
+              label="Recherche ticket"
+              value={ticketSearch}
+              onChange={(event) => setTicketSearch(event.target.value)}
+              placeholder="Sujet, boutique ou email..."
+              leftAddon={<Search size={16} />}
+            />
+            <Select
+              label="Statut"
+              value={ticketStatusFilter}
+              onChange={(event) => setTicketStatusFilter(event.target.value as SupportTicketStatus | 'all')}
+              options={[
+                { value: 'all', label: 'Tous les statuts' },
+                ...SUPPORT_TICKET_STATUS_OPTIONS,
+              ]}
+            />
+            <Select
+              label="Categorie"
+              value={ticketCategoryFilter}
+              onChange={(event) => setTicketCategoryFilter(event.target.value as SupportTicketCategory | 'all')}
+              options={[
+                { value: 'all', label: 'Toutes les categories' },
+                ...SUPPORT_TICKET_CATEGORY_OPTIONS,
+              ]}
+            />
+            <Select
+              label="Priorite"
+              value={ticketPriorityFilter}
+              onChange={(event) => setTicketPriorityFilter(event.target.value as SupportTicketPriority | 'all')}
+              options={[
+                { value: 'all', label: 'Toutes les priorites' },
+                ...SUPPORT_TICKET_PRIORITY_OPTIONS,
+              ]}
+            />
+            <Button className="md:mb-[2px]" onClick={() => void handleTicketFilters()}>
+              Filtrer
+            </Button>
+          </div>
+
+          {ticketsError && (
+            <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-700">
+              {ticketsError}
+            </div>
+          )}
+
+          {ticketsLoading ? (
+            <div className="mt-4 space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="animate-pulse rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                  <div className="h-4 w-48 rounded-full bg-[#2D7D7D]/10" />
+                  <div className="mt-2 h-3 w-56 rounded-full bg-[#2D7D7D]/10" />
+                  <div className="mt-3 h-24 rounded-2xl bg-[#2D7D7D]/10" />
+                </div>
+              ))}
+            </div>
+          ) : visibleTickets.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+              Aucun ticket support pour les filtres actuels.
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {visibleTickets.map((ticket) => {
+                const draft = getTicketDraft(ticket)
+                const isSaving = ticketActionTarget === ticket.ticketId
+
+                return (
+                  <div key={ticket.ticketId} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate text-sm font-semibold text-[#1A3636]">{draft.subject || ticket.subject}</span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_TICKET_STATUS_STYLES[ticket.status]}`}>
+                            {SUPPORT_TICKET_STATUS_LABELS[ticket.status]}
+                          </span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_TICKET_PRIORITY_STYLES[ticket.priority]}`}>
+                            {SUPPORT_TICKET_PRIORITY_LABELS[ticket.priority]}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm text-[#1A3636]">{ticket.businessName}</p>
+                        <p className="mt-1 text-xs text-[#6B7682]">
+                          {SUPPORT_TICKET_CATEGORY_LABELS[ticket.category]} - {ticket.requesterEmail || ticket.ownerEmail}
+                        </p>
+                      </div>
+                      <div className="text-xs text-[#6B7682] lg:text-right">
+                        <p>Ouvert le {formatSubscriptionDate(ticket.createdAt) || 'date indisponible'}</p>
+                        <p className="mt-1">Echeance {formatSubscriptionDate(ticket.dueAt) || 'non definie'}</p>
+                        <p className="mt-1">{ticket.assignedToEmail || 'Non assigne'}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <Select
+                        label="Statut"
+                        value={draft.status}
+                        onChange={(event) => handleTicketDraftChange(ticket, 'status', event.target.value)}
+                        options={SUPPORT_TICKET_STATUS_OPTIONS}
+                      />
+                      <Select
+                        label="Priorite"
+                        value={draft.priority}
+                        onChange={(event) => handleTicketDraftChange(ticket, 'priority', event.target.value)}
+                        options={SUPPORT_TICKET_PRIORITY_OPTIONS}
+                      />
+                      <Select
+                        label="Canal"
+                        value={draft.channel}
+                        onChange={(event) => handleTicketDraftChange(ticket, 'channel', event.target.value)}
+                        options={SUPPORT_TICKET_CHANNEL_OPTIONS}
+                      />
+                      <Input
+                        label="Echeance"
+                        type="date"
+                        value={draft.dueAt}
+                        onChange={(event) => handleTicketDraftChange(ticket, 'dueAt', event.target.value)}
+                      />
+                    </div>
+
+                    <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+                      <Textarea
+                        label="Details"
+                        rows={2}
+                        value={draft.details}
+                        onChange={(event) => handleTicketDraftChange(ticket, 'details', event.target.value)}
+                        placeholder="Suivi en cours, etapes, blocage..."
+                      />
+                      <Input
+                        label="Assigne a"
+                        value={draft.assignedToEmail}
+                        onChange={(event) => handleTicketDraftChange(ticket, 'assignedToEmail', event.target.value)}
+                        placeholder="contact@xelltekk.com"
+                      />
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setSelectedAccountId(ticket.accountId)}>
+                        <Eye size={14} />
+                        Fiche boutique
+                      </Button>
+                      <Button
+                        variant="glass"
+                        size="sm"
+                        onClick={() => void handleUpdateTicket(ticket)}
+                        disabled={isSaving}
+                      >
+                        {isSaving ? 'Enregistrement...' : 'Enregistrer'}
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+      </div>
 
       <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.2fr)_minmax(380px,0.9fr)]">
         <Card className="p-4 sm:p-5">
@@ -1754,6 +2933,54 @@ export function SupportConsole() {
                 </div>
               </div>
 
+              <Card className="p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#1A3636]">Actions admin directes</h3>
+                    <p className="mt-1 text-xs text-[#6B7682]">
+                      Raccourcis support pour suspendre, reactiver, relancer ou ouvrir un ticket sur ce compte.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant={selectedAccount.accessStatus === 'restricted' ? 'teal' : 'danger'}
+                      size="sm"
+                      onClick={() => void saveAccountControl(selectedAccount, {
+                        accessStatus: selectedAccount.accessStatus === 'restricted' ? 'active' : 'restricted',
+                      })}
+                      disabled={accountControlTarget === selectedAccount.accountId}
+                    >
+                      <Ban size={14} />
+                      {selectedAccount.accessStatus === 'restricted' ? 'Reactiver' : 'Suspendre'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void saveAccountControl(selectedAccount, {
+                        watchLevel: 'critical',
+                      })}
+                      disabled={accountControlTarget === selectedAccount.accountId}
+                    >
+                      Suivi critique
+                    </Button>
+                    <Button
+                      variant="glass"
+                      size="sm"
+                      onClick={() => {
+                        setNewTicketAccountId(selectedAccount.accountId)
+                        setNewTicketDraft((current) => ({
+                          ...current,
+                          requesterEmail: current.requesterEmail || selectedAccount.ownerEmail,
+                          category: current.category === 'other' ? 'commercial' : current.category,
+                        }))
+                      }}
+                    >
+                      Preparer un ticket
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <MetricTile
                   label="Demandes ouvertes"
@@ -1774,6 +3001,11 @@ export function SupportConsole() {
                   label="Statut"
                   value={SUBSCRIPTION_STATUS_LABELS[selectedAccount.status]}
                   helper={selectedAccount.currentPeriodEndsAt ? `echeance ${formatSubscriptionDate(selectedAccount.currentPeriodEndsAt)}` : 'sans date limite'}
+                />
+                <MetricTile
+                  label="Tickets support"
+                  value={`${selectedAccountTickets.length}`}
+                  helper={`${selectedAccountTickets.filter((ticket) => isTicketOpenStatus(ticket.status)).length} ouvert(s)`}
                 />
               </div>
 
@@ -1964,6 +3196,46 @@ export function SupportConsole() {
                   </div>
                 </Card>
               </div>
+
+              <Card className="p-4">
+                <div className="flex items-center gap-2">
+                  <LifeBuoy size={16} className="text-[#2D7D7D]" />
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#1A3636]">Tickets rattaches a cette boutique</h3>
+                    <p className="mt-1 text-xs text-[#6B7682]">
+                      Vue rapide des incidents, demandes techniques ou suivis commerciaux deja ouverts.
+                    </p>
+                  </div>
+                </div>
+
+                {selectedAccountTickets.length === 0 ? (
+                  <div className="mt-4 rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+                    Aucun ticket support lie a cette boutique pour le moment.
+                  </div>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    {selectedAccountTickets.slice(0, 4).map((ticket) => (
+                      <div key={ticket.ticketId} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-[#1A3636]">{ticket.subject}</span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_TICKET_STATUS_STYLES[ticket.status]}`}>
+                            {SUPPORT_TICKET_STATUS_LABELS[ticket.status]}
+                          </span>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${SUPPORT_TICKET_PRIORITY_STYLES[ticket.priority]}`}>
+                            {SUPPORT_TICKET_PRIORITY_LABELS[ticket.priority]}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-[#6B7682]">
+                          {SUPPORT_TICKET_CATEGORY_LABELS[ticket.category]} - {formatSubscriptionDate(ticket.createdAt) || 'date indisponible'}
+                        </p>
+                        {ticket.details && (
+                          <p className="mt-2 text-sm text-[#1A3636]">{ticket.details}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
             </div>
           )
         })()}

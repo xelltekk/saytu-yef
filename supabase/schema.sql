@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS public.support_account_controls (
   follow_up_note TEXT,
   next_follow_up_at TIMESTAMPTZ,
   last_contacted_at TIMESTAMPTZ,
+  crm_stage TEXT NOT NULL DEFAULT 'monitoring' CHECK (crm_stage IN ('monitoring', 'prospect', 'follow_up', 'negotiation', 'won', 'risk')),
+  crm_value_estimate NUMERIC(12,2),
+  crm_next_step TEXT,
+  crm_owner_email TEXT,
   updated_by_email TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -82,6 +86,25 @@ CREATE TABLE IF NOT EXISTS public.subscription_request_audit_logs (
   note TEXT,
   metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.support_tickets (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  account_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  subject TEXT NOT NULL,
+  details TEXT,
+  category TEXT NOT NULL DEFAULT 'other' CHECK (category IN ('billing', 'technical', 'onboarding', 'commercial', 'incident', 'other')),
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_progress', 'waiting_customer', 'resolved', 'closed')),
+  priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
+  requester_email TEXT,
+  assigned_to_email TEXT,
+  channel TEXT NOT NULL DEFAULT 'internal' CHECK (channel IN ('email', 'phone', 'whatsapp', 'onsite', 'internal', 'other')),
+  due_at TIMESTAMPTZ,
+  resolved_at TIMESTAMPTZ,
+  created_by_email TEXT,
+  updated_by_email TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Categories

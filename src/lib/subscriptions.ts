@@ -82,6 +82,10 @@ type RawSupportPlatformAccount = {
   next_follow_up_at?: string | null
   last_contacted_at?: string | null
   last_sale_at?: string | null
+  crm_stage?: string | null
+  crm_value_estimate?: number | string | null
+  crm_next_step?: string | null
+  crm_owner_email?: string | null
 }
 
 type RawSupportSubscriptionAudit = {
@@ -111,6 +115,27 @@ type RawSupportPlatformMember = {
   created_at?: string | null
   last_sale_at?: string | null
   monthly_sales_count?: number | string | null
+}
+
+type RawSupportTicket = {
+  ticket_id: string
+  account_id: string
+  business_name?: string | null
+  owner_email?: string | null
+  subject?: string | null
+  details?: string | null
+  category?: string | null
+  status?: string | null
+  priority?: string | null
+  requester_email?: string | null
+  assigned_to_email?: string | null
+  channel?: string | null
+  due_at?: string | null
+  resolved_at?: string | null
+  created_by_email?: string | null
+  updated_by_email?: string | null
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 export type SubscriptionUsage = {
@@ -169,6 +194,10 @@ export type SupportPlatformAccount = {
   nextFollowUpAt?: string | null
   lastContactedAt?: string | null
   lastSaleAt?: string | null
+  crmStage: SupportCrmStage
+  crmValueEstimate?: number | null
+  crmNextStep?: string | null
+  crmOwnerEmail?: string | null
 }
 
 export type SupportSubscriptionAuditEntry = {
@@ -198,6 +227,54 @@ export type SupportPlatformMember = {
   createdAt?: string | null
   lastSaleAt?: string | null
   monthlySalesCount: number
+}
+
+export type SupportCrmStage =
+  | 'monitoring'
+  | 'prospect'
+  | 'follow_up'
+  | 'negotiation'
+  | 'won'
+  | 'risk'
+
+export type SupportTicketCategory =
+  | 'billing'
+  | 'technical'
+  | 'onboarding'
+  | 'commercial'
+  | 'incident'
+  | 'other'
+
+export type SupportTicketStatus =
+  | 'open'
+  | 'in_progress'
+  | 'waiting_customer'
+  | 'resolved'
+  | 'closed'
+
+export type SupportTicketPriority = 'low' | 'medium' | 'high' | 'urgent'
+
+export type SupportTicketChannel = 'email' | 'phone' | 'whatsapp' | 'onsite' | 'internal' | 'other'
+
+export type SupportTicket = {
+  ticketId: string
+  accountId: string
+  businessName: string
+  ownerEmail: string
+  subject: string
+  details?: string | null
+  category: SupportTicketCategory
+  status: SupportTicketStatus
+  priority: SupportTicketPriority
+  requesterEmail?: string | null
+  assignedToEmail?: string | null
+  channel: SupportTicketChannel
+  dueAt?: string | null
+  resolvedAt?: string | null
+  createdByEmail?: string | null
+  updatedByEmail?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
 }
 
 export type SubscriptionRequestRecord = {
@@ -241,6 +318,32 @@ export type SupportAccountControlInput = {
   followUpNote?: string | null
   nextFollowUpAt?: string | null
   lastContactedAt?: string | null
+  crmStage?: SupportCrmStage
+  crmValueEstimate?: number | null
+  crmNextStep?: string | null
+  crmOwnerEmail?: string | null
+}
+
+export type SupportTicketCreateInput = {
+  accountId: string
+  subject: string
+  details?: string | null
+  category?: SupportTicketCategory
+  priority?: SupportTicketPriority
+  requesterEmail?: string | null
+  assignedToEmail?: string | null
+  channel?: SupportTicketChannel
+  dueAt?: string | null
+}
+
+export type SupportTicketUpdateInput = {
+  status?: SupportTicketStatus | null
+  priority?: SupportTicketPriority | null
+  assignedToEmail?: string | null
+  channel?: SupportTicketChannel | null
+  dueAt?: string | null
+  details?: string | null
+  subject?: string | null
 }
 
 const PLAN_LEVELS: Record<SubscriptionPlan, number> = {
@@ -323,6 +426,72 @@ export const SUBSCRIPTION_STATUS_LABELS: Record<SubscriptionStatus, string> = {
   suspended: 'Suspendu',
   cancelled: 'Resilie',
   expired: 'Expire',
+}
+
+export const SUPPORT_CRM_STAGE_LABELS: Record<SupportCrmStage, string> = {
+  monitoring: 'Surveillance',
+  prospect: 'Prospect',
+  follow_up: 'Relance',
+  negotiation: 'Negociation',
+  won: 'Gagne',
+  risk: 'Risque',
+}
+
+export const SUPPORT_CRM_STAGE_STYLES: Record<SupportCrmStage, string> = {
+  monitoring: 'bg-slate-500/10 text-slate-700 border border-slate-500/15',
+  prospect: 'bg-sky-500/10 text-sky-700 border border-sky-500/15',
+  follow_up: 'bg-violet-500/10 text-violet-700 border border-violet-500/15',
+  negotiation: 'bg-amber-500/10 text-amber-700 border border-amber-500/15',
+  won: 'bg-emerald-500/10 text-emerald-700 border border-emerald-500/15',
+  risk: 'bg-red-500/10 text-red-700 border border-red-500/15',
+}
+
+export const SUPPORT_TICKET_CATEGORY_LABELS: Record<SupportTicketCategory, string> = {
+  billing: 'Facturation',
+  technical: 'Technique',
+  onboarding: 'Onboarding',
+  commercial: 'Commercial',
+  incident: 'Incident',
+  other: 'Autre',
+}
+
+export const SUPPORT_TICKET_STATUS_LABELS: Record<SupportTicketStatus, string> = {
+  open: 'Ouvert',
+  in_progress: 'En cours',
+  waiting_customer: 'Attente client',
+  resolved: 'Resolue',
+  closed: 'Cloturee',
+}
+
+export const SUPPORT_TICKET_STATUS_STYLES: Record<SupportTicketStatus, string> = {
+  open: 'bg-red-500/10 text-red-700 border border-red-500/15',
+  in_progress: 'bg-amber-500/10 text-amber-700 border border-amber-500/15',
+  waiting_customer: 'bg-sky-500/10 text-sky-700 border border-sky-500/15',
+  resolved: 'bg-emerald-500/10 text-emerald-700 border border-emerald-500/15',
+  closed: 'bg-slate-500/10 text-slate-700 border border-slate-500/15',
+}
+
+export const SUPPORT_TICKET_PRIORITY_LABELS: Record<SupportTicketPriority, string> = {
+  low: 'Faible',
+  medium: 'Normale',
+  high: 'Haute',
+  urgent: 'Urgente',
+}
+
+export const SUPPORT_TICKET_PRIORITY_STYLES: Record<SupportTicketPriority, string> = {
+  low: 'bg-slate-500/10 text-slate-700 border border-slate-500/15',
+  medium: 'bg-[#2D7D7D]/10 text-[#2D7D7D] border border-[#2D7D7D]/15',
+  high: 'bg-amber-500/10 text-amber-700 border border-amber-500/15',
+  urgent: 'bg-red-500/10 text-red-700 border border-red-500/15',
+}
+
+export const SUPPORT_TICKET_CHANNEL_LABELS: Record<SupportTicketChannel, string> = {
+  email: 'Email',
+  phone: 'Telephone',
+  whatsapp: 'WhatsApp',
+  onsite: 'Sur place',
+  internal: 'Interne',
+  other: 'Autre',
 }
 
 export const SUBSCRIPTION_STATUS_STYLES: Record<SubscriptionStatus, string> = {
@@ -454,6 +623,68 @@ function normalizeSupportWatchLevel(value: string | null | undefined): SupportWa
   return 'normal'
 }
 
+function normalizeSupportCrmStage(value: string | null | undefined): SupportCrmStage {
+  switch (value) {
+    case 'prospect':
+    case 'follow_up':
+    case 'negotiation':
+    case 'won':
+    case 'risk':
+      return value
+    default:
+      return 'monitoring'
+  }
+}
+
+function normalizeSupportTicketCategory(value: string | null | undefined): SupportTicketCategory {
+  switch (value) {
+    case 'billing':
+    case 'technical':
+    case 'onboarding':
+    case 'commercial':
+    case 'incident':
+      return value
+    default:
+      return 'other'
+  }
+}
+
+function normalizeSupportTicketStatus(value: string | null | undefined): SupportTicketStatus {
+  switch (value) {
+    case 'in_progress':
+    case 'waiting_customer':
+    case 'resolved':
+    case 'closed':
+      return value
+    default:
+      return 'open'
+  }
+}
+
+function normalizeSupportTicketPriority(value: string | null | undefined): SupportTicketPriority {
+  switch (value) {
+    case 'low':
+    case 'high':
+    case 'urgent':
+      return value
+    default:
+      return 'medium'
+  }
+}
+
+function normalizeSupportTicketChannel(value: string | null | undefined): SupportTicketChannel {
+  switch (value) {
+    case 'email':
+    case 'phone':
+    case 'whatsapp':
+    case 'onsite':
+    case 'other':
+      return value
+    default:
+      return 'internal'
+  }
+}
+
 function normalizeCount(value: number | string | null | undefined): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
@@ -494,6 +725,13 @@ function isMissingSupportRpc(error: unknown): boolean {
     || message.includes('list_support_platform_members')
     || message.includes('upsert_support_account_control')
     || message.includes('current_account_access_status')
+    || message.includes('list_support_tickets')
+    || message.includes('create_support_ticket')
+    || message.includes('update_support_ticket')
+}
+
+function toMiddayIso(value?: string | null) {
+  return value ? new Date(`${value}T12:00:00.000Z`).toISOString() : null
 }
 
 function mapSubscriptionRequest(row: RawSubscriptionRequest): SubscriptionRequestRecord {
@@ -541,6 +779,9 @@ function mapSupportConsoleOverview(row: RawSupportConsoleOverview): SupportConso
 function mapSupportPlatformAccount(row: RawSupportPlatformAccount): SupportPlatformAccount {
   const plan = normalizePlan(row.subscription_plan)
   const status = normalizeStatus(row.subscription_status) ?? inferStatus(plan, row.created_at, null)
+  const parsedCrmValueEstimate = row.crm_value_estimate === null || row.crm_value_estimate === undefined
+    ? null
+    : Number(row.crm_value_estimate)
 
   return {
     accountId: row.account_id,
@@ -564,6 +805,10 @@ function mapSupportPlatformAccount(row: RawSupportPlatformAccount): SupportPlatf
     nextFollowUpAt: row.next_follow_up_at ?? null,
     lastContactedAt: row.last_contacted_at ?? null,
     lastSaleAt: row.last_sale_at ?? null,
+    crmStage: normalizeSupportCrmStage(row.crm_stage),
+    crmValueEstimate: parsedCrmValueEstimate !== null && Number.isFinite(parsedCrmValueEstimate) ? parsedCrmValueEstimate : null,
+    crmNextStep: row.crm_next_step ?? null,
+    crmOwnerEmail: row.crm_owner_email ?? null,
   }
 }
 
@@ -602,6 +847,29 @@ function mapSupportPlatformMember(row: RawSupportPlatformMember): SupportPlatfor
     createdAt: row.created_at ?? null,
     lastSaleAt: row.last_sale_at ?? null,
     monthlySalesCount: normalizeCount(row.monthly_sales_count),
+  }
+}
+
+function mapSupportTicket(row: RawSupportTicket): SupportTicket {
+  return {
+    ticketId: row.ticket_id,
+    accountId: row.account_id,
+    businessName: row.business_name?.trim() || 'Boutique sans nom',
+    ownerEmail: row.owner_email?.trim() || 'email indisponible',
+    subject: row.subject?.trim() || 'Ticket sans objet',
+    details: row.details ?? null,
+    category: normalizeSupportTicketCategory(row.category),
+    status: normalizeSupportTicketStatus(row.status),
+    priority: normalizeSupportTicketPriority(row.priority),
+    requesterEmail: row.requester_email ?? null,
+    assignedToEmail: row.assigned_to_email ?? null,
+    channel: normalizeSupportTicketChannel(row.channel),
+    dueAt: row.due_at ?? null,
+    resolvedAt: row.resolved_at ?? null,
+    createdByEmail: row.created_by_email ?? null,
+    updatedByEmail: row.updated_by_email ?? null,
+    createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
   }
 }
 
@@ -1145,9 +1413,7 @@ export async function upsertSupportAccountControl(
   const supabase = createClient()
   await ensureBrowserSupabaseSession(supabase)
 
-  const nextFollowUpAt = input.nextFollowUpAt
-    ? new Date(`${input.nextFollowUpAt}T12:00:00.000Z`).toISOString()
-    : null
+  const nextFollowUpAt = toMiddayIso(input.nextFollowUpAt)
 
   const { error } = await supabase.rpc('upsert_support_account_control', {
     p_account_id: accountId,
@@ -1157,6 +1423,10 @@ export async function upsertSupportAccountControl(
     p_follow_up_note: input.followUpNote?.trim() || null,
     p_next_follow_up_at: nextFollowUpAt,
     p_last_contacted_at: input.lastContactedAt ?? null,
+    p_crm_stage: input.crmStage ?? 'monitoring',
+    p_crm_value_estimate: input.crmValueEstimate ?? null,
+    p_crm_next_step: input.crmNextStep?.trim() || null,
+    p_crm_owner_email: input.crmOwnerEmail?.trim() || null,
   })
 
   if (error) {
@@ -1168,6 +1438,104 @@ export async function upsertSupportAccountControl(
     }
     throw error
   }
+}
+
+export async function getSupportTickets(input?: {
+  search?: string
+  status?: SupportTicketStatus | 'all'
+  category?: SupportTicketCategory | 'all'
+  priority?: SupportTicketPriority | 'all'
+  limit?: number
+}): Promise<SupportTicket[]> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { data, error } = await supabase.rpc('list_support_tickets', {
+    p_limit: input?.limit ?? 80,
+    p_search: input?.search?.trim() || null,
+    p_status: !input?.status || input.status === 'all' ? null : input.status,
+    p_category: !input?.category || input.category === 'all' ? null : input.category,
+    p_priority: !input?.priority || input.priority === 'all' ? null : input.priority,
+  })
+
+  if (error) {
+    if (isSupportAccessDenied(error)) {
+      throw new Error('Acces support requis pour afficher les tickets.')
+    }
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration tickets support n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
+
+  return ((data ?? []) as RawSupportTicket[]).map(mapSupportTicket)
+}
+
+export async function createSupportTicket(input: SupportTicketCreateInput): Promise<SupportTicket> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { data, error } = await supabase.rpc('create_support_ticket', {
+    p_account_id: input.accountId,
+    p_subject: input.subject.trim(),
+    p_details: input.details?.trim() || null,
+    p_category: input.category ?? 'other',
+    p_priority: input.priority ?? 'medium',
+    p_requester_email: input.requesterEmail?.trim() || null,
+    p_assigned_to_email: input.assignedToEmail?.trim() || null,
+    p_channel: input.channel ?? 'internal',
+    p_due_at: toMiddayIso(input.dueAt),
+  })
+
+  if (error) {
+    if (isSupportAccessDenied(error)) {
+      throw new Error('Acces support requis pour creer un ticket.')
+    }
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration tickets support n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
+
+  const rows = (data ?? []) as RawSupportTicket[]
+  if (!rows[0]) {
+    throw new Error('Reponse ticket invalide.')
+  }
+
+  return mapSupportTicket(rows[0])
+}
+
+export async function updateSupportTicket(ticketId: string, input: SupportTicketUpdateInput): Promise<SupportTicket> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { data, error } = await supabase.rpc('update_support_ticket', {
+    p_ticket_id: ticketId,
+    p_status: input.status ?? null,
+    p_priority: input.priority ?? null,
+    p_assigned_to_email: input.assignedToEmail?.trim() || null,
+    p_channel: input.channel ?? null,
+    p_due_at: toMiddayIso(input.dueAt),
+    p_details: input.details?.trim() || null,
+    p_subject: input.subject?.trim() || null,
+  })
+
+  if (error) {
+    if (isSupportAccessDenied(error)) {
+      throw new Error('Acces support requis pour modifier un ticket.')
+    }
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration tickets support n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
+
+  const rows = (data ?? []) as RawSupportTicket[]
+  if (!rows[0]) {
+    throw new Error('Reponse ticket invalide.')
+  }
+
+  return mapSupportTicket(rows[0])
 }
 
 export async function submitSubscriptionRequest(
