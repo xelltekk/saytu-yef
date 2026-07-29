@@ -280,6 +280,94 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.list_support_platform_members(
+  p_limit INTEGER DEFAULT 80,
+  p_search TEXT DEFAULT NULL,
+  p_role TEXT DEFAULT NULL,
+  p_access_status TEXT DEFAULT NULL
+)
+RETURNS TABLE (
+  member_id UUID,
+  account_id UUID,
+  business_name TEXT,
+  owner_full_name TEXT,
+  full_name TEXT,
+  email TEXT,
+  role TEXT,
+  access_status TEXT,
+  created_at TIMESTAMPTZ,
+  last_sale_at TIMESTAMPTZ,
+  monthly_sales_count BIGINT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  cleaned_search TEXT := NULLIF(BTRIM(COALESCE(p_search, '')), '');
+  cleaned_role TEXT := NULLIF(BTRIM(COALESCE(p_role, '')), '');
+  cleaned_access_status TEXT := NULLIF(BTRIM(COALESCE(p_access_status, '')), '');
+BEGIN
+  IF NOT public.is_support_operator() THEN
+    RAISE EXCEPTION 'Acces support requis';
+  END IF;
+
+  RETURN QUERY
+  WITH member_profiles AS (
+    SELECT
+      member.id AS member_id,
+      COALESCE(member.account_owner_id, member.id) AS account_id,
+      COALESCE(NULLIF(BTRIM(owner.business_name), ''), 'Boutique sans nom') AS business_name,
+      COALESCE(NULLIF(BTRIM(owner.full_name), ''), 'Compte proprietaire') AS owner_full_name,
+      COALESCE(NULLIF(BTRIM(member.full_name), ''), NULLIF(BTRIM(member.email), ''), 'Utilisateur') AS full_name,
+      COALESCE(NULLIF(BTRIM(member.email), ''), 'email indisponible') AS email,
+      COALESCE(member.role, 'employee') AS role,
+      member.created_at
+    FROM public.profiles member
+    JOIN public.profiles owner
+      ON owner.id = COALESCE(member.account_owner_id, member.id)
+    WHERE (
+      cleaned_search IS NULL
+      OR LOWER(COALESCE(member.full_name, '')) LIKE '%' || LOWER(cleaned_search) || '%'
+      OR LOWER(COALESCE(member.email, '')) LIKE '%' || LOWER(cleaned_search) || '%'
+      OR LOWER(COALESCE(owner.business_name, '')) LIKE '%' || LOWER(cleaned_search) || '%'
+    )
+      AND (cleaned_role IS NULL OR COALESCE(member.role, 'employee') = cleaned_role)
+  )
+  SELECT
+    member.member_id,
+    member.account_id,
+    member.business_name,
+    member.owner_full_name,
+    member.full_name,
+    member.email,
+    member.role,
+    COALESCE(control.access_status, 'active') AS access_status,
+    member.created_at,
+    sale_stats.last_sale_at,
+    COALESCE(sale_stats.monthly_sales_count, 0)::BIGINT AS monthly_sales_count
+  FROM member_profiles member
+  LEFT JOIN public.support_account_controls control
+    ON control.account_id = member.account_id
+  LEFT JOIN LATERAL (
+    SELECT
+      MAX(sale.created_at) AS last_sale_at,
+      COUNT(*) FILTER (
+        WHERE sale.created_at >= date_trunc('month', NOW())
+      ) AS monthly_sales_count
+    FROM public.sales sale
+    WHERE sale.user_id = member.account_id
+      AND (
+        sale.seller_id = member.member_id
+        OR (member.member_id = member.account_id AND sale.seller_id IS NULL)
+      )
+  ) AS sale_stats ON TRUE
+  WHERE cleaned_access_status IS NULL OR COALESCE(control.access_status, 'active') = cleaned_access_status
+  ORDER BY COALESCE(sale_stats.last_sale_at, member.created_at) DESC, member.created_at DESC
+  LIMIT GREATEST(COALESCE(p_limit, 80), 1);
+END;
+$$;
+
 DROP FUNCTION IF EXISTS public.upsert_support_account_control(UUID, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ, TIMESTAMPTZ);
 
 CREATE OR REPLACE FUNCTION public.upsert_support_account_control(
@@ -772,6 +860,7 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.list_support_platform_accounts(INTEGER, TEXT, TEXT, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.list_support_platform_members(INTEGER, TEXT, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.upsert_support_account_control(UUID, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ, TIMESTAMPTZ, TEXT, NUMERIC, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.list_support_tickets(INTEGER, TEXT, TEXT, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.create_support_ticket(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ) TO authenticated;
