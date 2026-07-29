@@ -18,6 +18,7 @@ import {
   getSubscriptionExpectedPaymentAmount,
   getSubscriptionRequestReference,
   getSubscriptionRequestSummary,
+  getSupportAdmins,
   getSupportActionLabel,
   getSupportPlatformMembers,
   getSupportConsoleOverview,
@@ -51,6 +52,7 @@ import {
   type SupportAccountControlInput,
   type SupportConsoleOverview,
   type SupportCrmStage,
+  type SupportAdminRecord,
   type SupportPlatformAccount,
   type SupportPlatformMember,
   type SupportSubscriptionAuditEntry,
@@ -59,6 +61,7 @@ import {
   type SupportTicketChannel,
   type SupportTicketPriority,
   type SupportTicketStatus,
+  setSupportAdminAccess,
   updateSupportTicket,
   upsertSupportAccountControl,
 } from '@/lib/subscriptions'
@@ -89,6 +92,8 @@ import {
   Sparkles,
   TrendingUp,
   UserRoundCog,
+  UserPlus,
+  UserX,
   Users,
   Wallet,
 } from 'lucide-react'
@@ -611,12 +616,14 @@ export function SupportConsole() {
   const [overview, setOverview] = useState<SupportConsoleOverview | null>(null)
   const [accounts, setAccounts] = useState<SupportPlatformAccount[]>([])
   const [members, setMembers] = useState<SupportPlatformMember[]>([])
+  const [supportAdmins, setSupportAdmins] = useState<SupportAdminRecord[]>([])
   const [queue, setQueue] = useState<SubscriptionRequestRecord[]>([])
   const [auditEntries, setAuditEntries] = useState<SupportSubscriptionAuditEntry[]>([])
   const [tickets, setTickets] = useState<SupportTicket[]>([])
 
   const [accountsLoading, setAccountsLoading] = useState(true)
   const [membersLoading, setMembersLoading] = useState(true)
+  const [supportAdminsLoading, setSupportAdminsLoading] = useState(true)
   const [queueLoading, setQueueLoading] = useState(true)
   const [auditLoading, setAuditLoading] = useState(true)
   const [ticketsLoading, setTicketsLoading] = useState(true)
@@ -624,6 +631,7 @@ export function SupportConsole() {
   const [pageError, setPageError] = useState('')
   const [accountsError, setAccountsError] = useState('')
   const [membersError, setMembersError] = useState('')
+  const [supportAdminsError, setSupportAdminsError] = useState('')
   const [queueError, setQueueError] = useState('')
   const [auditError, setAuditError] = useState('')
   const [ticketsError, setTicketsError] = useState('')
@@ -638,11 +646,14 @@ export function SupportConsole() {
   const [ticketStatusFilter, setTicketStatusFilter] = useState<SupportTicketStatus | 'all'>('all')
   const [ticketCategoryFilter, setTicketCategoryFilter] = useState<SupportTicketCategory | 'all'>('all')
   const [ticketPriorityFilter, setTicketPriorityFilter] = useState<SupportTicketPriority | 'all'>('all')
+  const [supportAdminEmail, setSupportAdminEmail] = useState('')
+  const [supportAdminFullName, setSupportAdminFullName] = useState('')
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [newTicketAccountId, setNewTicketAccountId] = useState('')
 
   const [supportActionTarget, setSupportActionTarget] = useState<string | null>(null)
   const [accountControlTarget, setAccountControlTarget] = useState<string | null>(null)
+  const [supportAdminActionTarget, setSupportAdminActionTarget] = useState<string | null>(null)
   const [ticketActionTarget, setTicketActionTarget] = useState<string | null>(null)
   const [supportNotes, setSupportNotes] = useState<Record<string, string>>({})
   const [supportPayments, setSupportPayments] = useState<Record<string, SupportPaymentDraft>>({})
@@ -720,6 +731,20 @@ export function SupportConsole() {
       setMembersLoading(false)
     }
   }, [memberRoleFilter, memberSearch])
+
+  const loadSupportAdmins = useCallback(async () => {
+    setSupportAdminsLoading(true)
+    setSupportAdminsError('')
+
+    try {
+      const nextSupportAdmins = await getSupportAdmins()
+      setSupportAdmins(nextSupportAdmins)
+    } catch (error) {
+      setSupportAdminsError(error instanceof Error ? error.message : 'Impossible de charger les operateurs support.')
+    } finally {
+      setSupportAdminsLoading(false)
+    }
+  }, [])
 
   const focusAccountInList = useCallback(async (account: SupportPlatformAccount) => {
     const nextSearch = account.ownerEmail
@@ -821,20 +846,21 @@ export function SupportConsole() {
         setOverview(null)
         setAccounts([])
         setMembers([])
+        setSupportAdmins([])
         setQueue([])
         setAuditEntries([])
         setTickets([])
         return
       }
 
-      await Promise.all([loadPanels(), loadAccounts(), loadMembers(), loadTickets()])
+      await Promise.all([loadPanels(), loadAccounts(), loadMembers(), loadSupportAdmins(), loadTickets()])
     } catch (error) {
       setHasAccess(false)
       setPageError(error instanceof Error ? error.message : 'Impossible d ouvrir la console SaaS.')
     } finally {
       setBootLoading(false)
     }
-  }, [loadAccounts, loadMembers, loadPanels, loadTickets])
+  }, [loadAccounts, loadMembers, loadPanels, loadSupportAdmins, loadTickets])
 
   useEffect(() => {
     void initialize()
@@ -856,6 +882,49 @@ export function SupportConsole() {
     if (hasAccess !== true) return
     await loadMembers()
   }
+
+  const handleSaveSupportAdmin = useCallback(async (input: {
+    email: string
+    fullName?: string | null
+    active: boolean
+  }) => {
+    const cleanedEmail = input.email.trim().toLowerCase()
+    if (!cleanedEmail) {
+      setFeedback({ type: 'error', msg: 'Renseigne un email support valide.' })
+      return
+    }
+
+    setSupportAdminActionTarget(cleanedEmail)
+    setFeedback(null)
+
+    try {
+      await setSupportAdminAccess({
+        email: cleanedEmail,
+        fullName: input.fullName ?? null,
+        active: input.active,
+      })
+
+      if (input.active) {
+        setSupportAdminEmail('')
+        setSupportAdminFullName('')
+      }
+
+      setFeedback({
+        type: 'success',
+        msg: input.active
+          ? 'Operateur support enregistre.'
+          : 'Acces support retire pour ce compte.',
+      })
+      await loadSupportAdmins()
+    } catch (error) {
+      setFeedback({
+        type: 'error',
+        msg: error instanceof Error ? error.message : 'Impossible de gerer cet acces support.',
+      })
+    } finally {
+      setSupportAdminActionTarget(null)
+    }
+  }, [loadSupportAdmins, setFeedback, setSupportAdminEmail, setSupportAdminFullName])
 
   const handleTicketFilters = async () => {
     if (hasAccess !== true) return
@@ -1288,6 +1357,11 @@ export function SupportConsole() {
     restricted: members.filter((member) => member.accessStatus === 'restricted').length,
   }), [members])
 
+  const supportAdminSummary = useMemo(() => ({
+    active: supportAdmins.filter((admin) => admin.active).length,
+    inactive: supportAdmins.filter((admin) => !admin.active).length,
+  }), [supportAdmins])
+
   const selectedAccount = useMemo(
     () => accounts.find((account) => account.accountId === selectedAccountId) ?? null,
     [accounts, selectedAccountId]
@@ -1427,6 +1501,153 @@ export function SupportConsole() {
               <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
               Actualiser
             </Button>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="p-4 sm:p-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-[#1A3636]">Operateurs support autorises</h3>
+            <p className="mt-1 text-sm text-[#6B7682]">
+              Seuls les comptes actifs listes ici peuvent ouvrir la console SaaS et valider les actions sensibles.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-[#6B7682]">
+            <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{supportAdminSummary.active} actif(s)</span>
+            <span className="rounded-full bg-[#F4F7FB] px-3 py-1 font-semibold">{supportAdminSummary.inactive} retire(s)</span>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div>
+            {supportAdminsError && (
+              <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-700">
+                {supportAdminsError}
+              </div>
+            )}
+
+            {supportAdminsLoading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 2 }).map((_, index) => (
+                  <div key={index} className="animate-pulse rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                    <div className="h-4 w-48 rounded-full bg-[#2D7D7D]/10" />
+                    <div className="mt-2 h-3 w-32 rounded-full bg-[#2D7D7D]/10" />
+                    <div className="mt-3 h-9 rounded-full bg-[#2D7D7D]/10" />
+                  </div>
+                ))}
+              </div>
+            ) : supportAdmins.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[#2D7D7D]/15 bg-[#F8FBFC] px-4 py-4 text-sm text-[#6B7682]">
+                Aucun operateur support actif n est configure pour le moment.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {supportAdmins.map((admin) => {
+                  const isBusy = supportAdminActionTarget === admin.email
+
+                  return (
+                    <div key={admin.email} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="truncate text-sm font-semibold text-[#1A3636]">
+                              {admin.fullName || admin.email}
+                            </span>
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                              admin.active
+                                ? 'border border-emerald-500/15 bg-emerald-500/10 text-emerald-700'
+                                : 'border border-slate-500/15 bg-slate-500/10 text-slate-700'
+                            }`}>
+                              {admin.active ? 'Acces actif' : 'Acces retire'}
+                            </span>
+                            {admin.isCurrentOperator && (
+                              <span className="rounded-full border border-violet-500/15 bg-violet-500/10 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+                                Session en cours
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-2 text-xs text-[#6B7682]">{admin.email}</p>
+                          <p className="mt-1 text-xs text-[#6B7682]">
+                            Ajoute le {formatSubscriptionDate(admin.createdAt) || 'date indisponible'}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {!admin.active && (
+                            <Button
+                              variant="glass"
+                              size="sm"
+                              onClick={() => void handleSaveSupportAdmin({
+                                email: admin.email,
+                                fullName: admin.fullName,
+                                active: true,
+                              })}
+                              disabled={isBusy}
+                            >
+                              <CheckCircle2 size={14} />
+                              {isBusy ? 'Activation...' : 'Reactiver'}
+                            </Button>
+                          )}
+                          {admin.active && !admin.isCurrentOperator && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void handleSaveSupportAdmin({
+                                email: admin.email,
+                                fullName: admin.fullName,
+                                active: false,
+                              })}
+                              disabled={isBusy}
+                            >
+                              <UserX size={14} />
+                              {isBusy ? 'Mise a jour...' : 'Retirer l acces'}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck size={16} className="text-[#2D7D7D]" />
+              <h4 className="text-sm font-semibold text-[#1A3636]">Ajouter ou reactiver un operateur</h4>
+            </div>
+            <p className="mt-2 text-sm text-[#6B7682]">
+              Pratique pour garder uniquement les bons comptes support autorises, sans repasser par SQL.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              <Input
+                label="Email support"
+                value={supportAdminEmail}
+                onChange={(event) => setSupportAdminEmail(event.target.value)}
+                placeholder="contact@xelltekk.com"
+              />
+              <Input
+                label="Nom affiche"
+                value={supportAdminFullName}
+                onChange={(event) => setSupportAdminFullName(event.target.value)}
+                placeholder="Support XELLTEKK"
+              />
+              <Button
+                className="w-full"
+                onClick={() => void handleSaveSupportAdmin({
+                  email: supportAdminEmail,
+                  fullName: supportAdminFullName,
+                  active: true,
+                })}
+                disabled={!supportAdminEmail.trim() || supportAdminActionTarget === supportAdminEmail.trim().toLowerCase()}
+              >
+                <UserPlus size={16} />
+                {supportAdminActionTarget === supportAdminEmail.trim().toLowerCase() ? 'Enregistrement...' : 'Ajouter / reactiver'}
+              </Button>
+            </div>
           </div>
         </div>
       </Card>

@@ -117,6 +117,14 @@ type RawSupportPlatformMember = {
   monthly_sales_count?: number | string | null
 }
 
+type RawSupportAdmin = {
+  email?: string | null
+  full_name?: string | null
+  active?: boolean | null
+  created_at?: string | null
+  is_current_operator?: boolean | null
+}
+
 type RawSupportTicket = {
   ticket_id: string
   account_id: string
@@ -227,6 +235,14 @@ export type SupportPlatformMember = {
   createdAt?: string | null
   lastSaleAt?: string | null
   monthlySalesCount: number
+}
+
+export type SupportAdminRecord = {
+  email: string
+  fullName?: string | null
+  active: boolean
+  createdAt?: string | null
+  isCurrentOperator: boolean
 }
 
 export type SupportCrmStage =
@@ -728,6 +744,8 @@ function isMissingSupportRpc(error: unknown): boolean {
     || message.includes('list_support_tickets')
     || message.includes('create_support_ticket')
     || message.includes('update_support_ticket')
+    || message.includes('list_support_admins')
+    || message.includes('set_support_admin_access')
 }
 
 function toMiddayIso(value?: string | null) {
@@ -847,6 +865,16 @@ function mapSupportPlatformMember(row: RawSupportPlatformMember): SupportPlatfor
     createdAt: row.created_at ?? null,
     lastSaleAt: row.last_sale_at ?? null,
     monthlySalesCount: normalizeCount(row.monthly_sales_count),
+  }
+}
+
+function mapSupportAdmin(row: RawSupportAdmin): SupportAdminRecord {
+  return {
+    email: row.email?.trim() || 'email indisponible',
+    fullName: row.full_name?.trim() || null,
+    active: Boolean(row.active),
+    createdAt: row.created_at ?? null,
+    isCurrentOperator: Boolean(row.is_current_operator),
   }
 }
 
@@ -1348,6 +1376,57 @@ export async function getSupportPlatformMembers(input?: {
   }
 
   return ((data ?? []) as RawSupportPlatformMember[]).map(mapSupportPlatformMember)
+}
+
+export async function getSupportAdmins(): Promise<SupportAdminRecord[]> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { data, error } = await supabase.rpc('list_support_admins')
+
+  if (error) {
+    if (isSupportAccessDenied(error)) {
+      throw new Error('Acces support requis pour afficher les operateurs autorises.')
+    }
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration operateurs support n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
+
+  return ((data ?? []) as RawSupportAdmin[]).map(mapSupportAdmin)
+}
+
+export async function setSupportAdminAccess(input: {
+  email: string
+  fullName?: string | null
+  active: boolean
+}): Promise<SupportAdminRecord> {
+  const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
+
+  const { data, error } = await supabase.rpc('set_support_admin_access', {
+    p_email: input.email.trim().toLowerCase(),
+    p_full_name: input.fullName?.trim() || null,
+    p_active: input.active,
+  })
+
+  if (error) {
+    if (isSupportAccessDenied(error)) {
+      throw new Error('Acces support requis pour gerer les operateurs autorises.')
+    }
+    if (isMissingSupportRpc(error)) {
+      throw new Error("La migration operateurs support n'est pas encore appliquee dans Supabase.")
+    }
+    throw error
+  }
+
+  const rows = (data ?? []) as RawSupportAdmin[]
+  if (!rows[0]) {
+    throw new Error('Reponse operateur support invalide.')
+  }
+
+  return mapSupportAdmin(rows[0])
 }
 
 export async function getSupportSubscriptionAudit(limit = 24): Promise<SupportSubscriptionAuditEntry[]> {
