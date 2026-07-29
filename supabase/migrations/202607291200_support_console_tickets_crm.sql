@@ -3,6 +3,37 @@
 -- - support tickets
 -- - SaaS analytics/CRM fields
 
+CREATE TABLE IF NOT EXISTS public.support_account_controls (
+  account_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  access_status TEXT NOT NULL DEFAULT 'active',
+  watch_level TEXT NOT NULL DEFAULT 'normal',
+  internal_note TEXT,
+  follow_up_note TEXT,
+  next_follow_up_at TIMESTAMPTZ,
+  last_contacted_at TIMESTAMPTZ,
+  crm_stage TEXT NOT NULL DEFAULT 'monitoring',
+  crm_value_estimate NUMERIC(12,2),
+  crm_next_step TEXT,
+  crm_owner_email TEXT,
+  updated_by_email TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.support_account_controls
+  DROP CONSTRAINT IF EXISTS support_account_controls_access_status_check;
+
+ALTER TABLE public.support_account_controls
+  ADD CONSTRAINT support_account_controls_access_status_check
+  CHECK (access_status IN ('active', 'restricted'));
+
+ALTER TABLE public.support_account_controls
+  DROP CONSTRAINT IF EXISTS support_account_controls_watch_level_check;
+
+ALTER TABLE public.support_account_controls
+  ADD CONSTRAINT support_account_controls_watch_level_check
+  CHECK (watch_level IN ('normal', 'priority', 'critical'));
+
 ALTER TABLE public.support_account_controls
   ADD COLUMN IF NOT EXISTS crm_stage TEXT NOT NULL DEFAULT 'monitoring',
   ADD COLUMN IF NOT EXISTS crm_value_estimate NUMERIC(12,2),
@@ -15,6 +46,21 @@ ALTER TABLE public.support_account_controls
 ALTER TABLE public.support_account_controls
   ADD CONSTRAINT support_account_controls_crm_stage_check
   CHECK (crm_stage IN ('monitoring', 'prospect', 'follow_up', 'negotiation', 'won', 'risk'));
+
+ALTER TABLE public.support_account_controls ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Support operators can read support account controls" ON public.support_account_controls;
+CREATE POLICY "Support operators can read support account controls"
+  ON public.support_account_controls
+  FOR SELECT
+  USING (public.is_support_operator());
+
+DROP POLICY IF EXISTS "Support operators can manage support account controls" ON public.support_account_controls;
+CREATE POLICY "Support operators can manage support account controls"
+  ON public.support_account_controls
+  FOR ALL
+  USING (public.is_support_operator())
+  WITH CHECK (public.is_support_operator());
 
 CREATE TABLE IF NOT EXISTS public.support_tickets (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
