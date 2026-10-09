@@ -3,6 +3,7 @@ import type { Product, ProductGroup, ProductVariantDraft, Category, Supplier, Sa
 import { buildProductGroups } from '@/lib/productGroups'
 import { getPlanDefinition, getSubscriptionOverview, getUsageLimit } from '@/lib/subscriptions'
 import { normalizeAccountRole } from '@/lib/accountRoles'
+import { getAccountContext } from './account'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 type SubscriptionLimitKey = 'products' | 'teamMembers' | 'monthlySales'
@@ -22,19 +23,7 @@ const CASH_SESSION_PAYMENT_REQUIRED_MESSAGE =
   "Ouvrez d'abord votre caisse avant d'enregistrer un versement client."
 
 async function getAuthActorContext() {
-  const supabase = createClient()
-  await ensureBrowserSupabaseSession(supabase)
-
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Non connectÃ©')
-
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  if (error) throw error
+  const { user, member: profile } = await getAccountContext()
 
   return {
     userId: user.id,

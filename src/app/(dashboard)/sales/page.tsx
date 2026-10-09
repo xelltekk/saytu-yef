@@ -1,10 +1,9 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import dynamic from 'next/dynamic'
 import { Header } from '@/components/layout/Header'
 import { CashSessionPanel } from '@/components/sales/CashSessionPanel'
 import { POSInterface } from '@/components/sales/POSInterface'
-import { PaymentModal } from '@/components/sales/PaymentModal'
-import { SaleDetailModal } from '@/components/sales/SaleDetailModal'
 import { Badge } from '@/components/ui/Badge'
 import { printSalesSummary } from '@/lib/receipt'
 import { formatCurrency, formatDate } from '@/lib/utils'
@@ -15,6 +14,9 @@ import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, SALE_METHOD
 import { useAccountRole } from '@/hooks/useAccountRole'
 import { useUser } from '@/hooks/useUser'
 import type { CashSession, Sale } from '@/types'
+
+const PaymentModal = dynamic(() => import('@/components/sales/PaymentModal').then((module) => module.PaymentModal))
+const SaleDetailModal = dynamic(() => import('@/components/sales/SaleDetailModal').then((module) => module.SaleDetailModal))
 
 type Tab = 'pos' | 'history'
 type HistoryFilter = 'all' | 'open' | 'paid'
@@ -1003,7 +1005,7 @@ export default function SalesPage() {
         )}
       </div>
 
-      <PaymentModal
+      {showPayment && <PaymentModal
         isOpen={showPayment}
         onClose={() => {
           setShowPayment(false)
@@ -1011,13 +1013,13 @@ export default function SalesPage() {
           void loadCashSessions()
           if (tab === 'history') void loadSales()
         }}
-      />
+      />}
 
-      <SaleDetailModal
+      {selectedSale && <SaleDetailModal
         sale={selectedSale}
         onClose={() => setSelectedSale(null)}
         onSaved={handleSaleSaved}
-      />
+      />}
     </div>
   )
 }

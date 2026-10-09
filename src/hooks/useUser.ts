@@ -1,56 +1,12 @@
 'use client'
-import { useEffect, useState } from 'react'
-import {
-  clearBrowserSupabaseAuthStorage,
-  createClient,
-  ensureBrowserSupabaseSession,
-} from '@/lib/supabase/client'
-import type { User } from '@supabase/supabase-js'
+import { useEffect } from 'react'
+import { startAccountSubscription, useAccountStore } from '@/store/accountStore'
 
 export function useUser() {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { user, business, loading } = useAccountStore()
 
   useEffect(() => {
-    let active = true
-    const supabase = createClient()
-
-    const loadUser = async () => {
-      try {
-        await ensureBrowserSupabaseSession(supabase)
-        const { data, error } = await supabase.auth.getUser()
-        if (!active) return
-
-        if (error) {
-          console.warn('use_user_get_user_failed', error)
-          clearBrowserSupabaseAuthStorage()
-          setUser(null)
-          return
-        }
-
-        setUser(data.user)
-      } catch (error) {
-        console.warn('use_user_load_failed', error)
-        if (!active) return
-        clearBrowserSupabaseAuthStorage()
-        setUser(null)
-      } finally {
-        if (active) setLoading(false)
-      }
-    }
-
-    void loadUser()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
-      if (!active) return
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
-
-    return () => {
-      active = false
-      subscription.unsubscribe()
-    }
+    startAccountSubscription()
   }, [])
 
   const displayName: string =
@@ -59,11 +15,13 @@ export function useUser() {
     user?.email?.split('@')[0] ||
     'Utilisateur'
 
+  const isOwnBusiness = !business || business.id === user?.id
   const businessName: string =
-    user?.user_metadata?.business_name || ''
-  const businessAddress: string = user?.user_metadata?.address || ''
-  const businessPhone: string = user?.user_metadata?.phone || ''
-  const businessNinea: string = user?.user_metadata?.ninea || ''
+    business?.business_name ?? (isOwnBusiness ? user?.user_metadata?.business_name : '') ?? ''
+  const businessAddress: string = business?.business_address ?? (isOwnBusiness ? user?.user_metadata?.address : '') ?? ''
+  const businessPhone: string = business?.phone ?? (isOwnBusiness ? user?.user_metadata?.phone : '') ?? ''
+  const businessNinea: string = business?.business_ninea ?? (isOwnBusiness ? user?.user_metadata?.ninea : '') ?? ''
+  const businessLogoUrl: string = business?.business_logo_url ?? ''
 
   const initials: string = displayName
     .split(' ')
@@ -80,6 +38,7 @@ export function useUser() {
     businessAddress,
     businessPhone,
     businessNinea,
+    businessLogoUrl,
     initials,
     email: user?.email ?? '',
   }

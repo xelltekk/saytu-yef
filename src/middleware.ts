@@ -120,30 +120,33 @@ export async function middleware(request: NextRequest) {
     return applySecurityHeaders(redirectResponse)
   }
 
-  const { data: profile } = await supabase
+  const profileRequest = supabase
     .from('profiles')
     .select('role,account_owner_id')
     .eq('id', user.id)
     .maybeSingle()
 
-  const role = normalizeAccountRole(profile?.role)
-  let accessStatus = 'active'
-
-  try {
-    const { data, error } = await supabase.rpc('current_account_access_status')
-    if (error) {
+  const accessRequest = (async () => {
+    let accessStatus = 'active'
+    try {
+      const { data, error } = await supabase.rpc('current_account_access_status')
+      if (error) {
+        console.warn('middleware_account_access_status_failed', {
+          code: error.code,
+          message: error.message,
+        })
+      } else if (data === 'restricted') {
+        accessStatus = 'restricted'
+      }
+    } catch (error) {
       console.warn('middleware_account_access_status_failed', {
-        code: error.code,
-        message: error.message,
+        message: error instanceof Error ? error.message : 'unknown_error',
       })
-    } else if (data === 'restricted') {
-      accessStatus = 'restricted'
     }
-  } catch (error) {
-    console.warn('middleware_account_access_status_failed', {
-      message: error instanceof Error ? error.message : 'unknown_error',
-    })
-  }
+    return accessStatus
+  })()
+  const [{ data: profile }, accessStatus] = await Promise.all([profileRequest, accessRequest])
+  const role = normalizeAccountRole(profile?.role)
 
   if (accessStatus === 'restricted') {
     const redirectResponse = buildRedirectResponse(request, '/account-status')

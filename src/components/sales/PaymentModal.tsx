@@ -44,7 +44,7 @@ interface PaymentModalProps {
 
 export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
   const { paymentMethod, setPaymentMethod, getTotal, getSubtotal, cart, discount, taxRate, clearCart, customerPhone, setCustomer, customerName } = useSalesStore()
-  const { businessName, businessAddress, businessPhone, businessNinea } = useUser()
+  const { businessName, businessAddress, businessPhone, businessNinea, businessLogoUrl } = useUser()
   const [step, setStep] = useState<'method' | 'confirm' | 'success'>('method')
   const [localCustomerName, setLocalCustomerName] = useState(customerName)
   const [phone, setPhone] = useState(customerPhone)
@@ -175,6 +175,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
         businessAddress: businessAddress || undefined,
         businessPhone: businessPhone || undefined,
         businessNinea: businessNinea || undefined,
+        businessLogoUrl: businessLogoUrl || undefined,
         reference: createdSale.id.slice(0, 8).toUpperCase(),
         date: new Date().toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }),
         customerName: localCustomerName.trim() || undefined,

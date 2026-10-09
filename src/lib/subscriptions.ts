@@ -1,4 +1,5 @@
 import { createClient, ensureBrowserSupabaseSession } from '@/lib/supabase/client'
+import { getAccountContext } from '@/lib/supabase/account'
 import type {
   BillingCycle,
   SubscriptionPlan,
@@ -1675,46 +1676,27 @@ export async function submitSubscriptionRequest(
   }
 }
 
-export async function getSubscriptionOverview(): Promise<SubscriptionOverview> {
-  const supabase = createClient()
-  await ensureBrowserSupabaseSession(supabase)
+let overviewRequest: Promise<SubscriptionOverview> | null = null
+let overviewContext: ReturnType<typeof getAccountContext> | null = null
 
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError) throw userError
-  if (!user) throw new Error('Non connecte')
-
-  const memberProfileResult = await supabase
-    .from('profiles')
-    .select('id,account_owner_id,business_name,created_at,subscription_plan,subscription_status,billing_cycle,trial_started_at,trial_ends_at,subscription_started_at,current_period_ends_at,cancelled_at,subscription_notes')
-    .eq('id', user.id)
-    .maybeSingle()
-
-  const memberProfile = (memberProfileResult.data ?? null) as RawBillingProfile | null
-  const memberProfileError = memberProfileResult.error
-
-  if (memberProfileError) throw memberProfileError
-
-  const accountOwnerId = memberProfile?.account_owner_id ?? memberProfile?.id ?? user.id
-
-  let billingProfile = memberProfile
-  let billingProfileError = memberProfileError
-
-  if (accountOwnerId && accountOwnerId !== user.id) {
-    const ownerProfileResult = await supabase
-      .from('profiles')
-      .select('id,account_owner_id,business_name,created_at,subscription_plan,subscription_status,billing_cycle,trial_started_at,trial_ends_at,subscription_started_at,current_period_ends_at,cancelled_at,subscription_notes')
-      .eq('id', accountOwnerId)
-      .maybeSingle()
-
-    if (ownerProfileResult.error) {
-      throw ownerProfileResult.error
-    }
-
-    if (ownerProfileResult.data) {
-      billingProfile = ownerProfileResult.data as RawBillingProfile
-      billingProfileError = ownerProfileResult.error
-    }
+export function getSubscriptionOverview(): Promise<SubscriptionOverview> {
+  const context = getAccountContext()
+  if (!overviewRequest || overviewContext !== context) {
+    const request = loadSubscriptionOverview(context)
+    overviewContext = context
+    overviewRequest = request
+    void request.finally(() => {
+      if (overviewRequest === request) overviewRequest = null
+    }).catch(() => undefined)
   }
+  return overviewRequest
+}
+
+async function loadSubscriptionOverview(contextRequest: ReturnType<typeof getAccountContext>): Promise<SubscriptionOverview> {
+  const supabase = createClient()
+  const context = await contextRequest
+  const memberProfile = context.member as RawBillingProfile | null
+  const billingProfile = context.business as RawBillingProfile | null
 
   const now = new Date()
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString()
@@ -1732,6 +1714,7 @@ export async function getSubscriptionOverview(): Promise<SubscriptionOverview> {
   if (productCountResult.error) throw productCountResult.error
   if (teamCountResult.error) throw teamCountResult.error
   if (monthlySalesResult.error) throw monthlySalesResult.error
+  if ((await getAccountContext()).user.id !== context.user.id) throw new Error('Session modifiee, veuillez reessayer')
 
   const plan = normalizePlan(billingProfile?.subscription_plan)
   const status = normalizeStatus(billingProfile?.subscription_status) ?? inferStatus(plan, billingProfile?.created_at, billingProfile?.trial_ends_at)
@@ -1753,6 +1736,6 @@ export async function getSubscriptionOverview(): Promise<SubscriptionOverview> {
       teamMembers: teamCountResult.count ?? 0,
       monthlySales: monthlySalesResult.count ?? 0,
     },
-    hasAdvancedFields: !billingProfileError,
+    hasAdvancedFields: Boolean(billingProfile),
   }
 }

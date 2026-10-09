@@ -14,7 +14,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'primary', size = 'md', isLoading, leftIcon, rightIcon, fullWidth, children, disabled, ...props }, ref) => {
     const base = [
-      'inline-flex items-center justify-center gap-2',
+      'inline-flex min-w-0 max-w-full items-center justify-center gap-2',
       'font-semibold rounded-full',
       'transition-all duration-200',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C5CE7] focus-visible:ring-offset-2 focus-visible:ring-offset-[#EEF1FA]',
@@ -99,7 +99,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
             <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
         ) : leftIcon && <span className="flex-shrink-0">{leftIcon}</span>}
-        <span>{children}</span>
+        <span className="min-w-0 break-words leading-tight">{children}</span>
         {!isLoading && rightIcon && <span className="flex-shrink-0">{rightIcon}</span>}
       </button>
     )

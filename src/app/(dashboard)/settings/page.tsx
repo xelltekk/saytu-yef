@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Header } from '@/components/layout/Header'
 import { SubscriptionCenter } from '@/components/settings/SubscriptionCenter'
@@ -10,7 +10,9 @@ import { Input, Select } from '@/components/ui/Input'
 import { useUser } from '@/hooks/useUser'
 import { DEFAULT_NOTIFICATION_PREFERENCES, NOTIFICATION_SETTINGS_KEY } from '@/lib/notificationPreferences'
 import { createClient } from '@/lib/supabase/client'
-import { AlertCircle, Bell, Building, Check, CreditCard, Shield, User } from 'lucide-react'
+import { refreshAccount, useAccountStore } from '@/store/accountStore'
+import { prepareBusinessLogo, getSafeLogoUrl } from '@/lib/businessLogo'
+import { AlertCircle, Bell, Building, Check, CreditCard, Shield, User, Upload, Trash2 } from 'lucide-react'
 
 type SettingsTab = 'profile' | 'business' | 'billing' | 'notifications' | 'security'
 
@@ -55,6 +57,21 @@ export default function SettingsPage() {
   const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
   const { user, loading } = useUser()
+  const { member, business: businessRecord } = useAccountStore()
+  const canManageBusiness = member?.role === 'admin' && businessRecord?.id === user?.id
+  const logoInput = useRef<HTMLInputElement>(null)
+  const hydratedUser = useRef<string | null>(null)
+  const [logoBlob, setLogoBlob] = useState<Blob | null>(null)
+  const [logoPreview, setLogoPreview] = useState('')
+  const [preparingLogo, setPreparingLogo] = useState(false)
+  const [removeLogo, setRemoveLogo] = useState(false)
+
+  useEffect(() => {
+    if (!logoBlob) return
+    const url = URL.createObjectURL(logoBlob)
+    setLogoPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [logoBlob])
 
   const [profile, setProfile] = useState({ firstName: '', lastName: '', phone: '', language: 'fr' })
   const [savingProfile, setSavingProfile] = useState(false)
@@ -80,7 +97,8 @@ export default function SettingsPage() {
   }, [searchParams])
 
   useEffect(() => {
-    if (!user) return
+    if (!user || loading || hydratedUser.current === user.id) return
+    hydratedUser.current = user.id
 
     const meta = user.user_metadata ?? {}
     const fullName = (meta.full_name || meta.name || '') as string
@@ -94,13 +112,14 @@ export default function SettingsPage() {
     })
 
     setBusiness({
-      name: (meta.business_name as string) || '',
-      ninea: (meta.ninea as string) || '',
-      address: (meta.address as string) || '',
+      name: businessRecord?.business_name ?? (meta.business_name as string) ?? '',
+      ninea: businessRecord?.business_ninea ?? (meta.ninea as string) ?? '',
+      address: businessRecord?.business_address ?? (meta.address as string) ?? '',
       city: (meta.city as string) || '',
-      currency: (meta.currency as string) || 'XOF',
-      tva: Boolean(meta.tva_enabled),
+      currency: businessRecord?.currency ?? (meta.currency as string) ?? 'XOF',
+      tva: businessRecord?.tax_enabled ?? Boolean(meta.tva_enabled),
     })
+    setLogoPreview(getSafeLogoUrl(businessRecord?.business_logo_url) ?? '')
 
     try {
       const storedNotifs = window.localStorage.getItem(NOTIFICATION_SETTINGS_KEY)
@@ -111,51 +130,19 @@ export default function SettingsPage() {
       console.error(storageError)
     }
 
-    let active = true
-    const loadProfileRecord = async () => {
-      const supabase = createClient()
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('full_name,business_name,currency,business_address,phone,tax_enabled')
-        .eq('id', user.id)
-        .maybeSingle()
-
-      if (!active) return
-      if (error) {
-        console.error(error)
-        return
-      }
-
-      if (data?.full_name) {
-        const [storedFirstName, ...storedRest] = data.full_name.split(' ')
-        setProfile((current) => ({
-          ...current,
-          firstName: storedFirstName || current.firstName,
-          lastName: storedRest.join(' ') || current.lastName,
-        }))
-      }
-
-      if (data?.phone) {
-        setProfile((current) => ({ ...current, phone: data.phone }))
-      }
-
-      if (data?.business_name) {
-        setBusiness((current) => ({ ...current, name: data.business_name }))
-      }
-
-      setBusiness((current) => ({
+    if (member?.full_name) {
+      const [storedFirstName, ...storedRest] = member.full_name.split(' ')
+      setProfile((current) => ({
         ...current,
-        address: data?.business_address || current.address,
-        currency: data?.currency || current.currency,
-        tva: data?.tax_enabled ?? current.tva,
+        firstName: storedFirstName || current.firstName,
+        lastName: storedRest.join(' ') || current.lastName,
       }))
     }
 
-    void loadProfileRecord()
-    return () => {
-      active = false
+    if (member?.phone) {
+      setProfile((current) => ({ ...current, phone: member.phone ?? '' }))
     }
-  }, [user])
+  }, [user, loading, member, businessRecord])
 
   const tabs: Array<{ id: SettingsTab; label: string; icon: ReactNode }> = [
     { id: 'profile', label: 'Profil', icon: <User size={15} /> },
@@ -190,6 +177,7 @@ export default function SettingsPage() {
         .eq('id', user.id)
 
       if (profileError) throw profileError
+      await refreshAccount(true)
       setProfileMsg({ type: 'success', msg: 'Profil enregistre.' })
     } catch (error) {
       setProfileMsg({ type: 'error', msg: error instanceof Error ? error.message : "Erreur d'enregistrement." })
@@ -199,7 +187,7 @@ export default function SettingsPage() {
   }
 
   const saveBusiness = async () => {
-    if (!user) {
+    if (!user || !canManageBusiness) {
       setBusinessMsg({ type: 'error', msg: 'Session utilisateur introuvable.' })
       return
     }
@@ -207,17 +195,23 @@ export default function SettingsPage() {
     setSavingBusiness(true)
     setBusinessMsg(null)
 
+    const supabase = createClient()
+    let uploadedPath: string | null = null
     try {
-      const supabase = createClient()
-      const { error } = await supabase.auth.updateUser({
-        data: { business_name: business.name.trim() || '' },
-      })
-      if (error) throw error
+      let logoUrl = removeLogo ? null : businessRecord?.business_logo_url ?? null
+      if (logoBlob) {
+        uploadedPath = `${user.id}/${crypto.randomUUID()}.png`
+        const { error: uploadError } = await supabase.storage.from('business-logos').upload(uploadedPath, logoBlob, { contentType: 'image/png', cacheControl: '31536000' })
+        if (uploadError) throw new Error("Impossible d'enregistrer le logo. Verifiez que la migration logo entreprise est appliquee dans Supabase.")
+        logoUrl = supabase.storage.from('business-logos').getPublicUrl(uploadedPath).data.publicUrl
+      }
 
       const { error: profileError } = await supabase
         .from('profiles')
         .update({
           business_name: business.name.trim() || null,
+          business_logo_url: logoUrl,
+          business_ninea: business.ninea.trim() || null,
           business_address: business.address.trim() || null,
           currency: business.currency,
           tax_enabled: business.tva,
@@ -227,11 +221,36 @@ export default function SettingsPage() {
         .eq('id', user.id)
 
       if (profileError) throw profileError
+      uploadedPath = null
+      const { error } = await supabase.auth.updateUser({
+        data: { business_name: business.name.trim(), address: business.address.trim(), ninea: business.ninea.trim(), city: business.city.trim(), currency: business.currency, tva_enabled: business.tva },
+      })
+      await refreshAccount(true)
+      setLogoBlob(null)
+      setLogoPreview(logoUrl ?? '')
+      setRemoveLogo(false)
+      if (error) throw error
       setBusinessMsg({ type: 'success', msg: 'Informations entreprise enregistrees.' })
     } catch (error) {
+      if (uploadedPath) await supabase.storage.from('business-logos').remove([uploadedPath])
       setBusinessMsg({ type: 'error', msg: error instanceof Error ? error.message : "Erreur d'enregistrement." })
     } finally {
       setSavingBusiness(false)
+    }
+  }
+
+  const chooseLogo = async (file?: File) => {
+    if (!file) return
+    setPreparingLogo(true)
+    setBusinessMsg(null)
+    try {
+      setLogoBlob(await prepareBusinessLogo(file))
+      setRemoveLogo(false)
+    } catch (error) {
+      setBusinessMsg({ type: 'error', msg: error instanceof Error ? error.message : 'Image illisible.' })
+    } finally {
+      setPreparingLogo(false)
+      if (logoInput.current) logoInput.current.value = ''
     }
   }
 
@@ -331,7 +350,17 @@ export default function SettingsPage() {
             {activeTab === 'business' && (
               <Card className="p-4 sm:p-5">
                 <h3 className="mb-5 text-sm font-semibold text-[#1A3636]">Informations entreprise</h3>
-                <div className="space-y-4">
+                <fieldset disabled={!canManageBusiness || savingBusiness} className="space-y-4 min-w-0">
+                  <div className="flex flex-wrap items-center gap-3">
+                    {logoPreview ? (
+                      // User-uploaded, normalized bitmap; keep transparent pixels intact.
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={logoPreview} alt="Logo entreprise" className="h-20 w-20 shrink-0 rounded-lg border border-[#2D7D7D]/15 object-contain p-1" />
+                    ) : <Building size={40} className="text-[#6B7682]" aria-hidden="true" />}
+                    <input ref={logoInput} type="file" accept="image/png,image/jpeg,image/webp" aria-label="Logo entreprise" className="hidden" onChange={(event) => void chooseLogo(event.target.files?.[0])} />
+                    <Button type="button" variant="outline" size="sm" leftIcon={<Upload size={14} />} onClick={() => logoInput.current?.click()} isLoading={preparingLogo}>Logo</Button>
+                    {logoPreview && <Button type="button" variant="ghost" size="sm" aria-label="Retirer le logo" title="Retirer le logo" leftIcon={<Trash2 size={14} />} onClick={() => { setLogoBlob(null); setLogoPreview(''); setRemoveLogo(true) }} />}
+                  </div>
                   <Input label="Nom de l'entreprise" value={business.name} onChange={(event) => setBusiness((current) => ({ ...current, name: event.target.value }))} />
                   <Input label="NINEA / RCCM" value={business.ninea} onChange={(event) => setBusiness((current) => ({ ...current, ninea: event.target.value }))} placeholder="ex: 001234567 2A1" />
                   <Input label="Adresse" value={business.address} onChange={(event) => setBusiness((current) => ({ ...current, address: event.target.value }))} placeholder="ex: Marche Sandaga, Dakar" />
@@ -357,11 +386,11 @@ export default function SettingsPage() {
                   </div>
                   <Feedback state={businessMsg} />
                   <div className="flex justify-end">
-                    <Button variant="primary" onClick={saveBusiness} isLoading={savingBusiness} disabled={loading} className="w-full sm:w-auto">
+                    <Button variant="primary" onClick={saveBusiness} isLoading={savingBusiness} disabled={loading || preparingLogo} className="w-full sm:w-auto">
                       Sauvegarder
                     </Button>
                   </div>
-                </div>
+                </fieldset>
               </Card>
             )}
 

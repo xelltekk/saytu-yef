@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   email TEXT NOT NULL,
   full_name TEXT,
   business_name TEXT,
+  business_logo_url TEXT,
+  business_ninea TEXT,
   avatar_url TEXT,
   role TEXT DEFAULT 'admin' CHECK (role IN ('admin', 'employee', 'cashier')),
   account_owner_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
@@ -181,7 +183,7 @@ CREATE TABLE IF NOT EXISTS public.sales (
   customer_name TEXT,
   customer_phone TEXT,
   subtotal NUMERIC(12,2) NOT NULL DEFAULT 0,
-  discount NUMERIC(5,2) DEFAULT 0,
+  discount NUMERIC(12,2) DEFAULT 0,
   tax NUMERIC(12,2) DEFAULT 0,
   total NUMERIC(12,2) NOT NULL DEFAULT 0,
   amount_paid NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -820,12 +822,14 @@ GRANT EXECUTE ON FUNCTION public.reverse_sale_with_stock(UUID, TEXT, TEXT) TO au
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_products_user_id ON public.products(user_id);
+CREATE INDEX IF NOT EXISTS idx_products_account_created_at ON public.products(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_products_group_id ON public.products(product_group_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_products_user_barcode_unique
   ON public.products(user_id, lower(btrim(barcode)))
   WHERE barcode IS NOT NULL AND btrim(barcode) <> '';
 CREATE INDEX IF NOT EXISTS idx_products_category ON public.products(category_id);
 CREATE INDEX IF NOT EXISTS idx_sales_user_id ON public.sales(user_id);
+CREATE INDEX IF NOT EXISTS idx_sales_account_created_at ON public.sales(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sales_seller_id_created_at ON public.sales(seller_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sales_created_at ON public.sales(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale_id ON public.sale_items(sale_id);

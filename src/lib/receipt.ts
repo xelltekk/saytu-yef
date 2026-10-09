@@ -1,8 +1,11 @@
+import { getSafeLogoUrl } from './businessLogo'
+
 export interface ReceiptData {
   businessName: string
   businessAddress?: string
   businessPhone?: string
   businessNinea?: string
+  businessLogoUrl?: string
   reference: string
   date: string
   customerName?: string
@@ -48,6 +51,7 @@ export interface InvoiceData {
   businessAddress?: string
   businessPhone?: string
   businessNinea?: string
+  businessLogoUrl?: string
   reference: string
   invoiceNumber: string
   date: string
@@ -83,7 +87,12 @@ function formatMoney(amount: number): string {
   return `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(amount)} FCFA`
 }
 
-function buildReceiptHTML(receipt: ReceiptData): string {
+function buildLogoHTML(url?: string): string {
+  const safeUrl = getSafeLogoUrl(url)
+  return safeUrl ? `<img class="business-logo" src="${escapeHtml(safeUrl)}" alt="Logo de la societe">` : ''
+}
+
+export function buildReceiptHTML(receipt: ReceiptData): string {
   const tenderedAmount = receipt.amountTendered && receipt.amountTendered > 0
     ? receipt.amountTendered
     : receipt.amountPaid
@@ -110,11 +119,13 @@ function buildReceiptHTML(receipt: ReceiptData): string {
     td.r { text-align: right; white-space: nowrap; padding-left: 6px; }
     .tot td { font-weight: bold; font-size: 12px; }
     .small { font-size: 10px; }
+    .business-logo { display: block; width: 28mm; height: 18mm; object-fit: contain; margin: 0 auto 3mm; }
     @media print {
       html, body { width: 72mm; }
       body { margin: 0 auto; }
     }
   </style></head><body>
+    ${buildLogoHTML(receipt.businessLogoUrl)}
     <h1>${escapeHtml(receipt.businessName)}</h1>
     ${receipt.businessAddress ? `<div class="center muted">${escapeHtml(receipt.businessAddress)}</div>` : ''}
     ${receipt.businessPhone ? `<div class="center muted">Tel: ${escapeHtml(receipt.businessPhone)}</div>` : ''}
@@ -198,7 +209,7 @@ function buildSalesSummaryHTML(summary: SalesSummaryData): string {
   </body></html>`
 }
 
-function buildInvoiceHTML(invoice: InvoiceData): string {
+export function buildInvoiceHTML(invoice: InvoiceData): string {
   const itemRows = invoice.items.map((item) => `
     <tr>
       <td>${escapeHtml(item.name)}</td>
@@ -224,6 +235,7 @@ function buildInvoiceHTML(invoice: InvoiceData): string {
     .header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; border-bottom: 2px solid #6C5CE7; padding-bottom: 14px; }
     h1 { font-size: 26px; margin: 0 0 4px; }
     h2 { font-size: 22px; margin: 0 0 10px; color: #6C5CE7; }
+    .business-logo { display: block; width: 42mm; height: 24mm; object-fit: contain; margin-bottom: 8px; }
     .muted { color: #5C6B73; }
     .meta { margin: 2px 0; }
     .card { border: 1px solid #D7E2F0; border-radius: 14px; padding: 14px 16px; background: #fff; }
@@ -246,6 +258,7 @@ function buildInvoiceHTML(invoice: InvoiceData): string {
     <div class="page">
       <div class="header">
         <div>
+          ${buildLogoHTML(invoice.businessLogoUrl)}
           <h1>${escapeHtml(invoice.businessName)}</h1>
           ${invoice.businessAddress ? `<div class="meta muted">${escapeHtml(invoice.businessAddress)}</div>` : ''}
           ${invoice.businessPhone ? `<div class="meta muted">Tel: ${escapeHtml(invoice.businessPhone)}</div>` : ''}
@@ -335,13 +348,14 @@ function printHTMLDocument(title: string, html: string) {
   doc.write(html)
   doc.close()
   const printWindow = iframe.contentWindow
-  window.setTimeout(() => {
+  const imagesReady = Promise.all(Array.from(doc.images).map((image) => image.decode().catch(() => undefined)))
+  void Promise.race([imagesReady, new Promise<void>((resolve) => window.setTimeout(resolve, 5000))]).then(() => {
     printWindow?.focus()
     printWindow?.print()
     window.setTimeout(() => {
       if (iframe.isConnected) document.body.removeChild(iframe)
     }, 1500)
-  }, 300)
+  })
 }
 
 export function printReceipt(receipt: ReceiptData) {

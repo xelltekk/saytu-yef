@@ -34,7 +34,7 @@ interface SaleDetailModalProps {
 }
 
 export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps) {
-  const { businessName, businessAddress, businessPhone, businessNinea } = useUser()
+  const { businessName, businessAddress, businessPhone, businessNinea, businessLogoUrl, loading: loadingBusiness } = useUser()
   const { isAdmin } = useAccountRole()
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -96,6 +96,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
       businessAddress: businessAddress || undefined,
       businessPhone: businessPhone || undefined,
       businessNinea: businessNinea || undefined,
+      businessLogoUrl: businessLogoUrl || undefined,
       reference: sale.id.slice(0, 8).toUpperCase(),
       date: new Date(sale.created_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }),
       customerName: sale.customer_name || undefined,
@@ -115,7 +116,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
       amountPaid,
       amountDue,
     }
-  }, [amountDue, amountPaid, businessAddress, businessName, businessNinea, businessPhone, computedStatus, sale])
+  }, [amountDue, amountPaid, businessAddress, businessName, businessNinea, businessPhone, businessLogoUrl, computedStatus, sale])
   const invoice = useMemo<InvoiceData | null>(() => {
     if (!sale) return null
 
@@ -126,6 +127,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
       businessAddress: businessAddress || undefined,
       businessPhone: businessPhone || undefined,
       businessNinea: businessNinea || undefined,
+      businessLogoUrl: businessLogoUrl || undefined,
       reference,
       invoiceNumber: `FAC-${reference}`,
       date: new Date(sale.created_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }),
@@ -155,7 +157,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
         note: payment.note || undefined,
       })),
     }
-  }, [amountDue, amountPaid, businessAddress, businessName, businessNinea, businessPhone, computedStatus, payments, sale])
+  }, [amountDue, amountPaid, businessAddress, businessName, businessNinea, businessPhone, businessLogoUrl, computedStatus, payments, sale])
   const contactPhone = useMemo(
     () => normalizeContactPhone(sale?.customer_phone ?? ''),
     [sale?.customer_phone]
@@ -283,23 +285,24 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
             <Button variant="primary" className="w-full" onClick={handleSave} isLoading={saving}>Enregistrer</Button>
           </div>
         ) : (
-          <div className="grid w-full grid-cols-2 gap-2 xl:grid-cols-5">
-            <Button variant="ghost" className="w-full" onClick={onClose}>Fermer</Button>
+          <div className="grid w-full grid-cols-2 gap-2 [&>button]:h-11 [&>button]:px-3 [&>button]:text-xs">
+            <Button variant="ghost" className="col-span-2 w-full" onClick={onClose}>Fermer</Button>
             <Button
               variant="outline"
               className="w-full"
               leftIcon={<Printer size={15} />}
               onClick={() => receipt && printReceipt(receipt)}
-              disabled={!receipt}
+              disabled={!receipt || loadingBusiness}
+              title="Imprimer le reçu"
             >
-              Imprimer le reçu
+              Reçu
             </Button>
             <Button
               variant="outline"
               className="w-full"
               leftIcon={<Printer size={15} />}
               onClick={() => invoice && printInvoice(invoice)}
-              disabled={!invoice}
+              disabled={!invoice || loadingBusiness}
             >
               Facture PDF
             </Button>

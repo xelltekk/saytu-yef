@@ -34,13 +34,10 @@ export default function LoginPage() {
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
     const errorParam = searchParams.get('error')
-    const reasonParam = searchParams.get('reason')
     if (errorParam === 'oauth') {
       setError('La connexion Google a echoue. Reessayez.')
     } else if (errorParam === 'email_not_confirmed') {
       setError(getLoginErrorMessage('email not confirmed'))
-    } else if (reasonParam === 'inactive') {
-      setError('Session fermee apres 1 heure d inactivite. Reconnectez-vous.')
     }
   }, [])
 

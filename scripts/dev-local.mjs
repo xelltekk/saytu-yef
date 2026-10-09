@@ -15,6 +15,7 @@ const defaultPort = '3003'
 const defaultHost = '0.0.0.0'
 
 let lastSourcePath = ''
+let lastSourceMtime = 0
 let syncInFlight = false
 let cssWatcher = null
 let warmedUp = false
@@ -52,7 +53,7 @@ async function findLatestCompiledCss() {
     }
 
     candidates.sort((left, right) => right.mtimeMs - left.mtimeMs)
-    return candidates[0]?.fullPath ?? null
+    return candidates[0] ?? null
   } catch {
     return null
   }
@@ -63,11 +64,18 @@ async function syncStableLayoutCss() {
   syncInFlight = true
 
   try {
-    const sourcePath = await findLatestCompiledCss()
-    if (!sourcePath) return
+    const source = await findLatestCompiledCss()
+    if (!source) return
+    const sourcePath = source.fullPath
+    // Our own copy also triggers the watcher; skip an unchanged source.
+    if (sourcePath === lastSourcePath && source.mtimeMs === lastSourceMtime) {
+      const target = await stat(stableCssFile).catch(() => null)
+      if (target) return
+    }
 
     await mkdir(stableCssDir, { recursive: true })
     await copyFile(sourcePath, stableCssFile)
+    lastSourceMtime = source.mtimeMs
 
     if (sourcePath !== lastSourcePath) {
       console.log(`[dev-css-fix] ${path.basename(sourcePath)} -> .next-dev/static/css/app/layout.css`)
