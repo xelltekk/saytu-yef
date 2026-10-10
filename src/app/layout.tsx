@@ -25,16 +25,16 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/brand/logo-saytu-yef-mark-v2.png', type: 'image/png' },
-      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
+      { url: '/icons/saytu-yef-16.png', sizes: '16x16', type: 'image/png' },
+      { url: '/icons/saytu-yef-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icons/saytu-yef-48.png', sizes: '48x48', type: 'image/png' },
     ],
     apple: [
       { url: '/brand/logo-saytu-yef-mark-v2.png', type: 'image/png' },
       { url: '/icons/icon-152x152.png', sizes: '152x152', type: 'image/png' },
       { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
     ],
-    shortcut: '/brand/logo-saytu-yef-mark-v2.png',
+    shortcut: '/favicon.ico?v=saytu-yef-20261009',
   },
   robots: { index: true, follow: true },
 }
@@ -59,8 +59,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="format-detection" content="telephone=no" />
         <meta httpEquiv="Content-Language" content="fr" />
         <meta name="google" content="notranslate" />
-        <link rel="icon" href="/brand/logo-saytu-yef-mark-v2.png" type="image/png" />
-        <link rel="apple-touch-icon" href="/brand/logo-saytu-yef-mark-v2.png" />
       </head>
       <body className="min-h-full gradient-bg notranslate" translate="no" suppressHydrationWarning>
         {children}
