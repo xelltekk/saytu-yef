@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient, syncServerSessionFromBrowser } from '@/lib/supabase/client'
 import { getSafeRedirectPath } from '@/lib/authRedirect'
-import { getLoginErrorMessage } from '@/lib/authErrors'
+import { getLoginErrorMessage, getLoginHttpErrorMessage } from '@/lib/authErrors'
 import { BrandLogo } from '@/components/brand/BrandLogo'
 
 const GENERIC_LOGIN_ERROR =
@@ -85,13 +85,18 @@ export default function LoginPage() {
         }),
       })
 
-      const payload = (await response.json()) as {
+      const payload = (await response.json().catch(() => null)) as {
         error?: string
         redirectTo?: string
-      }
+      } | null
 
       if (!response.ok) {
-        setError(payload.error ?? GENERIC_LOGIN_ERROR)
+        setError(getLoginHttpErrorMessage(response.status, payload?.error))
+        return
+      }
+
+      if (!payload) {
+        setError('Le serveur a renvoye une reponse de connexion invalide. Reessayez plus tard.')
         return
       }
 

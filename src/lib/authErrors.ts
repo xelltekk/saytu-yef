@@ -13,6 +13,20 @@ function normalizeAuthError(error: AuthErrorLike | string) {
   return `${code} ${message}`.trim()
 }
 
+export function getLoginHttpErrorMessage(status: number, error?: unknown) {
+  if (status >= 500) {
+    return `Le serveur de connexion est indisponible (erreur ${status}). Reessayez plus tard.`
+  }
+
+  if (status === 429) {
+    return 'Trop de tentatives. Patientez quelques minutes puis reessayez.'
+  }
+
+  if (typeof error === 'string' && error.trim()) return error
+
+  return 'Impossible de se connecter pour le moment. Verifiez votre connexion et reessayez.'
+}
+
 export function getLoginErrorMessage(error: AuthErrorLike | string) {
   const normalized = normalizeAuthError(error)
 
