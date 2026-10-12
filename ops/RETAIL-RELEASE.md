@@ -2,10 +2,26 @@
 
 ## Etat
 
-Ces modifications sont preparees localement. Les migrations ci-dessous ne sont pas encore appliquees a la production.
+Version applicative `259e878dedf53229e25ca2cada92278f8f979a3e` deployee le 12 octobre 2026 a 16:07 UTC, apres accord explicite et pause des encaissements.
+Les deux migrations ci-dessous ont ete appliquees ensemble, dans leur ordre, en une migration atomique Supabase `20261012160727_retail_reliability_and_workflows`. Ne pas les rejouer individuellement sur cette production.
 La copie hors VPS a ete telechargee sur Windows dans `Documents/Saytu-Yef-Backups` et son SHA256 verifie. Les deux logos actuellement presents dans Storage ont aussi ete copies et verifies.
 Le helper de sauvegarde du VPS inclut maintenant les proprietaires et droits SQL. Chaque nouvelle archive est accompagnee d'un inventaire des roles et appartenances, lie au SHA256 du dump. Les mots de passe des roles PostgreSQL ne sont pas exportes.
 La copie quotidienne Windows est optionnelle et n'est pas activee sans accord.
+
+## Verification du deploiement
+
+- Build Linux Next.js 15.5.27 termine avant toute modification SQL, dans un montage RAM temporaire; candidat copie ensuite sur disque persistant.
+- Sauvegarde fraiche `saytu-yef-20261012T160624Z.dump` copiee sur le PC avec SHA256 et inventaire des roles verifies; deux fichiers Storage sauvegardes et verifies.
+- Empreintes financieres identiques avant/apres : 115 ventes, 138 articles vendus, 135 versements et 46 produits. Aucun encaissement fictif en production.
+- `/api/health` HTTP 200 : PostgreSQL et Auth `ok`. Nouveaux RPC de vente et versement presents, ancienne fonction de versement interdite au navigateur, vente interdite au role anonyme.
+- Remise stockee en `numeric(15,2)`; RLS active sur les nouvelles tables clients, relances et commandes fournisseurs.
+- PM2 redemarre avec succes, moniteur mis a jour et execute avec succes, timers de surveillance et sauvegarde actifs.
+- Ancien runtime conserve dans `/var/www/saytu-yef-release-ad817726133b9bea04f6595e3d3eb5769c3e4a14-20261012T160741Z`; son cache de compilation dispensable est retire pour liberer le disque. Anciennes sauvegardes conservees.
+- Rafraichir toutes les sessions navigateur/PWA avant de reprendre les encaissements. Les tests de connexion et operations reelles restent a faire par la boutique; scanner et imprimante restent a valider sur le materiel.
+
+Le disque du VPS reste tres rempli par les anciennes sauvegardes applicatives. Planifier leur archivage hors VPS ou augmenter la capacite; aucune purge de ces sauvegardes n'est faite automatiquement.
+L'audit Supabase ne signale plus les quatre fonctions au `search_path` mutable. Restent des avertissements sur les fonctions `SECURITY DEFINER` publiques (26 anonymes, 37 authentifiees, dont des RPC volontairement exposes et controles) et la protection contre les mots de passe compromis desactivee. Les trois tables internes sans politique RLS restent inaccessibles directement.
+References : [fonctions privilegiees publiques](https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable), [protection des mots de passe](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
 
 ## Fonctionnalites
 
@@ -74,7 +90,7 @@ Reference : [restauration Supabase sur une instance compatible](https://supabase
 
 Test reel valide le 11 octobre 2026 sur PostgreSQL Windows 18.1, avec `saytu-yef-20261011T131955Z.dump` : 114 ventes, 136 articles vendus, 135 paiements, 47 produits, 20 profils, 20 comptes Auth et 2 objets Storage. Les deux migrations ont reussi; les quatre empreintes des ventes, articles, paiements et stocks sont identiques avant/apres. Aucune contrainte publique non validee n'est presente. Les anciens RPC financiers sont interdits au navigateur et les nouveaux RPC autorises au role authentifie seulement. Le cluster temporaire est arrete.
 Rapport prive : `Documents/Saytu-Yef-Backups/restore-tests/20261011T134237Z-fc71462d5b8f42edba4effff4871353e/report.json`. Les huit exclusions Vault sont listees explicitement. Les fichiers Storage ont ete verifies separement dans `storage-20261011T1321061719217Z`.
-Le helper de sauvegarde corrige est installe sur le VPS et son execution systemd a termine avec `Result=success` et `ExecMainStatus=0`. Ni les deux migrations ni les modifications de l'application ne sont appliquees en production a ce stade. `/api/health` repond HTTP 200, PostgreSQL `ok`.
+Le helper de sauvegarde corrige est installe sur le VPS et son execution systemd a termine avec `Result=success` et `ExecMainStatus=0`. Ce controle precedait le deploiement du 12 octobre decrit en tete du document.
 
 ## Concurrence reelle
 
@@ -86,14 +102,14 @@ Ce mode cree une seconde base locale a partir de la restauration, avec des bouti
 Une transaction de coordination bloque une ligne, puis `pg_stat_activity` doit confirmer deux backends distincts en attente d'un verrou avant sa liberation. Un lancement seulement sequentiel ne peut pas valider ces tests. Les processus ont des delais bornes et le cluster est arrete dans le runner principal.
 
 Validation du 12 octobre 2026 : 13 scenarios passent, avec contention prouvee : survente, nouvelle tentative de vente identique, tentative contradictoire, derniere vente gratuite autorisee, versement identique, depassement de dette, versements distincts sans perte, reglement global identique, reglement global/individuel, remboursement double, reception double, remboursement/versement et reception/vente.
-Le test initial a reproduit un interblocage remboursement/versement, dans la verification de cle etrangere de `stock_movements.user_id`. Les verrous de compte sont passes de `FOR UPDATE` a `FOR NO KEY UPDATE` dans les deux migrations encore non deployees. Ils continuent a serialiser les encaissements, quotas et ajustements de stock, tout en laissant passer les controles FK `KEY SHARE`. Les verrous sur les ventes et produits restent inchanges.
+Le test initial a reproduit un interblocage remboursement/versement, dans la verification de cle etrangere de `stock_movements.user_id`. Les verrous de compte sont passes de `FOR UPDATE` a `FOR NO KEY UPDATE` dans les deux migrations desormais deployees. Ils continuent a serialiser les encaissements, quotas et ajustements de stock, tout en laissant passer les controles FK `KEY SHARE`. Les verrous sur les ventes et produits restent inchanges.
 Les empreintes des lignes historiques des ventes, articles, paiements, produits, mouvements de stock, profils et comptes Auth sont identiques avant/apres les essais. La base source de restauration est egalement inchangee.
 Rapport prive : `Documents/Saytu-Yef-Backups/restore-tests/20261012T141023Z-5bdd0f8b448f45e8bde37b78da455cd4/concurrency/report.json`.
 `node scripts/test-concurrency-guards.mjs` valide sept refus/controles de configuration sans ouvrir de connexion PostgreSQL.
 Reference : [modes de verrouillage PostgreSQL](https://www.postgresql.org/docs/18/explicit-locking.html).
 
 Les 73 tests automatises de l'application passent avec deux workers. Le delai d'installation du schema PGlite est porte a 90 secondes pour le demarrage WASM a froid sur Windows, mesure a 26,6 secondes avant meme l'installation des tables. Les delais et assertions des tests metier restent inchanges.
-Lint et verification TypeScript sont valides apres le correctif. Le site de production repond HTTP 200 et aucune migration n'a ete appliquee a sa base.
+Lint et verification TypeScript sont valides apres le correctif. Ces essais precedaient le deploiement et la migration atomique du 12 octobre decrits en tete du document.
 Le serveur local lance le 11 octobre consomme beaucoup de CPU (1,78 seconde CPU mesuree sur un intervalle de deux secondes). Sa relance a ete refusee par l'environnement d'execution; une relance manuelle reste a faire. Aucun processus du VPS n'a ete arrete.
 Les essais UI emploient un backend simule pour ne pas creer de transactions dans la production.
 La lecture sur le scanner physique et l'impression thermique restent a verifier avec le materiel de la boutique.
