@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Mail, MapPin, Pencil, Phone, Plus, RefreshCw, Search, Trash2, Truck } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
+import { ReplenishmentPanel } from '@/components/suppliers/ReplenishmentPanel'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea } from '@/components/ui/Input'
@@ -174,6 +175,7 @@ export default function SuppliersPage() {
         )}
       </div>
 
+      <div className="px-3 pb-6 sm:px-6"><ReplenishmentPanel suppliers={suppliers} /></div>
       <Modal isOpen={formOpen} onClose={() => { if (!saving) setFormOpen(false) }} title={editingSupplier ? 'Modifier le fournisseur' : 'Nouveau fournisseur'} footer={<><Button variant="ghost" onClick={() => setFormOpen(false)} disabled={saving}>Annuler</Button><Button variant="primary" onClick={() => void handleSave()} isLoading={saving}>Enregistrer</Button></>}>
         <div className="space-y-4">
           {error && <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">{error}</div>}

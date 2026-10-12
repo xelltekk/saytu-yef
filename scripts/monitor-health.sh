@@ -14,9 +14,27 @@ notify() {
     --data "{\"text\":\"Saytu Yëf: $1\"}" "${ALERT_WEBHOOK_URL}" >/dev/null || true
 }
 
-if curl --fail --silent --show-error --max-time 12 "${HEALTH_URL}" >/dev/null; then
+response="$(curl --silent --show-error --max-time 12 "${HEALTH_URL}" 2>/dev/null || true)"
+health_state="$(printf '%s' "$response" | node -e '
+  let body = ""; process.stdin.on("data", chunk => body += chunk);
+  process.stdin.on("end", () => {
+    try {
+      const value = JSON.parse(body);
+      if (value.app !== "saytu-yef") return console.log("unreachable");
+      console.log(value.status === "ok" && value.dependencies?.database === "ok" && value.dependencies?.auth === "ok"
+        ? "ok" : "dependency");
+    } catch { console.log("unreachable"); }
+  });' 2>/dev/null || printf 'unreachable')"
+if [[ "$health_state" == 'ok' ]]; then
   log 'OK application et base de données disponibles'
   exit 0
+fi
+
+# A reachable application cannot repair a Supabase outage by restarting itself.
+if [[ "$health_state" == 'dependency' ]]; then
+  log 'DEGRADE application accessible, dependance base ou Auth indisponible; pas de redemarrage'
+  notify 'application accessible mais base ou Auth indisponible'
+  exit 1
 fi
 
 log 'ECHEC contrôle de santé, redémarrage PM2'

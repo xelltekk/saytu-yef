@@ -4,6 +4,8 @@ import { buildProductGroups } from '@/lib/productGroups'
 import { getPlanDefinition, getSubscriptionOverview, getUsageLimit } from '@/lib/subscriptions'
 import { normalizeAccountRole } from '@/lib/accountRoles'
 import { getAccountContext } from './account'
+import { CheckoutRejectedError, getItemProfit } from '@/lib/checkout'
+import { readAllPages } from '@/lib/pagination'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 type SubscriptionLimitKey = 'products' | 'teamMembers' | 'monthlySales'
@@ -205,10 +207,12 @@ export async function removeTeamMember(id: string): Promise<void> {
 export async function getProducts(): Promise<Product[]> {
   const supabase = createClient()
   await ensureBrowserSupabaseSession(supabase)
-  const { data, error } = await supabase
+  const query = supabase
     .from('products')
     .select('*, category:categories(id,name,color,user_id,created_at), supplier:suppliers(id,name,contact_name,phone,email,country,user_id,created_at)')
     .order('created_at', { ascending: false })
+    .order('id')
+  const { data, error } = await readAllPages((from, to) => query.range(from, to))
 
   if (error) throw error
   return (data ?? []) as Product[]
@@ -340,9 +344,12 @@ export async function updateProductGroup(group: ProductGroup, input: SaveProduct
     const payload = buildGroupedVariantPayload(user.id, targetGroupId, input, variant)
 
     if (variant.id && currentVariantIds.has(variant.id)) {
+      // Stock changes must use the atomic adjustment RPC, not a stale edit form.
+      const { quantity: _quantity, ...metadata } = payload
+      void _quantity
       const { error } = await supabase
         .from('products')
-        .update(payload)
+        .update(metadata)
         .eq('id', variant.id)
       if (error) throw normalizeSupabaseError(error, "Impossible de mettre a jour la variante.")
       continue
@@ -419,48 +426,11 @@ export async function adjustStock(id: string, quantityChange: number, reason?: s
   }
 
   const supabase = createClient()
-  const { data: product, error: productError } = await supabase
-    .from('products')
-    .select('quantity')
-    .eq('id', id)
-    .single()
-
-  if (productError) throw productError
-  if (!product) throw new Error('Produit introuvable')
-
-  const newQuantity = product.quantity + quantityChange
-  if (newQuantity < 0) throw new Error('La sortie dépasse le stock disponible')
-
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError) throw userError
-  if (!user) throw new Error('Non connecté')
-
-  const { error: updateError } = await supabase
-    .from('products')
-    .update({ quantity: newQuantity, updated_at: new Date().toISOString() })
-    .eq('id', id)
-  if (updateError) throw updateError
-
-  const { error: movementError } = await supabase
-    .from('stock_movements')
-    .insert({
-      user_id: user.id,
-      product_id: id,
-      movement_type: quantityChange > 0 ? 'in' : 'out',
-      quantity: Math.abs(quantityChange),
-      previous_quantity: product.quantity,
-      new_quantity: newQuantity,
-      reason,
-    })
-  if (movementError) {
-    await supabase
-      .from('products')
-      .update({ quantity: product.quantity, updated_at: new Date().toISOString() })
-      .eq('id', id)
-    throw movementError
-  }
-
-  return newQuantity
+  const { data, error } = await supabase.rpc('adjust_product_stock', {
+    p_product_id: id, p_quantity: quantityChange, p_absolute: false, p_reason: reason ?? null,
+  })
+  if (error) throwSupabaseError(error, 'Impossible de modifier le stock')
+  return Number(data)
 }
 
 export async function setStockQuantity(id: string, nextQuantity: number, reason?: string): Promise<number> {
@@ -469,52 +439,12 @@ export async function setStockQuantity(id: string, nextQuantity: number, reason?
   }
 
   const supabase = createClient()
-  const { data: product, error: productError } = await supabase
-    .from('products')
-    .select('quantity')
-    .eq('id', id)
-    .single()
-
-  if (productError) throw productError
-  if (!product) throw new Error('Produit introuvable')
-
-  if (product.quantity === nextQuantity) {
-    return nextQuantity
-  }
-
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError) throw userError
-  if (!user) throw new Error('Non connecte')
-
-  const previousQuantity = product.quantity
-  const movementQuantity = Math.abs(nextQuantity - previousQuantity)
-
-  const { error: updateError } = await supabase
-    .from('products')
-    .update({ quantity: nextQuantity, updated_at: new Date().toISOString() })
-    .eq('id', id)
-  if (updateError) throw updateError
-
-  const { error: movementError } = await supabase
-    .from('stock_movements')
-    .insert({
-      user_id: user.id,
-      product_id: id,
-      movement_type: 'adjustment',
-      quantity: movementQuantity,
-      previous_quantity: previousQuantity,
-      new_quantity: nextQuantity,
-      reason: reason?.trim() || 'Comptage inventaire',
-    })
-  if (movementError) {
-    await supabase
-      .from('products')
-      .update({ quantity: previousQuantity, updated_at: new Date().toISOString() })
-      .eq('id', id)
-    throw movementError
-  }
-
-  return nextQuantity
+  const { data, error } = await supabase.rpc('adjust_product_stock', {
+    p_product_id: id, p_quantity: nextQuantity, p_absolute: true,
+    p_reason: reason?.trim() || 'Comptage inventaire',
+  })
+  if (error) throwSupabaseError(error, 'Impossible de modifier le stock')
+  return Number(data)
 }
 
 export async function getStockMovements(productId: string, currentQuantity: number, limit = 50): Promise<StockMovement[]> {
@@ -852,6 +782,9 @@ export async function closeCashSession(
 }
 
 type CreateSaleInput = {
+  request_id?: string
+  due_date?: string
+  payments?: { amount: number; payment_method: Sale['payment_method'] }[]
   customer_name?: string
   customer_phone?: string
   items: { product_id: string; product_name: string; quantity: number; unit_price: number; total: number }[]
@@ -865,6 +798,7 @@ type CreateSaleInput = {
 }
 
 type RecordSalePaymentInput = {
+  request_id?: string
   amount: number
   payment_method: 'cash' | 'wave' | 'orange_money' | 'card'
   note?: string
@@ -999,129 +933,18 @@ function throwSupabaseError(error: unknown, fallback: string): never {
   throw new Error(getSupabaseErrorMessage(error, fallback))
 }
 
-async function createSaleLegacy(sale: CreateSaleInput, userId: string): Promise<Sale> {
-  const amountPaid = normalizeAmountPaid(sale.total, sale.amount_paid)
-  if (Math.abs(amountPaid - sale.total) > 0.001) {
-    throw new Error(getPartialPaymentSetupMessage())
-  }
-
-  const supabase = createClient()
-  const productIds = sale.items.map((item) => item.product_id)
-  const { data: products, error: productsError } = await supabase
-    .from('products')
-    .select('id, name, quantity')
-    .in('id', productIds)
-
-  if (productsError) throwSupabaseError(productsError, 'Impossible de vérifier le stock')
-
-  for (const item of sale.items) {
-    const product = products?.find((p) => p.id === item.product_id)
-    if (!product) throw new Error(`Produit introuvable: ${item.product_name}`)
-    if (product.quantity < item.quantity) {
-      throw new Error(`Stock insuffisant pour ${product.name}. Disponible: ${product.quantity}`)
-    }
-  }
-
-  const { data: saleData, error: saleError } = await supabase
-    .from('sales')
-    .insert({
-      user_id: userId,
-      customer_name: sale.customer_name,
-      customer_phone: sale.customer_phone,
-      subtotal: sale.subtotal,
-      discount: sale.discount,
-      tax: sale.tax,
-      total: sale.total,
-      payment_method: sale.payment_method,
-      payment_status: 'completed',
-      notes: sale.notes,
-    })
-    .select()
-    .single()
-
-  if (saleError) throwSupabaseError(saleError, 'Impossible de créer la vente')
-
-  const { error: itemsError } = await supabase
-    .from('sale_items')
-    .insert(
-      sale.items.map((item) => ({
-        sale_id: saleData.id,
-        product_id: item.product_id,
-        product_name: item.product_name,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        total: item.total,
-      }))
-    )
-
-  if (itemsError) {
-    await supabase.from('sales').delete().eq('id', saleData.id)
-    throwSupabaseError(itemsError, "Impossible d'enregistrer les articles de la vente")
-  }
-
-  return { ...saleData, items: sale.items } as Sale
-}
-
 export async function createSale(sale: CreateSaleInput): Promise<Sale> {
-  await assertSubscriptionCapacity('monthlySales')
-  await requireActiveCashSession('sale')
   const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Non connecté')
-
+  await ensureBrowserSupabaseSession(supabase)
   const amountPaid = normalizeAmountPaid(sale.total, sale.amount_paid)
-  const isPartialPayment = Math.abs(amountPaid - sale.total) > 0.001
-
-  const { data, error } = await supabase
-    .rpc('create_sale_with_items_v2', {
-      p_customer_name: sale.customer_name ?? null,
-      p_customer_phone: sale.customer_phone ?? null,
-      p_items: sale.items,
-      p_subtotal: sale.subtotal,
-      p_discount: sale.discount,
-      p_tax: sale.tax,
-      p_total: sale.total,
-      p_amount_paid: amountPaid,
-      p_payment_method: sale.payment_method,
-      p_notes: sale.notes ?? null,
-    })
-
+  const payments = sale.payments ?? (amountPaid > 0 ? [{ amount: amountPaid, payment_method: sale.payment_method }] : [])
+  const { data, error } = await supabase.rpc('checkout_sale', {
+    p_request_id: sale.request_id ?? crypto.randomUUID(), p_sale: sale, p_payments: payments,
+  })
   if (error) {
-    if (isMissingRpc(error, 'create_sale_with_items_v2')) {
-      if (isPartialPayment) {
-        throw new Error(getPartialPaymentSetupMessage())
-      }
-
-      const { data: legacyData, error: legacyError } = await supabase
-        .rpc('create_sale_with_items', {
-          p_customer_name: sale.customer_name ?? null,
-          p_customer_phone: sale.customer_phone ?? null,
-          p_items: sale.items,
-          p_subtotal: sale.subtotal,
-          p_discount: sale.discount,
-          p_tax: sale.tax,
-          p_total: sale.total,
-          p_payment_method: sale.payment_method,
-          p_notes: sale.notes ?? null,
-        })
-
-      if (legacyError) {
-        if (isMissingRpc(legacyError, 'create_sale_with_items')) {
-          return createSaleLegacy(sale, user.id)
-        }
-
-        throwSupabaseError(legacyError, 'Erreur lors du paiement')
-      }
-
-      return { ...(legacyData as Omit<Sale, 'items'>), items: sale.items } as Sale
-    }
-
-    throwSupabaseError(
-      error,
-      isPartialPayment ? "Erreur lors de l'enregistrement du paiement partiel" : 'Erreur lors du paiement'
-    )
+    if (/^[0-9A-Z]{5}$/.test(error.code ?? '')) throw new CheckoutRejectedError(getSupabaseErrorMessage(error, 'Paiement refuse'))
+    throwSupabaseError(error, 'Erreur lors du paiement')
   }
-
   return { ...(data as Omit<Sale, 'items'>), items: sale.items } as Sale
 }
 
@@ -1130,17 +953,20 @@ export async function updateSale(id: string, updates: {
   customer_phone?: string
   payment_method?: 'cash' | 'wave' | 'orange_money' | 'card'
   payment_status?: 'completed' | 'partial' | 'pending' | 'cancelled' | 'refunded'
+  due_date?: string | null
   notes?: string
 }): Promise<void> {
   const supabase = createClient()
-  const { error } = await supabase.from('sales').update(updates).eq('id', id)
+  const { customer_name, customer_phone, notes, due_date } = updates
+  const { error } = await supabase.from('sales').update({ customer_name, customer_phone, notes, due_date }).eq('id', id)
   if (error) throw error
 }
 
 export async function recordSalePayment(id: string, payment: RecordSalePaymentInput): Promise<Sale> {
   await requireActiveCashSession('payment')
   const supabase = createClient()
-  const { data, error } = await supabase.rpc('record_sale_payment', {
+  const { data, error } = await supabase.rpc('record_sale_payment_v2', {
+    p_request_id: payment.request_id ?? crypto.randomUUID(),
     p_sale_id: id,
     p_amount: payment.amount,
     p_payment_method: payment.payment_method,
@@ -1148,7 +974,7 @@ export async function recordSalePayment(id: string, payment: RecordSalePaymentIn
   })
 
   if (error) {
-    if (isMissingRpc(error, 'record_sale_payment')) {
+    if (isMissingRpc(error, 'record_sale_payment_v2')) {
       throw new Error(getPartialPaymentSetupMessage())
     }
 
@@ -1563,7 +1389,7 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
 
   let salesQuery = supabase
       .from('sales')
-      .select('seller_id, customer_name, customer_phone, total, tax, amount_paid, amount_due, payment_status, payment_method, created_at, items:sale_items(product_id, product_name, quantity, unit_price, total)')
+      .select('id, seller_id, customer_name, customer_phone, total, tax, amount_paid, amount_due, payment_status, payment_method, created_at, items:sale_items(product_id, product_name, quantity, unit_price, unit_cost, total)')
       .gte('created_at', start.toISOString())
       .lt('created_at', endExclusive.toISOString())
       .in('payment_status', ['completed', 'partial', 'pending'])
@@ -1572,15 +1398,19 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
     salesQuery = salesQuery.eq('seller_id', appliedSellerId)
   }
 
-  const [salesResult, productsResult, profilesResult] = await Promise.all([
-    salesQuery,
-    supabase
-      .from('products')
-      .select('id, name, buying_price, selling_price, quantity'),
+  let paymentsQuery = supabase.from('sale_payments')
+    .select('amount, payment_method, created_at, sale:sales!inner(seller_id, payment_status)')
+    .gte('created_at', start.toISOString()).lt('created_at', endExclusive.toISOString())
+    .in('sale.payment_status', ['completed', 'partial', 'pending']).order('created_at').order('id')
+  if (appliedSellerId) paymentsQuery = paymentsQuery.eq('sale.seller_id', appliedSellerId)
+  const [salesResult, productsResult, profilesResult, paymentsResult] = await Promise.all([
+    readAllPages((from, to) => salesQuery.order('id').range(from, to)),
+    readAllPages((from,to) => supabase.from('products').select('id, name, buying_price, selling_price, quantity').order('id').range(from,to)),
     supabase
       .from('profiles')
       .select('id, email, full_name, role')
       .order('full_name'),
+    readAllPages((from, to) => paymentsQuery.range(from, to)),
   ])
 
   if (salesResult.error && isMissingSchemaObject(salesResult.error, 'seller_id')) {
@@ -1589,6 +1419,7 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
   if (salesResult.error) throw salesResult.error
   if (productsResult.error) throw productsResult.error
   if (profilesResult.error) throw profilesResult.error
+  if (paymentsResult.error) throw paymentsResult.error
 
   const sales = salesResult.data ?? []
   const products = productsResult.data ?? []
@@ -1618,13 +1449,19 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
   let completedCount = 0
   let partialCount = 0
   let pendingCount = 0
+  let estimatedProfitCount = 0
+  const cashCollected = (paymentsResult.data ?? []).reduce((sum, payment) => {
+    const stats = paymentStats[payment.payment_method as keyof typeof paymentStats]
+    if (stats) stats.collected += Number(payment.amount)
+    return sum + Number(payment.amount)
+  }, 0)
 
   sales.forEach((sale) => {
     const saleDate = new Date(sale.created_at)
     const periodKey = getReportsBucketKey(saleDate, granularity)
     const period = periodMap[periodKey]
     if (!period) return
-    const saleItems = (sale.items ?? []) as { product_id: string | null; product_name: string; quantity: number; unit_price: number; total: number }[]
+    const saleItems = (sale.items ?? []) as { product_id: string | null; product_name: string; quantity: number; unit_price: number; unit_cost?: number | null; total: number }[]
 
     const grossSaleRevenue = Number(sale.total)
     const collectedAmount = Number(sale.amount_paid ?? Math.max(0, grossSaleRevenue - Number(sale.amount_due ?? 0)))
@@ -1666,7 +1503,6 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
     if (paymentStats[paymentMethod]) {
       paymentStats[paymentMethod].count += 1
       paymentStats[paymentMethod].invoiced += grossSaleRevenue
-      paymentStats[paymentMethod].collected += Math.max(0, collectedAmount)
       paymentStats[paymentMethod].due += Math.max(0, dueAmount)
     }
 
@@ -1706,7 +1542,8 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
       const prod = productMap[item.product_id ?? '']
       const quantity = Number(item.quantity)
       const revenue = Number(item.total) * revenueFactor
-      const profit = prod ? revenue - Number(prod.buying_price) * quantity : 0
+      const { profit, estimated } = getItemProfit(revenue, quantity, item.unit_cost == null ? null : Number(item.unit_cost), prod ? Number(prod.buying_price) : undefined)
+      if (estimated) estimatedProfitCount += 1
       period.profit += profit
 
       const productKey = item.product_id ?? `deleted:${item.product_name}`
@@ -1764,6 +1601,8 @@ export async function getReportsData(rangeInput: number | ReportsRangeInput = 6)
     avgMargin: totalProductRevenue > 0 ? (totalProductProfit / totalProductRevenue) * 100 : 0,
     totalInvoiced,
     totalCollected,
+    cashCollected,
+    estimatedProfitCount,
     totalDue,
     salesCount: sales.length,
     averageTicket: sales.length > 0 ? totalInvoiced / sales.length : 0,

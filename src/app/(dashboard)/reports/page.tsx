@@ -112,6 +112,8 @@ interface ReportsData {
   avgMargin: number
   totalInvoiced: number
   totalCollected: number
+  cashCollected: number
+  estimatedProfitCount: number
   totalDue: number
   salesCount: number
   averageTicket: number
@@ -300,7 +302,9 @@ export default function ReportsPage() {
       ['Pilotage'],
       ['Ventes', data.salesCount],
       ['Montant facture (FCFA)', Math.round(data.totalInvoiced)],
-      ['Montant encaisse (FCFA)', Math.round(data.totalCollected)],
+      ['Versements rattaches aux ventes de la periode (FCFA)', Math.round(data.totalCollected)],
+      ['Encaissements recus pendant la periode (FCFA)', Math.round(data.cashCollected)],
+      ['Articles avec cout historique estime', data.estimatedProfitCount],
       ['Solde client (FCFA)', Math.round(data.totalDue)],
       ['Ticket moyen (FCFA)', Math.round(data.averageTicket)],
       ['Taux d encaissement (%)', data.collectionRate.toFixed(2)],
@@ -462,7 +466,7 @@ export default function ReportsPage() {
           <MetricCard
             title="Bénéfice brut"
             value={loading ? '…' : renderResponsiveCurrency(totalProfit)}
-            change={rangeLabel}
+            change={data?.estimatedProfitCount ? 'Inclut des couts historiques estimes' : rangeLabel}
             changeType="up"
             icon={<TrendingUp size={20} />}
             color="#10b981"
@@ -486,6 +490,10 @@ export default function ReportsPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-4">
+          <Card className="p-4">
+            <p className="text-xs text-[#5C6B73]">Versements recus sur la periode</p>
+            <p className="mt-2 break-words text-lg font-semibold text-emerald-700">{loading ? '...' : formatCurrencyCompact(data?.cashCollected ?? 0)}</p>
+          </Card>
           <Card className="p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">

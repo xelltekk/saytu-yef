@@ -146,6 +146,8 @@ export interface Supplier {
 }
 
 export interface Sale {
+  customer_id?: string | null
+  due_date?: string | null
   id: string
   user_id: string
   seller_id?: string | null
@@ -172,6 +174,7 @@ export interface Sale {
 }
 
 export interface SaleItem {
+  unit_cost?: number | null
   product_id: string
   product_name: string
   quantity: number

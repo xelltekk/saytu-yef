@@ -1,4 +1,5 @@
 'use client'
+import { uploadProductImage } from '@/lib/supabase/retail'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, ImageIcon, Plus, Trash2, Upload, Wand2, X } from 'lucide-react'
@@ -332,12 +333,13 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
 
     setIsLoading(true)
     try {
+      const imageUrl = image ? await uploadProductImage(image) : undefined
       const payload = {
         name: form.name.trim(),
         category_id: form.category_id || undefined,
         supplier_id: form.supplier_id || undefined,
         description: form.description.trim() || undefined,
-        image_url: image || undefined,
+        image_url: imageUrl,
         currency: form.currency,
         status: 'active' as const,
         variants: nextVariants,

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus } from './sales'
+import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, getSalePaymentLabel } from './sales'
 
 describe('calcul des paiements de vente', () => {
+  it('retains mixed payment methods on a reprinted document', () => {
+    const payments = [
+      { id: 'a', sale_id: 's', user_id: 'u', amount: 100, payment_method: 'cash' as const, created_at: '' },
+      { id: 'b', sale_id: 's', user_id: 'u', amount: 100, payment_method: 'wave' as const, created_at: '' },
+    ]
+    expect(getSalePaymentLabel({ payment_method: 'cash', payments })).toBe('Especes + Wave')
+    expect(getSalePaymentLabel({ payment_method: 'cash', payments: [] })).toBe('Especes')
+  })
   it('reconnaît une vente entièrement payée', () => {
     const sale = { total: 150_000, amount_paid: 150_000, amount_due: 0, payment_status: 'completed' as const }
     expect(getSaleAmountPaid(sale)).toBe(150_000)

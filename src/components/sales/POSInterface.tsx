@@ -7,6 +7,8 @@ import {
   Package,
   Phone,
   Plus,
+  Pause,
+  Play,
   Search,
   ShoppingCart,
   Tag,
@@ -14,6 +16,7 @@ import {
   User,
 } from 'lucide-react'
 import { UsageLimitNotice } from '@/components/subscriptions/UsageLimitNotice'
+import { CustomerPicker } from '@/components/clients/CustomerPicker'
 import { useBarcodeScanner } from '@/hooks/useBarcodeScanner'
 import { useSubscriptionOverview } from '@/hooks/useSubscriptionOverview'
 import { normalizeBarcodeLookupValue } from '@/lib/barcodes'
@@ -101,6 +104,7 @@ export function POSInterface({
     setPaymentMethod,
     setDraftOwner,
     clearCart,
+    heldCarts, holdCart, resumeCart, deleteHeldCart,
   } = useSalesStore()
 
   useEffect(() => {
@@ -384,6 +388,20 @@ export function POSInterface({
 
   const renderCartContent = (mode: 'desktop' | 'mobile') => (
     <div className={cn('flex flex-col gap-3', mode === 'mobile' && 'min-h-[min(72dvh,34rem)]')}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" leftIcon={<Pause size={14} />} onClick={holdCart}
+          disabled={!activeCart.length || heldCarts.length >= 20}>Mettre en attente</Button>
+        <span className="text-xs text-[#5C6B73]">{heldCarts.length} en attente</span>
+      </div>
+      {heldCarts.map((draft) => (
+        <div key={draft.id} className="flex min-w-0 items-center gap-2 border-b py-1">
+          <span className="min-w-0 flex-1 truncate text-xs">{draft.customerName || 'Client comptoir'} · {draft.cart.length} article(s)</span>
+          <button type="button" title="Reprendre le panier" aria-label="Reprendre le panier" disabled={activeCart.length > 0}
+            className="shrink-0 p-2 disabled:opacity-30" onClick={() => { resumeCart(draft.id); syncCartStock(products) }}><Play size={16} /></button>
+          <button type="button" title="Supprimer le panier en attente" aria-label="Supprimer le panier en attente"
+            className="shrink-0 p-2 text-red-600" onClick={() => deleteHeldCart(draft.id)}><Trash2 size={16} /></button>
+        </div>
+      ))}
       {mode === 'desktop' && (
         <div className="flex items-center gap-2">
           <ShoppingCart size={16} className="text-[#6C5CE7]" />
@@ -398,6 +416,7 @@ export function POSInterface({
       )}
 
       <div className="grid gap-3">
+        <CustomerPicker onSelect={setCustomer} />
         <Input
           placeholder="Nom du client (optionnel)"
           value={activeCustomerName}

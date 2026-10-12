@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { SupportGrowthPanel } from '@/components/support/SupportGrowthPanel'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -227,6 +228,7 @@ function MetricTile({
 function LoadingSkeleton() {
   return (
     <div className="space-y-4 p-3 sm:p-4 lg:p-6">
+      <SupportGrowthPanel />
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
           <Card key={index} className="p-4">
@@ -643,6 +645,7 @@ export function SupportConsole() {
   const [planFilter, setPlanFilter] = useState<SubscriptionPlan | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<SubscriptionStatus | 'all'>('all')
   const [memberRoleFilter, setMemberRoleFilter] = useState<'all' | SupportPlatformMember['role']>('all')
+  const [memberAccessFilter, setMemberAccessFilter] = useState<'all' | SupportAccessStatus>('all')
   const [ticketStatusFilter, setTicketStatusFilter] = useState<SupportTicketStatus | 'all'>('all')
   const [ticketCategoryFilter, setTicketCategoryFilter] = useState<SupportTicketCategory | 'all'>('all')
   const [ticketPriorityFilter, setTicketPriorityFilter] = useState<SupportTicketPriority | 'all'>('all')
@@ -722,6 +725,7 @@ export function SupportConsole() {
       const nextMembers = await getSupportPlatformMembers({
         search: memberSearch,
         role: memberRoleFilter,
+        accessStatus: memberAccessFilter,
         limit: 120,
       })
       setMembers(nextMembers)
@@ -730,7 +734,7 @@ export function SupportConsole() {
     } finally {
       setMembersLoading(false)
     }
-  }, [memberRoleFilter, memberSearch])
+  }, [memberAccessFilter, memberRoleFilter, memberSearch])
 
   const loadSupportAdmins = useCallback(async () => {
     setSupportAdminsLoading(true)
@@ -1194,6 +1198,15 @@ export function SupportConsole() {
       { value: 'admin', label: 'Administrateurs' },
       { value: 'employee', label: 'Employes' },
       { value: 'cashier', label: 'Caisse' },
+    ],
+    []
+  )
+
+  const memberAccessOptions = useMemo(
+    () => [
+      { value: 'all', label: 'Tous les acces' },
+      { value: 'active', label: SUPPORT_ACCESS_STATUS_LABELS.active },
+      { value: 'restricted', label: SUPPORT_ACCESS_STATUS_LABELS.restricted },
     ],
     []
   )
@@ -2176,7 +2189,7 @@ export function SupportConsole() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_140px]">
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_190px_220px_140px]">
           <Input
             label="Recherche membre"
             value={memberSearch}
@@ -2189,6 +2202,12 @@ export function SupportConsole() {
             value={memberRoleFilter}
             onChange={(event) => setMemberRoleFilter(event.target.value as 'all' | SupportPlatformMember['role'])}
             options={memberRoleOptions}
+          />
+          <Select
+            label="Acces"
+            value={memberAccessFilter}
+            onChange={(event) => setMemberAccessFilter(event.target.value as 'all' | SupportAccessStatus)}
+            options={memberAccessOptions}
           />
           <Button className="lg:mb-[2px]" onClick={() => void handleMemberFilters()}>
             Filtrer
@@ -2218,6 +2237,7 @@ export function SupportConsole() {
           <div className="mt-4 space-y-3">
             {members.map((member) => {
               const linkedAccount = accounts.find((account) => account.accountId === member.accountId) ?? null
+              const isMemberActionBusy = linkedAccount?.accountId === accountControlTarget
 
               return (
                 <div key={member.memberId} className="rounded-2xl border border-[#2D7D7D]/10 bg-[#F8FBFC] p-4">
@@ -2253,7 +2273,34 @@ export function SupportConsole() {
                   </div>
 
                   {linkedAccount && (
-                    <div className="mt-3 flex justify-end">
+                    <div className="mt-3 flex flex-wrap justify-end gap-2">
+                      {linkedAccount.accessStatus === 'active' ? (
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => void saveAccountControl(linkedAccount, {
+                            accessStatus: 'restricted',
+                            internalNote: `Acces suspendu depuis la console SaaS sur le membre ${member.email}.`,
+                          })}
+                          disabled={isMemberActionBusy}
+                        >
+                          <Ban size={14} />
+                          {isMemberActionBusy ? 'Mise a jour...' : 'Suspendre l acces'}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="teal"
+                          size="sm"
+                          onClick={() => void saveAccountControl(linkedAccount, {
+                            accessStatus: 'active',
+                            internalNote: `Acces reactive depuis la console SaaS sur le membre ${member.email}.`,
+                          })}
+                          disabled={isMemberActionBusy}
+                        >
+                          <CheckCircle2 size={14} />
+                          {isMemberActionBusy ? 'Mise a jour...' : 'Reactiver l acces'}
+                        </Button>
+                      )}
                       <Button variant="outline" size="sm" onClick={() => setSelectedAccountId(linkedAccount.accountId)}>
                         <UserRoundCog size={14} />
                         Ouvrir la fiche boutique

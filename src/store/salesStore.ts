@@ -3,8 +3,16 @@ import { persist } from 'zustand/middleware'
 import type { CartItem, Product, Sale } from '@/types'
 import { formatProductLabel } from '@/lib/utils'
 
+type HeldCart = { id: string; cart: CartItem[]; discount: number; customerName: string; customerPhone: string; paymentMethod: SalesState['paymentMethod']; checkoutRequest: SalesState['checkoutRequest'] }
+
 interface SalesState {
   draftOwnerId: string
+  heldCarts: HeldCart[]
+  checkoutRequest: { id: string; fingerprint: string } | null
+  holdCart: () => void
+  resumeCart: (id: string) => void
+  deleteHeldCart: (id: string) => void
+  getCheckoutRequestId: (fingerprint: string) => string
   cart: CartItem[]
   sales: Sale[]
   discount: number
@@ -33,6 +41,30 @@ interface SalesState {
 export const useSalesStore = create<SalesState>()(
   persist((set, get) => ({
   draftOwnerId: '',
+  heldCarts: [],
+  checkoutRequest: null,
+  holdCart: () => {
+    const state = get()
+    if (!state.cart.length || state.heldCarts.length >= 20) return
+    set({ heldCarts: [...state.heldCarts, { id: crypto.randomUUID(), cart: state.cart, discount: state.discount,
+      customerName: state.customerName, customerPhone: state.customerPhone, paymentMethod: state.paymentMethod, checkoutRequest: state.checkoutRequest }],
+      cart: [], discount: 0, customerName: '', customerPhone: '', checkoutRequest: null })
+  },
+  resumeCart: (id) => {
+    const state = get()
+    const draft = state.heldCarts.find((entry) => entry.id === id)
+    if (!draft || state.cart.length) return
+    set({ cart: draft.cart, discount: draft.discount, customerName: draft.customerName, customerPhone: draft.customerPhone,
+      paymentMethod: draft.paymentMethod, heldCarts: state.heldCarts.filter((entry) => entry.id !== id), checkoutRequest: draft.checkoutRequest ?? null })
+  },
+  deleteHeldCart: (id) => set((state) => ({ heldCarts: state.heldCarts.filter((entry) => entry.id !== id) })),
+  getCheckoutRequestId: (fingerprint) => {
+    if (get().checkoutRequest?.fingerprint === fingerprint) return get().checkoutRequest!.id
+    if (get().checkoutRequest) throw new Error("La precedente tentative n'est pas confirmee. Reessayez avec les memes informations ou verifiez l'historique avant de changer le panier.")
+    const id = crypto.randomUUID()
+    set({ checkoutRequest: { id, fingerprint } })
+    return id
+  },
   cart: [],
   sales: [],
   discount: 0,
@@ -41,7 +73,9 @@ export const useSalesStore = create<SalesState>()(
   customerPhone: '',
   paymentMethod: 'cash',
   isLoading: false,
-  setDraftOwner: (draftOwnerId) => set({ draftOwnerId }),
+  setDraftOwner: (draftOwnerId) => set((state) => state.draftOwnerId && state.draftOwnerId !== draftOwnerId
+    ? { draftOwnerId, heldCarts: [], checkoutRequest: null, cart: [], discount: 0, customerName: '', customerPhone: '' }
+    : { draftOwnerId }),
   addToCart: (item) =>
     set((state) => {
       const existing = state.cart.find((c) => c.product_id === item.product_id)
@@ -95,7 +129,7 @@ export const useSalesStore = create<SalesState>()(
         }),
       }
     }),
-  clearCart: () => set({ cart: [], discount: 0, customerName: '', customerPhone: '' }),
+  clearCart: () => set({ cart: [], discount: 0, customerName: '', customerPhone: '', checkoutRequest: null }),
   setDiscount: (discount) => set({ discount: Math.max(0, Math.min(discount, 100)) }),
   setTaxRate: (taxRate) => set({ taxRate: Math.max(0, Math.min(taxRate, 100)) }),
   setCustomer: (customerName, customerPhone) => set({ customerName, customerPhone }),
@@ -115,6 +149,8 @@ export const useSalesStore = create<SalesState>()(
     version: 1,
     partialize: (state) => ({
       cart: state.cart,
+      heldCarts: state.heldCarts,
+      checkoutRequest: state.checkoutRequest,
       draftOwnerId: state.draftOwnerId,
       discount: state.discount,
       customerName: state.customerName,

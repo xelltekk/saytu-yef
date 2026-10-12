@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { forwardRef, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react'
+import { forwardRef, useId, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react'
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string
@@ -21,10 +21,12 @@ const inputBase = [
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, hint, error, leftAddon, rightAddon, className, ...props }, ref) => {
+    const generatedId = useId()
+    const id = props.id ?? generatedId
     return (
-      <div className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 flex-col gap-1.5">
         {label && (
-          <label className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73] ml-1">
+          <label htmlFor={id} className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73] ml-1">
             {label}
           </label>
         )}
@@ -44,6 +46,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               className
             )}
             {...props}
+            id={id}
           />
           {rightAddon && (
             <span className="absolute right-4 text-[#6B7682] flex items-center pointer-events-none z-10">
@@ -68,10 +71,12 @@ interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ label, hint, error, rows = 3, className, ...props }, ref) => {
+    const generatedId = useId()
+    const id = props.id ?? generatedId
     return (
-      <div className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 flex-col gap-1.5">
         {label && (
-          <label className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73] ml-1">
+          <label htmlFor={id} className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73] ml-1">
             {label}
           </label>
         )}
@@ -90,6 +95,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
             className
           )}
           {...props}
+          id={id}
         />
         {error && <p className="text-[11px] text-[#DC2626] ml-1">⚠ {error}</p>}
         {hint && !error && <p className="text-[11px] text-[#6B7682] ml-1">{hint}</p>}
@@ -106,10 +112,12 @@ interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
 }
 
 export function Select({ label, hint, options, className, ...props }: SelectProps) {
+  const generatedId = useId()
+  const id = props.id ?? generatedId
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex min-w-0 flex-col gap-1.5">
       {label && (
-        <label className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73] ml-1">
+        <label htmlFor={id} className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73] ml-1">
           {label}
         </label>
       )}
@@ -126,6 +134,7 @@ export function Select({ label, hint, options, className, ...props }: SelectProp
           className
         )}
         {...props}
+        id={id}
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value} className="bg-white">

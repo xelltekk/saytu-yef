@@ -1,5 +1,6 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { CheckoutRejectedError, validatePaymentParts, type PaymentPart } from '@/lib/checkout'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -8,7 +9,7 @@ import { useSalesStore } from '@/store/salesStore'
 import { useUser } from '@/hooks/useUser'
 import { createSale } from '@/lib/supabase/queries'
 import { printReceipt, type ReceiptData } from '@/lib/receipt'
-import { CheckCircle, Smartphone, Printer, AlertCircle } from 'lucide-react'
+import { CheckCircle, Smartphone, Printer, AlertCircle, Plus, Trash2 } from 'lucide-react'
 
 const PAYMENT_METHODS = [
   { id: 'wave', label: 'Wave', icon: 'W', color: '#0ea5e9', description: 'Paiement mobile Wave' },
@@ -52,6 +53,10 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState('')
   const [receipt, setReceipt] = useState<ReceiptData | null>(null)
+  const [extraPayments, setExtraPayments] = useState<PaymentPart[]>([])
+  const [dueDate, setDueDate] = useState('')
+  const opened = useRef(false)
+  const submitting = useRef(false)
 
   const total = getTotal()
   const subtotal = getSubtotal()
@@ -63,15 +68,25 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
     if (Number.isNaN(parsed)) return 0
     return Math.max(0, parsed)
   }, [amountPaid])
-  const paidNow = useMemo(() => Math.max(0, Math.min(enteredAmount, total)), [enteredAmount, total])
+  const extraTotal = extraPayments.reduce((sum, part) => sum + part.amount, 0)
+  const primaryPaid = Math.max(0, Math.min(enteredAmount, Math.max(0, total - extraTotal)))
+  const paidNow = primaryPaid + extraTotal
+  const payments: PaymentPart[] = [
+    ...(primaryPaid > 0 ? [{ payment_method: paymentMethod, amount: primaryPaid }] : []),
+    ...extraPayments,
+  ]
+  const paymentError = validatePaymentParts(payments, total)
+  const methodLabel = extraPayments.length
+    ? payments.map((part) => `${PAYMENT_METHODS.find((option) => option.id === part.payment_method)?.label}: ${formatCurrency(part.amount)}`).join(' + ')
+    : method.label
   const changeDue = useMemo(
-    () => paymentMethod === 'cash' ? Math.max(0, enteredAmount - total) : 0,
-    [enteredAmount, paymentMethod, total]
+    () => paymentMethod === 'cash' ? Math.max(0, enteredAmount + extraTotal - total) : 0,
+    [enteredAmount, extraTotal, paymentMethod, total]
   )
   const hasCashChange = changeDue > 0.001
   const amountDue = Math.max(0, total - paidNow)
   const hasOutstandingDebt = amountDue > 0.001
-  const requiresPhone = (paymentMethod === 'wave' || paymentMethod === 'orange_money') && paidNow > 0
+  const requiresPhone = payments.some((part) => part.payment_method === 'wave' || part.payment_method === 'orange_money')
   const quickAmounts = useMemo(() => {
     const presets = paymentMethod === 'cash'
       ? [
@@ -95,16 +110,35 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
   const salePreviewItems = useMemo(() => cart.slice(0, 2), [cart])
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) { opened.current = false; return }
+    if (opened.current) return
+    opened.current = true
     setStep('method')
     setLocalCustomerName(customerName)
     setPhone(customerPhone)
     setAmountPaid(total > 0 ? String(Math.round(total)) : '')
     setError('')
     setReceipt(null)
-  }, [isOpen, customerName, customerPhone, total])
+    setExtraPayments([])
+    setDueDate('')
+    const pending = useSalesStore.getState().checkoutRequest
+    if (pending) {
+      try {
+        const payload = JSON.parse(pending.fingerprint)
+        setLocalCustomerName(payload.customer_name || '')
+        setPhone(payload.customer_phone || '')
+        setPaymentMethod(payload.payment_method)
+        const priorPayments: PaymentPart[] = payload.payments ?? []
+        setAmountPaid(String(priorPayments.find((part) => part.payment_method === payload.payment_method)?.amount ?? 0))
+        setExtraPayments(priorPayments.filter((part) => part.payment_method !== payload.payment_method))
+        setDueDate(payload.due_date || '')
+      } catch { setError('Tentative precedente a verifier dans l historique.') }
+    }
+  }, [isOpen, customerName, customerPhone, total, setPaymentMethod])
 
   const handlePayment = async () => {
+    if (submitting.current) return
+    if (paymentError) { setError(paymentError); return }
     if (cart.length === 0) {
       setError('Le panier est vide')
       return
@@ -122,7 +156,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
       return
     }
 
-    if (paymentMethod !== 'cash' && Number(amountPaid) > total) {
+    if (paymentMethod !== 'cash' && enteredAmount + extraTotal > total) {
       setStep('method')
       setError('Le montant verse ne peut pas depasser le total avec ce mode de paiement')
       return
@@ -147,10 +181,11 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
     }
 
     setIsProcessing(true)
+    submitting.current = true
     setError('')
 
     try {
-      const createdSale = await createSale({
+      const payload = {
         customer_name: localCustomerName.trim() || undefined,
         customer_phone: phone.trim() || undefined,
         items: cart.map((item) => ({
@@ -166,7 +201,11 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
         total,
         amount_paid: paidNow,
         payment_method: paymentMethod as 'cash' | 'wave' | 'orange_money' | 'card',
-      })
+        payments,
+        due_date: hasOutstandingDebt ? dueDate || undefined : undefined,
+      }
+      const requestId = useSalesStore.getState().getCheckoutRequestId(JSON.stringify(payload))
+      const createdSale = await createSale({ ...payload, request_id: requestId })
 
       setCustomer(localCustomerName.trim(), phone.trim())
 
@@ -177,10 +216,10 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
         businessNinea: businessNinea || undefined,
         businessLogoUrl: businessLogoUrl || undefined,
         reference: createdSale.id.slice(0, 8).toUpperCase(),
-        date: new Date().toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }),
+        date: new Date(createdSale.created_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }),
         customerName: localCustomerName.trim() || undefined,
         phone: phone.trim() || undefined,
-        methodLabel: method.label,
+        methodLabel,
         statusLabel: hasOutstandingDebt ? 'Partiel' : 'Paye',
         items: cart.map((item) => ({
           name: item.product_name,
@@ -199,13 +238,16 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
       })
       setStep('success')
     } catch (err: unknown) {
+      if (err instanceof CheckoutRejectedError) useSalesStore.setState({ checkoutRequest: null })
       setError(getPaymentErrorMessage(err))
     } finally {
       setIsProcessing(false)
+      submitting.current = false
     }
   }
 
   const handleClose = () => {
+    if (submitting.current) return
     if (step === 'success') {
       clearCart()
     }
@@ -215,6 +257,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
   }
 
   const handleConfirmStep = () => {
+    if (paymentError) { setError(paymentError); return }
     if (!amountPaid.trim()) {
       setError('Le montant verse est requis')
       return
@@ -225,7 +268,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
       return
     }
 
-    if (paymentMethod !== 'cash' && Number(amountPaid) > total) {
+    if (paymentMethod !== 'cash' && enteredAmount + extraTotal > total) {
       setError('Le montant verse ne peut pas depasser le total avec ce mode de paiement')
       return
     }
@@ -262,7 +305,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
     : step === 'confirm'
       ? (
           <>
-            <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setStep('method')}>Retour</Button>
+            <Button variant="ghost" disabled={isProcessing} className="w-full sm:w-auto" onClick={() => setStep('method')}>Retour</Button>
             <Button variant="primary" className="w-full sm:w-auto" isLoading={isProcessing} onClick={handlePayment}>
               {isProcessing ? 'Enregistrement...' : actionLabel}
             </Button>
@@ -441,6 +484,30 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
             }
           />
 
+          <div className="space-y-2">
+            {extraPayments.map((part, index) => (
+              <div key={index} className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2rem] items-center gap-2">
+                <select aria-label="Mode du versement complementaire" value={part.payment_method}
+                  className="min-w-0 rounded-lg border bg-white p-2 text-sm"
+                  onChange={(event) => setExtraPayments((current) => current.map((entry, i) => i === index
+                    ? { ...entry, payment_method: event.target.value as PaymentPart['payment_method'] } : entry))}>
+                  {PAYMENT_METHODS.filter((option) => option.id !== paymentMethod).map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                </select>
+                <Input aria-label="Montant complementaire" type="number" min="1" step="1" inputMode="numeric"
+                  value={part.amount || ''} onChange={(event) => setExtraPayments((current) => current.map((entry, i) => i === index
+                    ? { ...entry, amount: Number(event.target.value) } : entry))} />
+                <button type="button" title="Retirer ce versement" aria-label="Retirer ce versement"
+                  onClick={() => setExtraPayments((current) => current.filter((_, i) => i !== index))}><Trash2 size={16} /></button>
+              </div>
+            ))}
+            <Button size="sm" variant="outline" disabled={extraPayments.length >= 3} leftIcon={<Plus size={14} />}
+              onClick={() => {
+                const next = PAYMENT_METHODS.find((option) => option.id !== paymentMethod && !extraPayments.some((part) => part.payment_method === option.id))
+                if (next) setExtraPayments((current) => [...current, { payment_method: next.id, amount: 0 }])
+              }}>Ajouter un versement</Button>
+          </div>
+          {hasOutstandingDebt && <Input label="Echeance" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />}
+
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {quickAmounts.map((preset) => (
               <button
@@ -512,7 +579,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
             )}
             <div className="flex justify-between text-sm">
               <span className="text-[#6B7682]">Mode de paiement</span>
-              <span className="text-[#1A3636] font-medium">{method.label}</span>
+              <span className="max-w-[65%] break-words text-right text-[#1A3636] font-medium">{methodLabel}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-[#6B7682]">Articles</span>

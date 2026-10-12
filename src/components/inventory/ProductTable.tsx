@@ -847,7 +847,7 @@ export function ProductTable({
                 onClick={() => setShowInventoryBarcodeLabels(true)}
                 disabled={exportableLabelVariants.length === 0}
               >
-                Etiquettes PDF
+                Choisir etiquettes
               </Button>
               {!readOnly && (
                 <Button variant="outline" size="sm" leftIcon={<Tags size={14} />} onClick={() => setShowCategories(true)}>

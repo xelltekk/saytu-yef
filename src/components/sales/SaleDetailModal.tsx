@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, MessageCircle, Phone, Printer, RotateCcw } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/Badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { recordSalePayment, reverseSale, updateSale } from '@/lib/supabase/queries'
 import { printInvoice, printReceipt, type InvoiceData, type ReceiptData } from '@/lib/receipt'
-import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, SALE_METHOD_LABELS, SALE_METHOD_VARIANTS, SALE_STATUS_LABELS, SALE_STATUS_VARIANTS } from '@/lib/sales'
+import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, getSalePaymentLabel, SALE_METHOD_LABELS, SALE_METHOD_VARIANTS, SALE_STATUS_LABELS, SALE_STATUS_VARIANTS } from '@/lib/sales'
 import { useUser } from '@/hooks/useUser'
 import { useAccountRole } from '@/hooks/useAccountRole'
 import type { Sale } from '@/types'
@@ -46,11 +46,13 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
   const [reversalReason, setReversalReason] = useState('')
   const [reversalError, setReversalError] = useState('')
   const [reversing, setReversing] = useState(false)
+  const paymentRequest = useRef<{ id: string; fingerprint: string } | null>(null)
   const [form, setForm] = useState({
     customer_name: '',
     customer_phone: '',
     payment_method: 'cash',
     notes: '',
+    due_date: '',
   })
   const [paymentForm, setPaymentForm] = useState({
     amount: '',
@@ -66,6 +68,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
       customer_phone: sale.customer_phone ?? '',
       payment_method: sale.payment_method,
       notes: sale.notes ?? '',
+      due_date: sale.due_date ?? '',
     })
     setPaymentForm({
       amount: sale.amount_due ? String(Math.round(sale.amount_due)) : '',
@@ -101,7 +104,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
       date: new Date(sale.created_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }),
       customerName: sale.customer_name || undefined,
       phone: sale.customer_phone || undefined,
-      methodLabel: SALE_METHOD_LABELS[sale.payment_method],
+      methodLabel: getSalePaymentLabel(sale),
       statusLabel: SALE_STATUS_LABELS[computedStatus],
       items: (sale.items ?? []).map((item) => ({
         name: item.product_name,
@@ -135,7 +138,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
       customerPhone: sale.customer_phone || undefined,
       sellerName: sale.seller_name || undefined,
       sellerEmail: sale.seller_email || undefined,
-      methodLabel: SALE_METHOD_LABELS[sale.payment_method],
+      methodLabel: getSalePaymentLabel(sale),
       statusLabel: SALE_STATUS_LABELS[computedStatus],
       items: (sale.items ?? []).map((item) => ({
         name: item.product_name,
@@ -192,10 +195,10 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
     setSaveError('')
     try {
       await updateSale(sale.id, {
-        customer_name: form.customer_name.trim() || undefined,
-        customer_phone: form.customer_phone.trim() || undefined,
-        payment_method: form.payment_method as Sale['payment_method'],
-        notes: form.notes.trim() || undefined,
+        customer_name: form.customer_name.trim(),
+        customer_phone: form.customer_phone.trim(),
+        notes: form.notes.trim(),
+        due_date: form.due_date || null,
       })
       onSaved?.('Les informations de la vente ont été enregistrées.')
       onClose()
@@ -208,7 +211,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
   }
 
   const handleRecordPayment = async () => {
-    if (!sale) return
+    if (!sale || recordingPayment) return
 
     const amount = Number(paymentForm.amount)
     if (!paymentForm.amount || Number.isNaN(amount) || amount <= 0) {
@@ -225,7 +228,10 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
     setPaymentError('')
 
     try {
+      const fingerprint = JSON.stringify([sale.id,amount,paymentForm.payment_method,paymentForm.note])
+      if (paymentRequest.current?.fingerprint !== fingerprint) paymentRequest.current = { id: crypto.randomUUID(), fingerprint }
       await recordSalePayment(sale.id, {
+        request_id: paymentRequest.current.id,
         amount,
         payment_method: paymentForm.payment_method as Sale['payment_method'],
         note: paymentForm.note || undefined,
@@ -395,12 +401,7 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
                 />
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Select
-                  label="Paiement principal"
-                  options={METHOD_OPTIONS}
-                  value={form.payment_method}
-                  onChange={(e) => setForm((current) => ({ ...current, payment_method: e.target.value }))}
-                />
+                <Input label="Echeance" type="date" value={form.due_date} onChange={(event) => setForm((current) => ({ ...current,due_date:event.target.value }))} />
                 <div className="space-y-1.5">
                   <p className="ml-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">
                     Statut

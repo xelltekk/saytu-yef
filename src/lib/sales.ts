@@ -7,6 +7,11 @@ export const SALE_METHOD_LABELS: Record<Sale['payment_method'], string> = {
   card: 'Carte',
 }
 
+export function getSalePaymentLabel(sale: Pick<Sale, 'payment_method' | 'payments'>): string {
+  const methods = [...new Set((sale.payments ?? []).map((payment) => payment.payment_method))]
+  return methods.length > 1 ? methods.map((method) => SALE_METHOD_LABELS[method]).join(' + ') : SALE_METHOD_LABELS[sale.payment_method]
+}
+
 export const SALE_METHOD_VARIANTS: Record<Sale['payment_method'], 'info' | 'warning' | 'default'> = {
   wave: 'info',
   orange_money: 'warning',

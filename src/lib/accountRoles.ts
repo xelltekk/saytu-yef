@@ -38,9 +38,9 @@ function matchesRoutePrefix(pathname: string, prefixes: readonly string[]) {
 }
 
 export function normalizeAccountRole(value: unknown): AccountRole {
-  if (value === 'cashier') return 'cashier'
+  if (value === 'admin') return 'admin'
   if (value === 'employee') return 'employee'
-  return 'admin'
+  return 'cashier'
 }
 
 export function isCashierRole(value: unknown): value is 'cashier' {

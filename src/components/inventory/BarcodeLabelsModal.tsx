@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Download, Printer, Tag } from 'lucide-react'
+import { Download, Printer, Search, Tag } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { buildBarcodeLabelEntries, exportBarcodeLabelsPdf, printBarcodeLabels } from '@/lib/barcodes'
@@ -36,7 +36,7 @@ function createRows(products: Product[], groupName?: string): LabelRowState[] {
     sku: variant.sku?.trim() || '',
     priceLabel: formatCurrency(variant.selling_price, variant.currency),
     copies: '1',
-    selected: !!variant.barcode?.trim(),
+    selected: Boolean(variant.barcode?.trim()),
     missingBarcode: !variant.barcode?.trim(),
   }))
 }
@@ -53,6 +53,10 @@ function resolveSourceProducts(group: ProductGroup | null, products?: Product[] 
     : group.variants
 }
 
+function toSearchable(value?: string | null) {
+  return (value || '').toLocaleLowerCase('fr')
+}
+
 export function BarcodeLabelsModal({
   group,
   products,
@@ -64,23 +68,55 @@ export function BarcodeLabelsModal({
   const [rows, setRows] = useState<LabelRowState[]>([])
   const [error, setError] = useState('')
   const [isExportingPdf, setIsExportingPdf] = useState(false)
+  const [search, setSearch] = useState('')
 
   const sourceProducts = useMemo(
     () => resolveSourceProducts(group, products, focusVariantId),
     [focusVariantId, group, products]
   )
+
   const sourceLabel = group?.name || title || "Etiquettes de l'inventaire"
 
   useEffect(() => {
     if (!isOpen || sourceProducts.length === 0) return
     setError('')
+    setSearch('')
     setRows(createRows(sourceProducts, group?.name || undefined))
   }, [group?.name, isOpen, sourceProducts])
 
-  const selectedCount = useMemo(() => rows.filter((row) => row.selected && !row.missingBarcode).length, [rows])
-  const totalCopies = useMemo(() => rows.reduce((sum, row) => (
-    row.selected && !row.missingBarcode ? sum + Math.max(1, Number(row.copies) || 1) : sum
-  ), 0), [rows])
+  const visibleRows = useMemo(() => {
+    const query = toSearchable(search.trim())
+
+    if (!query) return rows
+
+    return rows.filter((row) => (
+      toSearchable(row.label).includes(query)
+      || toSearchable(row.barcode).includes(query)
+      || toSearchable(row.sku).includes(query)
+    ))
+  }, [rows, search])
+
+  const selectedCount = useMemo(
+    () => rows.filter((row) => row.selected && !row.missingBarcode).length,
+    [rows]
+  )
+
+  const totalCopies = useMemo(
+    () => rows.reduce((sum, row) => (
+      row.selected && !row.missingBarcode ? sum + Math.max(1, Number(row.copies) || 1) : sum
+    ), 0),
+    [rows]
+  )
+
+  const selectedVisibleCount = useMemo(
+    () => visibleRows.filter((row) => row.selected && !row.missingBarcode).length,
+    [visibleRows]
+  )
+
+  const visibleSelectableCount = useMemo(
+    () => visibleRows.filter((row) => !row.missingBarcode).length,
+    [visibleRows]
+  )
 
   const handleToggle = (id: string) => {
     setRows((current) => current.map((row) => (
@@ -94,14 +130,23 @@ export function BarcodeLabelsModal({
     )))
   }
 
+  const handleBulkSelection = (selected: boolean) => {
+    const visibleIds = new Set(visibleRows.map((row) => row.id))
+
+    setRows((current) => current.map((row) => (
+      visibleIds.has(row.id) && !row.missingBarcode ? { ...row, selected } : row
+    )))
+  }
+
   const getSelectedEntries = () => {
     const selectedProducts = sourceProducts.filter((variant) => {
       const row = rows.find((candidate) => candidate.id === variant.id)
-      return !!row?.selected && !row.missingBarcode
+      return Boolean(row?.selected) && !row?.missingBarcode
     })
 
     return buildBarcodeLabelEntries(selectedProducts).map((entry) => {
       const row = rows.find((candidate) => candidate.id === entry.id)
+
       return {
         ...entry,
         copies: Math.max(1, Number(row?.copies) || 1),
@@ -135,6 +180,7 @@ export function BarcodeLabelsModal({
     }
 
     setIsExportingPdf(true)
+
     try {
       await exportBarcodeLabelsPdf(entries, sourceLabel)
     } catch (exportError) {
@@ -149,7 +195,7 @@ export function BarcodeLabelsModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={focusVariantId ? 'Imprimer une etiquette variante' : 'Imprimer des etiquettes code-barres'}
+      title={focusVariantId ? 'Imprimer une etiquette variante' : 'Choisir des etiquettes code-barres'}
       size="lg"
       footer={(
         <>
@@ -185,8 +231,50 @@ export function BarcodeLabelsModal({
             </div>
           )}
 
+          <div className="rounded-2xl border border-[#2D7D7D]/[0.08] bg-white p-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="relative flex-1">
+                <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#6B7682]" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Rechercher un produit, un SKU ou un code-barres"
+                  className="h-11 w-full rounded-full border border-[#2D7D7D]/[0.12] bg-[#F8FAFD] pl-10 pr-4 text-sm text-[#1A3636] placeholder:text-[#6B7682] outline-none transition-all focus:border-[#6C5CE7]/50 focus:bg-white"
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleBulkSelection(true)}
+                  disabled={visibleSelectableCount === 0 || selectedVisibleCount === visibleSelectableCount}
+                >
+                  {search ? 'Cocher visibles' : 'Tout cocher'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleBulkSelection(false)}
+                  disabled={selectedVisibleCount === 0}
+                >
+                  {search ? 'Retirer visibles' : 'Tout retirer'}
+                </Button>
+              </div>
+            </div>
+
+            <p className="mt-3 text-xs text-[#6B7682]">
+              {visibleRows.length} ligne(s) visible(s) · {selectedVisibleCount} selectionnee(s) dans cette vue
+            </p>
+          </div>
+
           <div className="space-y-3">
-            {rows.map((row) => (
+            {visibleRows.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[#2D7D7D]/[0.12] bg-[#F8FBFC] px-4 py-8 text-center text-sm text-[#6B7682]">
+                Aucun produit ne correspond a votre recherche.
+              </div>
+            ) : visibleRows.map((row) => (
               <div
                 key={row.id}
                 className={`rounded-2xl border px-4 py-3 ${
@@ -219,6 +307,7 @@ export function BarcodeLabelsModal({
                         {row.priceLabel}
                       </span>
                     </div>
+
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#5C6B73]">
                       <span className="rounded-full bg-white px-2.5 py-1">
                         Code: {row.barcode || 'Absent'}
