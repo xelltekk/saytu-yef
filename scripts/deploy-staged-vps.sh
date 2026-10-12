@@ -16,6 +16,8 @@ flock -n 9 || { echo 'Deploiement deja en cours.' >&2; exit 1; }
 case "$phase" in
   prepare)
     command -v rsync >/dev/null
+    previous_count="$(find /var/www -mindepth 1 -maxdepth 1 -type d -name 'saytu-yef-release-*' | wc -l)"
+    [[ "$previous_count" -lt 3 ]] || { echo 'Archiver les anciennes releases sur Windows avant un nouveau deploiement; deux secours sont conserves.' >&2; exit 1; }
     git -C "$root" cat-file -e "$ref^{commit}"
     [[ ! -e "$stage" && ! -e "$candidate" ]] || { echo 'Candidat deja present.' >&2; exit 1; }
     mkdir -m 700 "$stage" "$candidate"
@@ -69,6 +71,10 @@ case "$phase" in
     cd "$root"
     pm2 restart saytu-yef --update-env
     pm2 save
+    # Only disposable build caches are cleared, after the application is restarted.
+    if [[ -d "$backup/.next/cache" && "$(readlink -f "$backup/.next/cache")" == "$backup/.next/cache" ]]; then
+      rm -rf -- "$backup/.next/cache"
+    fi
     touch "$candidate/ACTIVE"
     echo "Version active: $ref. Ancien runtime conserve: $backup"
     ;;

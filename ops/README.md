@@ -1,5 +1,7 @@
 # Exploitation Saytu Yëf
 
+Gestion de l'espace disque et archivage des anciens secours : voir [DISK-SPACE.md](DISK-SPACE.md). Le helper de deploiement borne le nombre de secours; leur retrait exige une copie Windows verifiee et conserve les deux plus recents.
+
 Les fichiers de ce dossier installent deux minuteurs systemd sur le VPS :
 
 - contrôle de `/api/health` toutes les deux minutes et redémarrage PM2 en cas d'échec ;

@@ -7,9 +7,14 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 
 APP_DIR="${APP_DIR:-/var/www/saytu-yef}"
+exec 9>/var/lock/saytu-yef-deploy.lock
+flock -n 9 || { echo 'Deploiement ou archivage en cours; reessayer ensuite.' >&2; exit 1; }
 install -d -m 700 /var/backups/saytu-yef
 install -m 755 "${APP_DIR}/scripts/backup-supabase.sh" /usr/local/sbin/saytu-yef-backup
 install -m 755 "${APP_DIR}/scripts/monitor-health.sh" /usr/local/sbin/saytu-yef-monitor
+install -m 755 "${APP_DIR}/scripts/archive-old-vps.sh" /usr/local/sbin/saytu-yef-archive-old
+install -d -m 755 /etc/systemd/journald.conf.d
+install -m 644 "${APP_DIR}/ops/journald-saytu-yef.conf" /etc/systemd/journald.conf.d/60-saytu-yef-disk.conf
 install -m 644 "${APP_DIR}/ops/systemd/"*.service "${APP_DIR}/ops/systemd/"*.timer /etc/systemd/system/
 
 if [[ ! -f /etc/saytu-yef-ops.env ]]; then
@@ -18,5 +23,6 @@ if [[ ! -f /etc/saytu-yef-ops.env ]]; then
 fi
 
 systemctl daemon-reload
+systemctl restart systemd-journald.service
 systemctl enable --now saytu-yef-monitor.timer saytu-yef-backup.timer
 systemctl list-timers 'saytu-yef-*' --no-pager
