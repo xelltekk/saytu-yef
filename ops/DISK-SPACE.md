@@ -1,5 +1,13 @@
 # Espace disque du VPS
 
+## Rotation Du 14 Octobre 2026
+
+Avant la mise en ligne des etiquettes compactes, les trois secours presents declenchaient le garde-fou de deploiement. Le plus ancien, `saytu-yef-release-ad817726133b9bea04f6595e3d3eb5769c3e4a14-20261012T160741Z` (907 Mo non compresses), a ete exporte dans le dossier prive Windows, puis retire du VPS apres correspondance SHA256 et controle des 46 043 entrees de son archive. Les deux secours recents ont ete conserves; la nouvelle bascule ajoute son propre secours comme prevu.
+
+La copie initiale etait complete, mais le controle suivant a rencontre le verrou du moniteur. Son empreinte a ete verifiee sans refaire le transfert; le helper a ensuite controle l'archive et recalcule celle du VPS avant la purge, avec suspension temporaire du moniteur. Timer et controle de supervision ont ete reactives avec succes. Aucune modification du helper ni suppression manuelle du runtime.
+
+Preuve : `Documents/Saytu-Yef-Backups/application-archives/verified-20261014T1957442919916Z.json`, empreinte associee et journal root des purges. Apres deploiement, environ 12 Go libres, disque a 40 %. Les sauvegardes PostgreSQL, Storage et l'application active sont conserves.
+
 ## Nettoyage du 12 octobre 2026
 
 Le disque de 19 Go etait rempli a 95 %, avec environ 982 Mo disponibles. Dix anciennes copies completes de juin occupaient environ 12 Go dans `/var/www/saytu-yef-backup-*`.

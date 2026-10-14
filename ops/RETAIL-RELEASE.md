@@ -1,5 +1,16 @@
 # Ameliorations commerce et exploitation
 
+## Etiquettes Compactes Sans Prix, 14 Octobre 2026
+
+Runtime `19f70a66fc8b37011ed78404b7281d29a9c50c85` active a 20:00 UTC, apres autorisation et pause des encaissements. Prix retires du choix des etiquettes, de l'impression HTML et de l'export PDF. Format commun 48 x 30 mm, quatre colonnes A4, nom sur deux lignes, variante, numero du code et reference conserves. Codes noirs et marges blanches adaptees au format; les identifiants produits restent inchanges. Aucune migration SQL.
+
+- 171 tests reussis, TypeScript et ESLint valides. Tests navigateur a 360/768/1440 px : selection de 35 exemplaires, export PDF et impression, dimensions physiques et absence de prix. Les six PDF de controle ont deux pages et les 35 codes attendus; rendu visuel verifie avec Poppler. La lecture sur le scanner et une impression physique restent a confirmer en boutique, a taille reelle.
+- Sauvegarde `saytu-yef-20261014T195037Z.dump` copiee sur Windows avec SHA256 et inventaire des roles verifies; sept fichiers Storage verifies dans `Documents/Saytu-Yef-Backups/storage-20261014T1952364664583Z`.
+- Ancien secours `saytu-yef-release-ad817726133b9bea04f6595e3d3eb5769c3e4a14-20261012T160741Z` archive sur Windows puis retire apres controle SHA256 et de ses 46 043 entrees. Manifest prive `application-archives/verified-20261014T1957442919916Z.json`. Une collision transitoire de verrou avec le moniteur a interrompu le controle initial apres la copie; reprise sans nouveau transfert, puis verification et purge terminees avec le moniteur temporairement suspendu et ensuite reactive.
+- Build Linux reussi avant bascule, avec l'avertissement Supabase Edge Runtime connu. PM2 fork direct, PID initial 1332821; controles PostgreSQL/Auth et refus des RPC anonymes valides, moniteur et sauvegardes actifs. Module d'etiquettes reference par le manifest inventaire verifie par HTTP 200 avec dimensions compactes et sans ancien prix; connexion et service worker HTTP 200.
+- Empreintes identiques avant/apres : 120 ventes, 144 articles, 142 versements, 51 produits, 45 mouvements et 15 achats etrangers (projection hors photo). Aucun test d'ecriture en production.
+- Secours precedent conserve : `/var/www/saytu-yef-release-69d962d4d19124c9cad5b164774a0dc3c360f6b2-20261014T200005Z` (checkout documentaire 69d962d, build f2844b7). Disque mesure a 40 %, environ 12 Go disponibles. Rafraichir les navigateurs/PWA avant reprise et tester une etiquette avant impression en lot.
+
 ## Photos Des Achats Etrangers, 14 Octobre 2026
 
 Runtime `f2844b794715d9767e0d4046f472bb3946afc733` active a 15:49 UTC, apres accord et pause des encaissements. Ajout, remplacement et retrait d'une photo depuis la galerie ou l'appareil photo; brouillon compresse conserve hors ligne, URL Storage apres synchronisation et photo preservee au transfert vers l'inventaire.
