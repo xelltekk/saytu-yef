@@ -2,7 +2,7 @@
 
 ## Etat du lot
 
-Prepare le 13 octobre 2026, non active en production. Le processus de production reste celui deja en ligne. Les essais utilisent une instance PM2 jetable, un PM2_HOME prive et le port local 3379; ils ne redemarrent pas le daemon PM2 de production.
+Active en production le 14 octobre 2026 a 14:06 UTC, avec le runtime `d4d5218281052d250a023fa234c8249b17008578`, apres pause autorisee des encaissements. Service et minuteur verifies, etat/journal prives en 0600, Next supervise directement en mode fork. L'installeur corrige aussi les droits d'un journal herite de l'ancien moniteur. Les essais prealables du 13 octobre utilisaient une instance PM2 jetable, un PM2_HOME prive et le port local 3379; ils ne redemarraient pas le daemon de production.
 
 ## Processus surveille
 

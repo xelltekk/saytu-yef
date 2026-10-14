@@ -2,6 +2,8 @@
 
 ## Etat actuel
 
+Les optimisations applicatives/SQL validees par ces essais sont deployees en production le 14 octobre 2026 a 14:06 UTC (runtime `d4d5218281052d250a023fa234c8249b17008578`). Les paragraphes de diagnostic ci-dessous conservent la chronologie avant mise en ligne. Les fixtures, comptes et essais de charge restent exclusivement locaux; aucun RPC de marqueur ni donnee fictive n'est installe en production. Details : [RETAIL-RELEASE.md](RETAIL-RELEASE.md).
+
 Le proprietaire a choisi Supabase local sur son PC Windows avec Docker. Docker Desktop est installe et son moteur Linux/WSL 2 repond (contexte `desktop-linux`). Aucun resultat de capacite a 100 boutiques n'est encore acquis.
 
 Le projet local est initialise hors du dossier web XAMPP : `C:/Users/BAMBA/AppData/Local/SaytuYefLoadLab/supabase/config.toml`. Il porte l'identifiant `saytu-yef-load-lab`, utilise PostgreSQL 17 et les ports API 55321 / base 55322. Il n'est lie a aucun projet cloud. Studio, Realtime, Edge Runtime, SMTP local et Analytics sont desactives. Storage est necessaire a l'installation de la migration des logos, meme pour les mesures de lecture sans photos.

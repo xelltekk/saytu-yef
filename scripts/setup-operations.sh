@@ -14,6 +14,10 @@ install -m 755 "${APP_DIR}/scripts/backup-supabase.sh" /usr/local/sbin/saytu-yef
 install -m 755 "${APP_DIR}/scripts/monitor-health.sh" /usr/local/sbin/saytu-yef-monitor
 install -d -m 755 /usr/local/lib/saytu-yef
 install -d -m 700 /var/lib/saytu-yef
+if [[ -e /var/log/saytu-yef-monitor.log ]]; then
+  [[ -f /var/log/saytu-yef-monitor.log && ! -L /var/log/saytu-yef-monitor.log ]] || { echo 'Journal de supervision inattendu.' >&2; exit 1; }
+  chmod 600 /var/log/saytu-yef-monitor.log
+fi
 install -m 644 "${APP_DIR}/scripts/monitor-runtime.mjs" "${APP_DIR}/scripts/monitor-policy.mjs" /usr/local/lib/saytu-yef/
 install -m 644 "${APP_DIR}/ops/logrotate-saytu-yef-monitor.conf" /etc/logrotate.d/saytu-yef-monitor
 install -m 755 "${APP_DIR}/scripts/archive-old-vps.sh" /usr/local/sbin/saytu-yef-archive-old

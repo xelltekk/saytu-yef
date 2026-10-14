@@ -1,6 +1,24 @@
 # Ameliorations commerce et exploitation
 
-## Etat
+## Production Au 14 Octobre 2026
+
+Runtime applicatif `d4d5218281052d250a023fa234c8249b17008578` active a 14:06 UTC, apres autorisation explicite et pause des encaissements. Catalogue/POS pagines, rapports agreges, optimisation de lecture des articles et supervision directe de Next.js sont maintenant en ligne.
+
+- Les deux migrations de durcissement/index du 13 octobre etaient deja presentes via `20261013100209_retail_access_and_catalog_performance`; elles ne sont pas rejouees.
+- Les migrations `20261013165734_catalogue_pagination.sql`, `20261013200735_rapports_agreges.sql` et `20261014133001_sale_items_read_policy_performance.sql` sont appliquees atomiquement sous `20261014140548_catalogue_reports_read_optimization`. Ne pas rejouer l'historique complet ni ces fichiers individuellement sur cette production.
+- Sauvegarde fraiche `saytu-yef-20261014T140026Z.dump`, copie Windows SHA256 verifiee et inventaire des roles associe. Cinq fichiers Storage copies/verifies dans `Documents/Saytu-Yef-Backups/storage-20261014T1402322518227Z`.
+- Build Linux Next.js 15.5.27 reussi dans un montage temporaire, puis candidat copie sur disque avant tout changement SQL. L'avertissement Supabase `process.version` dans l'Edge Runtime reste non bloquant; le build n'est pas declare sans avertissement.
+- Empreintes integrales identiques avant/apres des 119 ventes, 143 articles, 140 versements, 51 variantes produits et 43 mouvements de stock. Aucune vente fictive ni charge de test en production; aucun marqueur/jeu `load_lab` installe.
+- PM2 supervise directement Next, mode fork, PID initial 1323319. Moniteur et sauvegardes actifs, service de controle termine avec succes; rotation des journaux verifiee. Etat et journal de supervision proteges en 0600, y compris le journal herite de l'ancien moniteur.
+- `/api/health` local/public valide : PostgreSQL et Auth `ok`. `/login` HTTP 200 et service worker HTTP 200 avec revalidation obligatoire. RPC privilegies anonymes refuses; les trois nouveaux RPC de lecture sont SECURITY INVOKER, autorises a authenticated seulement.
+- Lecture catalogue/rapport annuel/code-barres verifiee avec le vrai role SQL authenticated et des claims simules, sans ecriture. Ce controle n'est pas une connexion navigateur avec JWT signe; les parcours utilisateur et le materiel sont a reverifier en boutique apres rafraichissement.
+- Secours executable conserve : `/var/www/saytu-yef-release-7f19313c1be060310f95391091a372dcc48bc0ef-20261014T140614Z`, avec l'ancienne configuration PM2.
+
+L'audit securite apres migration retrouve les avertissements connus : 34 RPC SECURITY DEFINER accessibles au role connecte et controles, protection des mots de passe compromis desactivee; trois tables internes RLS sans politique restent directement inaccessibles. Aucune alerte SECURITY DEFINER anonyme. References : [RPC connectes](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable), [mots de passe compromis](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection), [tables internes sans politique](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy).
+
+La validation de charge reste locale : deux boutiques, jusqu'a six caissiers et 36 500 ventes fictives. La capacite a 100 boutiques n'est pas certifiee. Les sessions navigateur/PWA doivent etre rafraichies avant reprise des encaissements.
+
+## Historique Du 12 Octobre
 
 Version applicative `259e878dedf53229e25ca2cada92278f8f979a3e` deployee le 12 octobre 2026 a 16:07 UTC, apres accord explicite et pause des encaissements.
 Les deux migrations ci-dessous ont ete appliquees ensemble, dans leur ordre, en une migration atomique Supabase `20261012160727_retail_reliability_and_workflows`. Ne pas les rejouer individuellement sur cette production.

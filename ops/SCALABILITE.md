@@ -1,5 +1,9 @@
 # Audit de scalabilite - 13 octobre 2026
 
+## Mise En Ligne Du 14 Octobre
+
+Les lots catalogue, rapports, optimisation RLS des articles et supervision prepares ci-dessous sont deployes le 14 octobre 2026 a 14:06 UTC, runtime `d4d5218281052d250a023fa234c8249b17008578`. Les paragraphes de preparation et leurs mentions "non active" decrivent l'etat avant ce deploiement. Voir [RETAIL-RELEASE.md](RETAIL-RELEASE.md) pour la sauvegarde, les versions SQL combinees, les empreintes financieres et les controles de production. Aucune charge fictive n'est envoyee en production; la cible 100 boutiques reste a valider.
+
 ## Verdict
 
 Cible confirmee par le proprietaire : 100 boutiques avec plus de 500 produits chacune dans les douze prochains mois. Cela represente plus de 50 000 produits; les variantes peuvent augmenter le nombre de lignes au-dela du nombre de fiches produit.
