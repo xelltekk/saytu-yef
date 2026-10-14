@@ -1,6 +1,6 @@
 import JsBarcode from 'jsbarcode'
 import type { Product } from '@/types'
-import { formatCurrency, formatProductLabel, getProductVariantSummary } from '@/lib/utils'
+import { getProductVariantSummary } from '@/lib/utils'
 
 type BarcodeFormat = 'CODE128' | 'EAN13' | 'EAN8' | 'UPC'
 
@@ -16,13 +16,12 @@ export type BarcodeLabelEntry = {
   color?: string | null
   sku?: string | null
   barcode: string
-  selling_price: number
-  currency?: string | null
   copies: number
 }
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
 const INTERNAL_EAN_PREFIX = '29'
+export const BARCODE_LABEL_SIZE = { width: 48, height: 30, gap: 2, columns: 4 } as const
 
 function sanitizeBarcodeSeed(value: string) {
   return value
@@ -103,6 +102,30 @@ function mmToPt(value: number) {
   return (value * 72) / 25.4
 }
 
+function fitPdfText(text: string, maxWidth: number, measure: (value: string) => number) {
+  if (measure(text) <= maxWidth) return text
+  let shortened = text
+  while (shortened && measure(`${shortened}...`) > maxWidth) shortened = shortened.slice(0, -1)
+  return `${shortened}...`
+}
+
+function barcodeOptions(format: BarcodeFormat) {
+  const width = format === 'CODE128' ? 2 : 3
+  const leftQuietModules = format === 'EAN13' ? 11 : format === 'EAN8' ? 7 : format === 'UPC' ? 9 : 10
+  const rightQuietModules = format === 'EAN13' || format === 'EAN8' ? 7 : format === 'UPC' ? 9 : 10
+  return {
+    format,
+    lineColor: '#000000',
+    background: '#ffffff',
+    width,
+    height: format === 'CODE128' ? 52 : 64,
+    margin: 2,
+    marginLeft: width * leftQuietModules,
+    marginRight: width * rightQuietModules,
+    displayValue: false,
+  }
+}
+
 function printHTMLDocument(title: string, html: string) {
   if (typeof document === 'undefined') {
     throw new Error("L'impression n'est disponible que dans le navigateur.")
@@ -181,15 +204,8 @@ export function renderBarcodeSvg(value: string) {
 
   const svg = document.createElementNS(SVG_NAMESPACE, 'svg')
   const format = getBarcodeFormat(normalized)
-  JsBarcode(svg, normalized, {
-    format,
-    lineColor: '#1A3636',
-    background: '#ffffff',
-    width: format === 'CODE128' ? 2 : 2.4,
-    height: format === 'CODE128' ? 52 : 64,
-    margin: 2,
-    displayValue: false,
-  })
+  JsBarcode(svg, normalized, barcodeOptions(format))
+  svg.setAttribute('preserveAspectRatio', 'none')
 
   return svg.outerHTML
 }
@@ -201,8 +217,6 @@ function expandBarcodeLabels(labels: BarcodeLabelEntry[]) {
       copyKey: `${label.id}-${index}`,
       variantLabel: getProductVariantSummary(label),
       barcodeValue: normalizeBarcodeValue(label.barcode),
-      priceLabel: formatCurrency(label.selling_price, label.currency || 'XOF'),
-      productLabel: formatProductLabel(label),
     }))
   ))
 }
@@ -219,15 +233,7 @@ function renderBarcodeCanvas(value: string) {
 
   const canvas = document.createElement('canvas')
   const format = getBarcodeFormat(normalized)
-  JsBarcode(canvas, normalized, {
-    format,
-    lineColor: '#1A3636',
-    background: '#ffffff',
-    width: format === 'CODE128' ? 2 : 2.4,
-    height: format === 'CODE128' ? 52 : 64,
-    margin: 6,
-    displayValue: false,
-  })
+  JsBarcode(canvas, normalized, barcodeOptions(format))
 
   return canvas
 }
@@ -285,11 +291,8 @@ export function printBarcodeLabels(labels: BarcodeLabelEntry[], title = 'Etiquet
 
   const cards = expandedLabels.map((label) => `
     <article class="label-card">
-      <div class="label-top">
-        <div class="label-title">${escapeHtml(label.name)}</div>
-        <div class="label-price">${escapeHtml(label.priceLabel)}</div>
-      </div>
-      ${label.variantLabel ? `<div class="label-variant">${escapeHtml(label.variantLabel)}</div>` : ''}
+      <div class="label-title">${escapeHtml(label.name)}</div>
+      <div class="label-variant">${escapeHtml(label.variantLabel)}</div>
       <div class="barcode-wrap">${label.barcodeSvg}</div>
       <div class="barcode-value">${escapeHtml(label.barcodeValue)}</div>
       ${label.sku?.trim() ? `<div class="sku-value">Ref: ${escapeHtml(label.sku.trim())}</div>` : ''}
@@ -315,84 +318,89 @@ export function printBarcodeLabels(labels: BarcodeLabelEntry[], title = 'Etiquet
           margin: 0;
           padding: 8mm;
           background: #ffffff;
-          color: #1A3636;
+          color: #000000;
         }
 
         .sheet {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(64mm, 1fr));
-          gap: 4mm;
+          grid-template-columns: repeat(${BARCODE_LABEL_SIZE.columns}, ${BARCODE_LABEL_SIZE.width}mm);
+          gap: ${BARCODE_LABEL_SIZE.gap}mm;
         }
 
         .label-card {
           border: 1px solid #dbe6ef;
-          border-radius: 4mm;
+          border-radius: 1mm;
           background: #ffffff;
-          padding: 3.2mm;
-          min-height: 34mm;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
+          position: relative;
+          width: ${BARCODE_LABEL_SIZE.width}mm;
+          height: ${BARCODE_LABEL_SIZE.height}mm;
+          padding: 1.5mm;
           page-break-inside: avoid;
-        }
-
-        .label-top {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 3mm;
+          break-inside: avoid;
         }
 
         .label-title {
-          font-size: 11pt;
+          height: 16pt;
+          font-size: 7.5pt;
           font-weight: 700;
-          line-height: 1.1;
-          flex: 1;
-          min-width: 0;
-          word-break: break-word;
-        }
-
-        .label-price {
-          font-size: 10pt;
-          font-weight: 800;
-          color: #6C5CE7;
-          text-align: right;
-          white-space: nowrap;
+          line-height: 8pt;
+          overflow: hidden;
+          overflow-wrap: anywhere;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
         }
 
         .label-variant {
-          margin-top: 1.5mm;
-          font-size: 8.5pt;
-          color: #5C6B73;
-          min-height: 10pt;
+          height: 7pt;
+          font-size: 6.5pt;
+          line-height: 7pt;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .barcode-wrap {
-          margin-top: 2.5mm;
+          position: absolute;
+          top: 10.25mm;
+          left: 1.5mm;
+          right: 1.5mm;
+          height: 13mm;
           display: flex;
           align-items: center;
           justify-content: center;
         }
 
         .barcode-wrap svg {
-          width: 56mm;
+          width: 100%;
           max-width: 100%;
-          height: 18mm;
+          height: 13mm;
         }
 
         .barcode-value {
-          margin-top: 1.2mm;
+          position: absolute;
+          top: 23.5mm;
+          left: 1.5mm;
+          right: 1.5mm;
           text-align: center;
-          font-size: 8.5pt;
+          font-size: 6.5pt;
+          line-height: 8pt;
           font-weight: 700;
-          letter-spacing: 0.08em;
+          letter-spacing: 0;
+          white-space: nowrap;
         }
 
         .sku-value {
-          margin-top: 1mm;
+          position: absolute;
+          top: 26.5mm;
+          left: 1.5mm;
+          right: 1.5mm;
           text-align: center;
-          font-size: 7.5pt;
-          color: #5C6B73;
+          font-size: 5.5pt;
+          line-height: 7pt;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         @page {
@@ -446,18 +454,16 @@ export async function exportBarcodeLabelsPdf(labels: BarcodeLabelEntry[], title 
   const pageWidth = mmToPt(210)
   const pageHeight = mmToPt(297)
   const margin = mmToPt(6)
-  const gap = mmToPt(4)
-  const columns = 3
-  const labelWidth = (pageWidth - (margin * 2) - (gap * (columns - 1))) / columns
-  const labelHeight = mmToPt(36)
+  const gap = mmToPt(BARCODE_LABEL_SIZE.gap)
+  const columns = BARCODE_LABEL_SIZE.columns
+  const labelWidth = mmToPt(BARCODE_LABEL_SIZE.width)
+  const labelHeight = mmToPt(BARCODE_LABEL_SIZE.height)
   const rowsPerPage = Math.max(1, Math.floor((pageHeight - (margin * 2) + gap) / (labelHeight + gap)))
   const labelsPerPage = columns * rowsPerPage
 
   const colors = {
     border: rgb(0.86, 0.9, 0.94),
-    text: rgb(0.1, 0.21, 0.21),
-    muted: rgb(0.36, 0.42, 0.45),
-    accent: rgb(0.42, 0.36, 0.91),
+    text: rgb(0, 0, 0),
   }
 
   for (let pageIndex = 0; pageIndex * labelsPerPage < expandedLabels.length; pageIndex += 1) {
@@ -479,15 +485,14 @@ export async function exportBarcodeLabelsPdf(labels: BarcodeLabelEntry[], title 
         borderWidth: 0.75,
       })
 
-      const padding = mmToPt(3)
-      const titleFontSize = 10.5
-      const priceFontSize = 9.5
-      const variantFontSize = 7.5
-      const codeFontSize = 7.5
-      const skuFontSize = 6.5
-      const titleWidth = labelWidth - (padding * 2) - mmToPt(22)
+      const padding = mmToPt(1.5)
+      const titleFontSize = 7.5
+      const variantFontSize = 6.5
+      const codeFontSize = 6.5
+      const skuFontSize = 5.5
+      const titleWidth = labelWidth - (padding * 2)
       const titleLines = wrapPdfText(
-        label.productLabel,
+        label.name,
         titleWidth,
         (value) => fontBold.widthOfTextAtSize(value, titleFontSize)
       ).slice(0, 2)
@@ -501,33 +506,16 @@ export async function exportBarcodeLabelsPdf(labels: BarcodeLabelEntry[], title 
           font: fontBold,
           color: colors.text,
         })
-        cursorY -= titleFontSize + 1
-      })
-
-      page.drawText(label.priceLabel, {
-        x: x + labelWidth - padding - fontBold.widthOfTextAtSize(label.priceLabel, priceFontSize),
-        y: y + labelHeight - padding - priceFontSize,
-        size: priceFontSize,
-        font: fontBold,
-        color: colors.accent,
+        cursorY -= 8
       })
 
       if (label.variantLabel) {
-        const variantLines = wrapPdfText(
-          label.variantLabel,
-          labelWidth - (padding * 2),
-          (value) => fontRegular.widthOfTextAtSize(value, variantFontSize)
-        ).slice(0, 2)
-
-        variantLines.forEach((line) => {
-          page.drawText(line, {
-            x: x + padding,
-            y: cursorY,
-            size: variantFontSize,
-            font: fontRegular,
-            color: colors.muted,
-          })
-          cursorY -= variantFontSize + 1
+        page.drawText(fitPdfText(label.variantLabel, titleWidth, (value) => fontRegular.widthOfTextAtSize(value, variantFontSize)), {
+          x: x + padding,
+          y: y + labelHeight - mmToPt(7.15) - variantFontSize,
+          size: variantFontSize,
+          font: fontRegular,
+          color: colors.text,
         })
       }
 
@@ -536,35 +524,31 @@ export async function exportBarcodeLabelsPdf(labels: BarcodeLabelEntry[], title 
 
       const barcodeImage = await pdf.embedPng(barcodePng)
       const barcodeBoxWidth = labelWidth - (padding * 2)
-      const barcodeBoxHeight = mmToPt(16)
-      const barcodeY = y + mmToPt(9)
-      const barcodeScale = Math.min(barcodeBoxWidth / barcodeImage.width, barcodeBoxHeight / barcodeImage.height)
-      const barcodeWidth = barcodeImage.width * barcodeScale
-      const barcodeHeight = barcodeImage.height * barcodeScale
-
+      const barcodeBoxHeight = mmToPt(13)
+      const barcodeY = y + labelHeight - mmToPt(23.25)
       page.drawImage(barcodeImage, {
-        x: x + ((labelWidth - barcodeWidth) / 2),
+        x: x + padding,
         y: barcodeY,
-        width: barcodeWidth,
-        height: barcodeHeight,
+        width: barcodeBoxWidth,
+        height: barcodeBoxHeight,
       })
 
       page.drawText(label.barcodeValue, {
         x: x + ((labelWidth - fontBold.widthOfTextAtSize(label.barcodeValue, codeFontSize)) / 2),
-        y: y + mmToPt(5.6),
+        y: y + labelHeight - mmToPt(23.5) - codeFontSize,
         size: codeFontSize,
         font: fontBold,
         color: colors.text,
       })
 
       if (label.sku?.trim()) {
-        const skuLabel = `Ref: ${label.sku.trim()}`
+        const skuLabel = fitPdfText(`Ref: ${label.sku.trim()}`, titleWidth, (value) => fontRegular.widthOfTextAtSize(value, skuFontSize))
         page.drawText(skuLabel, {
           x: x + ((labelWidth - fontRegular.widthOfTextAtSize(skuLabel, skuFontSize)) / 2),
-          y: y + mmToPt(2.7),
+          y: y + labelHeight - mmToPt(26.5) - skuFontSize,
           size: skuFontSize,
           font: fontRegular,
-          color: colors.muted,
+          color: colors.text,
         })
       }
     }
@@ -593,8 +577,6 @@ export function buildBarcodeLabelEntries(products: Product[]) {
       color: product.color,
       sku: product.sku,
       barcode: product.barcode!.trim(),
-      selling_price: product.selling_price,
-      currency: product.currency,
       copies: 1,
     })) satisfies BarcodeLabelEntry[]
 }

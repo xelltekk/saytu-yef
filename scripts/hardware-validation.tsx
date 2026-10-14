@@ -23,7 +23,7 @@ function Probe(){
     <section><h2>Imprimante</h2><div className="actions">
       <button onClick={()=>printReceipt(receipt)}><Printer size={18}/>Ticket test 80 mm</button>
       <button onClick={()=>printInvoice({...receipt,invoiceNumber:'TEST-FACTURE'})}><Printer size={18}/>Facture test A4</button></div></section>
-    <section><h2>Etiquette</h2><button onClick={()=>printBarcodeLabels([{id:'test',name:'TEST MATERIEL',barcode:code,selling_price:35000,copies:1,currency:'XOF'}],'TEST MATERIEL')}><Printer size={18}/>Etiquette test A4</button></section>
+    <section><h2>Etiquette</h2><button onClick={()=>printBarcodeLabels([{id:'test',name:'TEST MATERIEL',barcode:code,copies:1}],'TEST MATERIEL')}><Printer size={18}/>Etiquette test A4</button></section>
     {modal&&<div className="overlay"><div role="dialog" aria-modal="true" aria-label="Controle paiement"><h2>Controle paiement</h2>
       <button onClick={()=>setModal(false)} aria-label="Fermer"><X size={18}/></button><p>Document test</p></div></div>}
   </main>

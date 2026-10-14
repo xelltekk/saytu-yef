@@ -5,7 +5,7 @@ import { Download, Printer, Search, Tag } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { buildBarcodeLabelEntries, exportBarcodeLabelsPdf, printBarcodeLabels } from '@/lib/barcodes'
-import { formatCurrency, formatProductLabel, getProductVariantSummary } from '@/lib/utils'
+import { formatProductLabel, getProductVariantSummary } from '@/lib/utils'
 import type { Product, ProductGroup } from '@/types'
 
 interface BarcodeLabelsModalProps {
@@ -22,7 +22,6 @@ type LabelRowState = {
   label: string
   barcode: string
   sku?: string
-  priceLabel: string
   copies: string
   selected: boolean
   missingBarcode: boolean
@@ -34,7 +33,6 @@ function createRows(products: Product[], groupName?: string): LabelRowState[] {
     label: groupName ? (getProductVariantSummary(variant) || groupName) : formatProductLabel(variant),
     barcode: variant.barcode?.trim() || '',
     sku: variant.sku?.trim() || '',
-    priceLabel: formatCurrency(variant.selling_price, variant.currency),
     copies: '1',
     selected: Boolean(variant.barcode?.trim()),
     missingBarcode: !variant.barcode?.trim(),
@@ -303,9 +301,6 @@ export function BarcodeLabelsModal({
                         {row.missingBarcode ? 'A creer' : row.selected ? 'Inclus' : 'Exclu'}
                       </button>
                       <p className="truncate text-sm font-semibold text-[#1A3636]">{row.label}</p>
-                      <span className="rounded-full bg-[#F4F7FB] px-2.5 py-1 text-[11px] font-semibold text-[#5C6B73]">
-                        {row.priceLabel}
-                      </span>
                     </div>
 
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#5C6B73]">
