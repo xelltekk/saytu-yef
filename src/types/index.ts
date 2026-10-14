@@ -114,6 +114,7 @@ export interface AbroadProduct {
   currency: string
   quantity: number
   notes?: string
+  image_url?: string | null
   source_country: string
   synced: boolean
   activated: boolean

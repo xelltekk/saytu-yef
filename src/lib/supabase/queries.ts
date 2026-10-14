@@ -7,6 +7,7 @@ import { getAccountContext } from './account'
 import { CheckoutRejectedError } from '@/lib/checkout'
 import { readAllPages } from '@/lib/pagination'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { uploadProductImage } from './retail'
 
 type SubscriptionLimitKey = 'products' | 'teamMembers' | 'monthlySales'
 
@@ -1028,10 +1029,13 @@ export async function getAbroadProducts(): Promise<AbroadProduct[]> {
 export async function saveAbroadProduct(product: Omit<AbroadProduct, 'id' | 'user_id' | 'created_at'>): Promise<AbroadProduct> {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Session expirée. Reconnectez-vous.')
+  const payload = { ...product }
+  if (payload.image_url) payload.image_url = await uploadProductImage(payload.image_url)
 
   const { data, error } = await supabase
     .from('abroad_products')
-    .insert({ ...product, user_id: user!.id })
+    .insert({ ...payload, user_id: user.id })
     .select()
     .single()
 
@@ -1042,10 +1046,13 @@ export async function saveAbroadProduct(product: Omit<AbroadProduct, 'id' | 'use
 export async function updateAbroadProductRecord(
   id: string,
   updates: Partial<Omit<AbroadProduct, 'id' | 'user_id' | 'created_at'>>
-): Promise<void> {
+): Promise<AbroadProduct> {
   const supabase = createClient()
-  const { error } = await supabase.from('abroad_products').update(updates).eq('id', id)
+  const payload = { ...updates }
+  if (payload.image_url) payload.image_url = await uploadProductImage(payload.image_url)
+  const { data, error } = await supabase.from('abroad_products').update(payload).eq('id', id).select().single()
   if (error) throw error
+  return data as AbroadProduct
 }
 
 export async function activateAbroadProduct(

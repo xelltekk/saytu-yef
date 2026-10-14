@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS public.abroad_products (
   currency TEXT NOT NULL DEFAULT 'CNY',
   quantity INTEGER NOT NULL DEFAULT 1,
   notes TEXT,
+  image_url TEXT,
   source_country TEXT DEFAULT 'CN',
   synced BOOLEAN DEFAULT false,
   activated BOOLEAN DEFAULT false,

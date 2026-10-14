@@ -19,6 +19,7 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
+import { ProductPhotoPicker } from './ProductPhotoPicker'
 import { useInventoryStore } from '@/store/inventoryStore'
 import { formatCurrency, generateSKU } from '@/lib/utils'
 import {
@@ -101,6 +102,9 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
   const [loadingRate, setLoadingRate] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [savingEdit, setSavingEdit] = useState(false)
+  const [savingAdd, setSavingAdd] = useState(false)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const [editPhotoBusy, setEditPhotoBusy] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [formError, setFormError] = useState('')
@@ -128,6 +132,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
     quantity: '1',
     source_country: 'SN',
     notes: '',
+    image_url: '',
   })
   const [editId, setEditId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({
@@ -137,6 +142,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
     quantity: '1',
     source_country: 'CN',
     notes: '',
+    image_url: '',
   })
 
   const notActivated = abroadProducts.filter((product) => !product.activated)
@@ -200,6 +206,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
       quantity: String(product.quantity),
       source_country: product.source_country,
       notes: product.notes ?? '',
+      image_url: product.image_url ?? '',
     })
   }
 
@@ -211,14 +218,16 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
       currency: product.currency,
       quantity: product.quantity,
       notes: product.notes,
+      ...(product.image_url ? { image_url: product.image_url } : {}),
       source_country: product.source_country,
       synced: true,
       activated: product.activated,
       local_id: localId,
     })
 
-    deleteAbroadProduct(product.id)
-    addAbroadProduct(savedProduct)
+    setAbroadProducts(useInventoryStore.getState().abroadProducts.map((current) =>
+      current.id === product.id ? savedProduct : current
+    ))
     return savedProduct
   }
 
@@ -270,7 +279,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
   }
 
   const handleSaveEdit = async () => {
-    if (!editId) return
+    if (!editId || savingEdit || editPhotoBusy) return
 
     const purchasePrice = Number(editForm.purchase_price)
     const quantity = Number(editForm.quantity)
@@ -301,13 +310,14 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
       quantity,
       source_country: editForm.source_country,
       notes: editForm.notes.trim(),
+      image_url: editForm.image_url || null,
     }
 
     setSavingEdit(true)
     setEditError('')
     try {
-      if (editedProduct.synced) await updateAbroadProductRecord(editId, updates)
-      updateAbroadProduct(editId, updates)
+      const saved = editedProduct.synced ? await updateAbroadProductRecord(editId, updates) : updates
+      updateAbroadProduct(editId, saved)
       setEditId(null)
       setFeedback({ type: 'success', message: `L’article « ${updates.name} » a été modifié.` })
     } catch (error: unknown) {
@@ -319,7 +329,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
   }
 
   const handleSyncPending = async () => {
-    if (!isOnline || pendingSync.length === 0) return
+    if (!isOnline || pendingSync.length === 0 || syncing || savingAdd || savingEdit || transferring) return
 
     setSyncing(true)
     setFeedback(null)
@@ -347,6 +357,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
   }
 
   const handleAdd = async () => {
+    if (savingAdd || photoBusy) return
     const purchasePrice = Number(form.purchase_price)
     const quantity = Number(form.quantity)
     if (!form.name.trim()) {
@@ -377,39 +388,37 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
       quantity,
       source_country: form.source_country,
       notes: form.notes.trim(),
+      image_url: form.image_url || null,
       synced: false,
       activated: false,
       created_at: new Date().toISOString(),
       local_id: localId,
     }
 
+    setSavingAdd(true)
+    try {
+      addAbroadProduct(localProduct)
+    } catch {
+      setFormError("Stockage local plein ou indisponible. La saisie n'a pas été enregistrée. Retirez la photo ou libérez de l'espace avant de réessayer.")
+      setSavingAdd(false)
+      return
+    }
+
     try {
       if (isOnline) {
-        const savedProduct = await saveAbroadProduct({
-          name: localProduct.name,
-          purchase_price: localProduct.purchase_price,
-          currency: localProduct.currency,
-          quantity: localProduct.quantity,
-          notes: localProduct.notes,
-          source_country: localProduct.source_country,
-          synced: true,
-          activated: false,
-          local_id: localId,
-        })
-        addAbroadProduct(savedProduct)
+        await pushLocalProduct(localProduct)
         setFeedback({ type: 'success', message: `L’article « ${localProduct.name} » a été enregistré et synchronisé.` })
       } else {
-        addAbroadProduct(localProduct)
         setFeedback({ type: 'warning', message: `L’article « ${localProduct.name} » est conservé localement jusqu’au retour du réseau.` })
       }
     } catch (error: unknown) {
       console.error(error)
-      addAbroadProduct(localProduct)
       setFeedback({
         type: 'warning',
         message: `La synchronisation a échoué, mais « ${localProduct.name} » est conservé localement.`,
       })
     }
+    setSavingAdd(false)
 
     setForm({
       name: '',
@@ -418,13 +427,14 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
       quantity: '1',
       source_country: 'SN',
       notes: '',
+      image_url: '',
     })
     setShowForm(false)
   }
 
   const handleActivate = async () => {
     const product = activateModal.product
-    if (!product) return
+    if (!product || transferring || syncing) return
 
     const buyingPrice = Number(activateModal.buyingPrice)
     const sellingPrice = Number(activateModal.sellingPrice)
@@ -455,6 +465,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
           category_id: activateModal.categoryId || undefined,
           supplier_id: undefined,
           description: product.notes || undefined,
+          image_url: productToActivate.image_url || undefined,
           buying_price: buyingPrice,
           selling_price: sellingPrice,
           quantity: product.quantity,
@@ -546,6 +557,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                 className="text-emerald-600"
                 onClick={() => void handleSyncPending()}
                 isLoading={syncing}
+                disabled={savingAdd || savingEdit || transferring}
               >
                 Synchroniser
               </Button>
@@ -584,9 +596,9 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
       )}
 
       <Card>
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="rounded-xl bg-[#6C5CE7]/10 p-2">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="shrink-0 rounded-xl bg-[#6C5CE7]/10 p-2">
               <Globe size={16} className="text-[#6C5CE7]" />
             </div>
             <div>
@@ -601,6 +613,8 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
           <Button
             variant={showForm ? 'ghost' : 'primary'}
             size="sm"
+            disabled={savingAdd || photoBusy}
+            className="shrink-0 whitespace-nowrap"
             leftIcon={<Plus size={15} />}
             onClick={() => {
               setFormError('')
@@ -612,12 +626,15 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
         </div>
 
         {showForm && (
-          <div className="fade-in space-y-4 border-t border-[#2D7D7D]/[0.08] pt-4">
+          <fieldset disabled={savingAdd} className="fade-in min-w-0 space-y-4 border-t border-[#2D7D7D]/[0.08] pt-4">
             {formError && (
               <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
                 {formError}
               </div>
             )}
+            <ProductPhotoPicker value={form.image_url}
+              onChange={(image_url) => setForm((current) => ({ ...current, image_url }))}
+              onBusyChange={setPhotoBusy} disabled={savingAdd} />
             <Input
               label="Nom du produit"
               placeholder="ex: Telephone Xiaomi 14 Pro"
@@ -671,10 +688,10 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                 rows={1}
               />
             </div>
-            <Button variant="primary" fullWidth onClick={() => void handleAdd()}>
+            <Button variant="primary" fullWidth onClick={() => void handleAdd()} isLoading={savingAdd} disabled={photoBusy}>
               {isOnline ? 'Enregistrer et synchroniser' : 'Enregistrer localement'}
             </Button>
-          </div>
+          </fieldset>
         )}
       </Card>
 
@@ -699,6 +716,11 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
           notActivated.map((product) => (
             <Card key={product.id} className="relative">
               <div className="flex items-start gap-3">
+                {product.image_url && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={product.image_url} alt={product.name} loading="lazy"
+                    className="h-12 w-12 shrink-0 rounded-lg border border-[#2D7D7D]/10 bg-[#F4F7FB] object-contain p-1" />
+                )}
                 <div
                   className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${
                     product.activated
@@ -726,7 +748,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                         <p className="mt-0.5 text-xs italic text-[#6B7682]">{product.notes}</p>
                       )}
                     </div>
-                    <div className="flex flex-row items-center gap-2 sm:flex-col sm:items-end">
+                    <div className="flex flex-row flex-wrap items-center gap-2 sm:flex-col sm:items-end">
                       <div className="flex gap-1.5">
                         {product.activated ? (
                           <Badge variant="success">
@@ -743,8 +765,10 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                         <Button
                           variant="primary"
                           size="sm"
+                          className="shrink-0 whitespace-nowrap"
                           rightIcon={<ArrowRight size={13} />}
                           onClick={() => openActivate(product)}
+                          disabled={syncing || savingAdd}
                         >
                           Transferer
                         </Button>
@@ -756,6 +780,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                   {!product.activated && (
                     <button
                       onClick={() => openEdit(product)}
+                      disabled={syncing || savingAdd || transferring}
                       title="Modifier"
                       aria-label="Modifier l'article"
                       className="rounded-lg p-1.5 text-[#6B7682] transition-colors hover:bg-[#6C5CE7]/[0.1] hover:text-[#6C5CE7]"
@@ -765,6 +790,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                   )}
                   <button
                     onClick={() => { setDeleteCandidate(product); setFeedback(null) }}
+                    disabled={syncing || savingAdd || transferring}
                     title="Supprimer"
                     aria-label="Supprimer l'article"
                     className="rounded-lg p-1.5 text-[#6B7682] transition-colors hover:bg-red-500/5 hover:text-red-600"
@@ -911,25 +937,28 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
 
       <Modal
         isOpen={editId !== null}
-        onClose={() => setEditId(null)}
+        onClose={() => { if (!savingEdit && !editPhotoBusy) setEditId(null) }}
         title="Modifier l'article"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setEditId(null)} disabled={savingEdit}>
+            <Button variant="ghost" onClick={() => setEditId(null)} disabled={savingEdit || editPhotoBusy}>
               Annuler
             </Button>
-            <Button variant="primary" onClick={() => void handleSaveEdit()} isLoading={savingEdit}>
+            <Button variant="primary" onClick={() => void handleSaveEdit()} isLoading={savingEdit} disabled={editPhotoBusy}>
               Enregistrer
             </Button>
           </>
         }
       >
-        <div className="space-y-4">
+        <fieldset disabled={savingEdit} className="min-w-0 space-y-4">
           {editError && (
             <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
               {editError}
             </div>
           )}
+          <ProductPhotoPicker value={editForm.image_url}
+            onChange={(image_url) => setEditForm((current) => ({ ...current, image_url }))}
+            onBusyChange={setEditPhotoBusy} disabled={savingEdit} />
           <Input
             label="Nom du produit"
             placeholder="ex: Telephone Xiaomi 14 Pro"
@@ -981,7 +1010,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
             onChange={(e) => setEditForm((current) => ({ ...current, notes: e.target.value }))}
             rows={2}
           />
-        </div>
+        </fieldset>
       </Modal>
 
       <Modal
