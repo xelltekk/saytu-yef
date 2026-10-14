@@ -1,5 +1,18 @@
 # Ameliorations commerce et exploitation
 
+## Photos Des Achats Etrangers, 14 Octobre 2026
+
+Runtime `f2844b794715d9767e0d4046f472bb3946afc733` active a 15:49 UTC, apres accord et pause des encaissements. Ajout, remplacement et retrait d'une photo depuis la galerie ou l'appareil photo; brouillon compresse conserve hors ligne, URL Storage apres synchronisation et photo preservee au transfert vers l'inventaire.
+
+- Migration source `20261014152621_abroad_product_photos.sql` appliquee en production sous `20261014154853_abroad_product_photos`. Colonne `image_url` nullable, RLS et droits existants conserves; aucune nouvelle politique ni modification de Storage.
+- Sauvegarde `saytu-yef-20261014T154538Z.dump` copiee et SHA256 verifiee sur Windows, avec inventaire des roles. Sept fichiers Storage copies et verifies dans `Documents/Saytu-Yef-Backups/storage-20261014T1546486042646Z`.
+- 169 tests reussis, TypeScript et ESLint valides. Tests navigateur isoles a 360, 768 et 1440 px : ajout/retrait, entree appareil photo, conservation apres rechargement hors ligne, echec/reprise de synchronisation, modification et transfert avec photo. Aucun test d'ecriture en production ni essai reel de l'appareil photo.
+- Build Linux reussi et copie sur disque avant migration; avertissement Supabase Edge Runtime connu, non bloquant. PM2 fork direct, PID initial 1326595, moniteur et sauvegardes actifs; controles PostgreSQL/Auth et refus des RPC anonymes valides.
+- Empreintes identiques avant/apres : 119 ventes, 143 articles, 140 versements, 51 produits, 44 mouvements et 15 achats etrangers (hors nouvelle colonne nullable). Aucun changement des donnees metier.
+- Runtime precedent conserve dans `/var/www/saytu-yef-release-c3dd7a94833c03da7462f0162ca58354cc3ca8de-20261014T154903Z` (checkout c3dd7a9, build applicatif d4d5218). La colonne additive reste compatible avec ce secours.
+
+Audit securite identique avant/apres : trois tables internes RLS sans politique, 34 RPC privilegies accessibles aux utilisateurs connectes et protection des mots de passe compromis desactivee. Voir les references et limites ci-dessous. Rafraichir les navigateurs/PWA avant de reprendre les encaissements et verifier une vraie photo dans la boutique.
+
 ## Production Au 14 Octobre 2026
 
 Runtime applicatif `d4d5218281052d250a023fa234c8249b17008578` active a 14:06 UTC, apres autorisation explicite et pause des encaissements. Catalogue/POS pagines, rapports agreges, optimisation de lecture des articles et supervision directe de Next.js sont maintenant en ligne.
