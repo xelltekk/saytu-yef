@@ -25,7 +25,7 @@ interface SalesState {
   addToCart: (item: CartItem) => void
   removeFromCart: (productId: string) => void
   updateCartQuantity: (productId: string, quantity: number) => void
-  syncCartStock: (products: Product[]) => void
+  syncCartStock: (products: Product[], checkedIds?: string[]) => void
   clearCart: () => void
   setDiscount: (discount: number) => void
   setTaxRate: (taxRate: number) => void
@@ -102,13 +102,16 @@ export const useSalesStore = create<SalesState>()(
         })() : c
       ),
     })),
-  syncCartStock: (products) =>
+  syncCartStock: (products, checkedIds) =>
     set((state) => {
+      if (state.checkoutRequest) return state
       const productMap = new Map(products.map((product) => [product.id, product]))
+      const checked = checkedIds ? new Set(checkedIds) : null
       return {
         cart: state.cart.flatMap((item) => {
+          if (checked && !checked.has(item.product_id)) return [item]
           const product = productMap.get(item.product_id)
-          if (!product || product.status !== 'active' || product.quantity <= 0) return []
+          if (!product || product.status !== 'active' || product.quantity <= 0 || product.currency !== 'XOF') return []
 
           const quantity = Math.min(item.quantity, product.quantity)
           return [{

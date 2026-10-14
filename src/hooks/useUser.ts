@@ -32,6 +32,7 @@ export function useUser() {
 
   return {
     user,
+    accountOwnerId: business?.id ?? user?.id,
     loading,
     displayName,
     businessName,

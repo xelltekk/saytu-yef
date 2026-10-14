@@ -1,6 +1,6 @@
 import { beforeEach, expect, it } from 'vitest'
 import { useSalesStore } from './salesStore'
-import type { CartItem } from '@/types'
+import type { CartItem, Product } from '@/types'
 const item: CartItem = { product_id:'p1',product_name:'Mouse',quantity:1,unit_price:5000,total:5000,max_quantity:5 }
 beforeEach(() => useSalesStore.setState({ draftOwnerId:'owner1',cart:[],heldCarts:[],checkoutRequest:null,discount:0,customerName:'',customerPhone:'' }))
 it('never generates another checkout identity while a previous outcome is unknown', () => {
@@ -32,4 +32,30 @@ it('does not replace a nonempty cart when resuming a pending one', () => {
   state.resumeCart(useSalesStore.getState().heldCarts[0].id)
   expect(useSalesStore.getState().cart[0].product_id).toBe('p2')
   expect(useSalesStore.getState().heldCarts).toHaveLength(1)
+})
+
+const product = { id:'p1',name:'Mouse',selling_price:5000,quantity:3,status:'active',currency:'XOF' } as Product
+it('only changes stock for explicitly checked cart IDs, keeping off-page and recently added articles', () => {
+  const state = useSalesStore.getState()
+  state.addToCart(item)
+  state.addToCart({ ...item, product_id:'p2' })
+  state.syncCartStock([product],['p1'])
+  expect(useSalesStore.getState().cart.map((entry) => entry.product_id)).toEqual(['p1','p2'])
+  state.syncCartStock([],['p1'])
+  expect(useSalesStore.getState().cart.map((entry) => entry.product_id)).toEqual(['p2'])
+})
+it('does not change a retry payload with unknown checkout outcome during background stock refresh', () => {
+  const state = useSalesStore.getState()
+  state.addToCart(item)
+  state.getCheckoutRequestId('pending')
+  state.syncCartStock([],['p1'])
+  expect(useSalesStore.getState().cart).toEqual([item])
+})
+it('refreshes price and maximum quantity before consecutive scans', () => {
+  const state = useSalesStore.getState()
+  state.addToCart(item)
+  state.syncCartStock([{ ...product, quantity:2, selling_price:7000 }],['p1'])
+  state.addToCart(item)
+  state.addToCart(item)
+  expect(useSalesStore.getState().cart[0]).toMatchObject({ quantity:2, unit_price:7000, total:14000, max_quantity:2 })
 })

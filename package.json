@@ -14,8 +14,8 @@
     "start:vps": "next start -H 127.0.0.1 -p 3000",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vitest run --config vitest.config.mts",
+    "test:watch": "vitest --config vitest.config.mts",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {

@@ -51,6 +51,8 @@ export function useBarcodeScanner({
       const scannedValue = buffer.trim()
       reset()
 
+      if (document.querySelector('[role="dialog"][aria-modal="true"]') || isEditableElement(document.activeElement)) return
+
       if (scannedValue.length >= minLength) {
         onScanRef.current(scannedValue)
       }
@@ -68,14 +70,16 @@ export function useBarcodeScanner({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) {
+        reset()
         return
       }
 
-      if (isEditableElement(event.target)) {
+      if (isEditableElement(event.target) || document.querySelector('[role="dialog"][aria-modal="true"]')) {
+        reset()
         return
       }
 
-      const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      const now = event.timeStamp || (typeof performance !== 'undefined' ? performance.now() : Date.now())
 
       if (event.key === 'Enter' || event.key === 'Tab') {
         if (buffer.length >= minLength) {
@@ -89,7 +93,8 @@ export function useBarcodeScanner({
 
       if (event.key.length !== 1) return
 
-      if (lastKeyAt && now - lastKeyAt > maxInterKeyDelayMs) {
+      // A cold renderer can delay the first pair; repeated slow keys still reset.
+      if (lastKeyAt && now - lastKeyAt > maxInterKeyDelayMs && buffer.length > 1) {
         buffer = ''
       }
 
@@ -99,8 +104,10 @@ export function useBarcodeScanner({
     }
 
     window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('blur', reset)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('blur', reset)
       reset()
     }
   }, [enabled, idleTimeoutMs, maxInterKeyDelayMs, minLength])

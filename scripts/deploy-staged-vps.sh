@@ -57,6 +57,7 @@ case "$phase" in
     old="$(git -C "$root" rev-parse HEAD)"
     backup="/var/www/saytu-yef-release-$old-$(date -u +%Y%m%dT%H%M%SZ)"
     mkdir -m 700 "$backup"
+    cp "$root/ecosystem.config.js" "$backup/ecosystem.config.js"
     git -C "$root" merge --ff-only "$ref"
     pm2 stop saytu-yef
     # Never remove the previous executable version during the cutover.
@@ -69,7 +70,9 @@ case "$phase" in
     printf '%s\n' "$old" > "$backup/COMMIT"
     printf '%s\n' "$backup" > "$candidate/PREVIOUS_RELEASE"
     cd "$root"
-    pm2 restart saytu-yef --update-env
+    # Recreate the named entry: restarting the old npm entry keeps its old script.
+    pm2 delete saytu-yef
+    pm2 start "$root/ecosystem.config.js" --only saytu-yef
     pm2 save
     # Only disposable build caches are cleared, after the application is restarted.
     if [[ -d "$backup/.next/cache" && "$(readlink -f "$backup/.next/cache")" == "$backup/.next/cache" ]]; then

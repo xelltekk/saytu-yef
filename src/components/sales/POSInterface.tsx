@@ -19,9 +19,10 @@ import { UsageLimitNotice } from '@/components/subscriptions/UsageLimitNotice'
 import { CustomerPicker } from '@/components/clients/CustomerPicker'
 import { useBarcodeScanner } from '@/hooks/useBarcodeScanner'
 import { useSubscriptionOverview } from '@/hooks/useSubscriptionOverview'
-import { normalizeBarcodeLookupValue } from '@/lib/barcodes'
 import { getPlanDefinition, getUsageLimit, getUsageRatio } from '@/lib/subscriptions'
-import { buildProductGroups, getProductGroupPriceLabel } from '@/lib/productGroups'
+import { getProductGroupPriceLabel } from '@/lib/productGroups'
+import { useCataloguePage } from '@/hooks/useCataloguePage'
+import { CataloguePagination } from '@/components/ui/CataloguePagination'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
@@ -34,7 +35,7 @@ import {
   getProductVariantSummary,
 } from '@/lib/utils'
 import { useSalesStore } from '@/store/salesStore'
-import { getProducts } from '@/lib/supabase/queries'
+import { getCartProducts, lookupCatalogueCode } from '@/lib/supabase/catalogue'
 import { useUser } from '@/hooks/useUser'
 import type { CartItem, Product, ProductGroup } from '@/types'
 
@@ -68,17 +69,15 @@ export function POSInterface({
   canCheckout = true,
   checkoutDisabledReason = '',
 }: POSInterfaceProps) {
-  const { user } = useUser()
+  const { user, accountOwnerId: ownerId } = useUser()
+  const actorId = user?.id
   const { overview } = useSubscriptionOverview()
   const restoredDraftNoticeShown = useRef(false)
   const [isDraftReady, setIsDraftReady] = useState(false)
   const [search, setSearch] = useState('')
   const [showMobileCart, setShowMobileCart] = useState(false)
-  const [products, setProducts] = useState<Product[]>([])
-  const [loadingProducts, setLoadingProducts] = useState(true)
-  const [productsError, setProductsError] = useState('')
   const [stockNotice, setStockNotice] = useState('')
-  const [currencyNotice, setCurrencyNotice] = useState('')
+  const [currencyNoticeDismissed, setCurrencyNoticeDismissed] = useState(false)
   const [scannerNotice, setScannerNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [showClearCartConfirm, setShowClearCartConfirm] = useState(false)
   const [variantPickerGroup, setVariantPickerGroup] = useState<ProductGroup | null>(null)
@@ -122,45 +121,46 @@ export function POSInterface({
     setTaxRate(user?.user_metadata?.tva_enabled ? 18 : 0)
   }, [setTaxRate, user])
 
+  const catalogue = useCataloguePage({ scope: 'pos', search }, refreshKey)
+  const loadingProducts = catalogue.loading
+  const productsError = catalogue.error
+  const excludedCurrencyCount = catalogue.page?.excludedCurrencyCount ?? 0
+  const currencyNotice = excludedCurrencyCount && !currencyNoticeDismissed
+    ? `${excludedCurrencyCount} produit(s) hors FCFA masque(s) pour eviter de melanger les devises a la caisse.` : ''
+  const cartIds = [...new Set(cart.map((item) => item.product_id))].sort().join(',')
+  const cartIdentity = cart.map((item) => item.product_id).join(',')
+  const scanQueue = useRef<Promise<void>>(Promise.resolve())
+  const scanVersion = useRef(0)
+
   useEffect(() => {
-    setLoadingProducts(true)
-    setProductsError('')
-    getProducts()
-      .then((data) => {
-        const activeProducts = data.filter((product) => product.status === 'active' && product.quantity > 0)
-        const availableProducts = activeProducts.filter((product) => product.currency === 'XOF')
-        const excludedCurrencyCount = activeProducts.length - availableProducts.length
-        const currentCart = useSalesStore.getState().cart
-        const productMap = new Map(availableProducts.map((product) => [product.id, product]))
-        const removedCount = currentCart.filter((item) => !productMap.has(item.product_id)).length
-        const reducedCount = currentCart.filter((item) => {
-          const product = productMap.get(item.product_id)
-          return product && item.quantity > product.quantity
-        }).length
+    scanVersion.current += 1
+    setCurrencyNoticeDismissed(false)
+    setVariantPickerGroup(null)
+    setScannerNotice(null)
+    setStockNotice('')
+    return () => { scanVersion.current += 1 }
+  }, [user?.id, ownerId])
 
-        setProducts(availableProducts)
-        setCurrencyNotice(
-          excludedCurrencyCount > 0
-            ? `${excludedCurrencyCount} produit(s) hors FCFA masque(s) pour eviter de melanger les devises a la caisse.`
-            : ''
-        )
-        syncCartStock(availableProducts)
-
-        const notices: string[] = []
-        if (currentCart.length > 0 && !restoredDraftNoticeShown.current) {
-          notices.push('Votre panier en cours a ete restaure.')
-          restoredDraftNoticeShown.current = true
-        }
-        if (removedCount > 0) notices.push(`${removedCount} article(s) indisponible(s) retire(s) du panier.`)
-        else if (reducedCount > 0) notices.push(`${reducedCount} quantite(s) ajustee(s) au stock disponible.`)
-        setStockNotice(notices.join(' '))
-      })
-      .catch((error: unknown) => {
-        console.error(error)
-        setProductsError(error instanceof Error ? error.message : 'Impossible de charger les produits')
-      })
-      .finally(() => setLoadingProducts(false))
-  }, [refreshKey, syncCartStock])
+  useEffect(() => {
+    if (!user?.id || draftOwnerId !== user.id || !cartIds) return
+    const abort = new AbortController()
+    const ids = cartIds.split(',')
+    void getCartProducts(ids, abort.signal).then((available) => {
+      if (abort.signal.aborted || useSalesStore.getState().draftOwnerId !== user.id) return
+      const current = useSalesStore.getState()
+      if (current.checkoutRequest) return
+      const productMap = new Map(available.map((product) => [product.id, product]))
+      const changed = current.cart.some((item) => ids.includes(item.product_id)
+        && (!productMap.has(item.product_id) || item.quantity > productMap.get(item.product_id)!.quantity))
+      syncCartStock(available, ids)
+      setStockNotice(changed ? 'Le panier a ete ajuste au stock disponible.'
+        : !restoredDraftNoticeShown.current ? 'Votre panier en cours a ete restaure.' : '')
+      restoredDraftNoticeShown.current = true
+    }).catch((cause: unknown) => {
+      if (!abort.signal.aborted) setStockNotice(cause instanceof Error ? cause.message : 'Verification du stock impossible.')
+    })
+    return () => abort.abort()
+  }, [cartIds, cartIdentity, draftOwnerId, refreshKey, syncCartStock, user?.id, ownerId])
 
   useEffect(() => {
     if (cart.length === 0) {
@@ -210,37 +210,7 @@ export function POSInterface({
     return Math.max(0, product.quantity - inCart)
   }, [activeCart])
 
-  const groupedProducts = useMemo(() => buildProductGroups(products), [products])
-
-  const filteredGroups = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase('fr')
-    const normalizedQuery = normalizeBarcodeLookupValue(search)
-
-    return groupedProducts.filter((group) => {
-      if (!query && !normalizedQuery) return true
-
-      const matchesText = [
-        group.name,
-        group.category?.name,
-        ...group.variants.flatMap((variant) => [variant.size, variant.color]),
-      ]
-        .filter(Boolean)
-        .some((value) => value!.toLocaleLowerCase('fr').includes(query))
-
-      if (matchesText) return true
-      if (!normalizedQuery) return false
-
-      return group.variants.some((variant) => {
-        const barcode = normalizeBarcodeLookupValue(variant.barcode)
-        const sku = normalizeBarcodeLookupValue(variant.sku)
-
-        return (
-          (barcode && barcode.includes(normalizedQuery))
-          || (sku && sku.includes(normalizedQuery))
-        )
-      })
-    })
-  }, [groupedProducts, search])
+  const filteredGroups = catalogue.groups
 
   const variantPickerVariants = useMemo(() => {
     if (!variantPickerGroup) return []
@@ -300,69 +270,57 @@ export function POSInterface({
     })
   ), [selectedVariantColor, selectedVariantSize, variantPickerVariants])
 
-  const findProductByScanCode = useCallback((rawValue: string) => {
-    const normalizedValue = normalizeBarcodeLookupValue(rawValue)
-    if (!normalizedValue) return null
-
-    return products.find((product) => (
-      product.status === 'active'
-      && product.quantity > 0
-      && product.currency === 'XOF'
-      && (
-        normalizeBarcodeLookupValue(product.barcode) === normalizedValue
-        || normalizeBarcodeLookupValue(product.sku) === normalizedValue
-      )
-    )) ?? null
-  }, [products])
-
   const handleAddToCart = useCallback((product: Product) => {
-    const remaining = getRemainingQuantity(product)
-    if (remaining <= 0) return
-
+    const state = useSalesStore.getState()
+    if (state.checkoutRequest) {
+      setScannerNotice({ type: 'error', message: 'Verifiez la precedente tentative de paiement avant de modifier le panier.' })
+      return false
+    }
+    const inCart = state.cart.find((item) => item.product_id === product.id)?.quantity ?? 0
+    if (inCart >= product.quantity) {
+      setScannerNotice({ type: 'error', message: 'Stock disponible deja dans le panier.' })
+      return false
+    }
+    syncCartStock([product], [product.id])
     const item: CartItem = {
-      product_id: product.id,
-      product_name: formatProductLabel(product),
-      product_base_name: product.name,
-      variant_label: getProductVariantSummary(product) || undefined,
-      unit_price: product.selling_price,
-      quantity: 1,
-      total: product.selling_price,
-      max_quantity: product.quantity,
-      image_url: product.image_url,
-      size: product.size,
-      color: product.color,
-      sku: product.sku,
-      barcode: product.barcode,
+      product_id: product.id, product_name: formatProductLabel(product), product_base_name: product.name,
+      variant_label: getProductVariantSummary(product) || undefined, unit_price: product.selling_price,
+      quantity: 1, total: product.selling_price, max_quantity: product.quantity,
+      image_url: product.image_url, size: product.size, color: product.color, sku: product.sku, barcode: product.barcode,
     }
     addToCart(item)
-  }, [addToCart, getRemainingQuantity])
+    return true
+  }, [addToCart, syncCartStock])
 
-  const handleBarcodeScan = useCallback((rawValue: string) => {
-    const scannedValue = rawValue.trim()
-    if (!scannedValue) return
-
-    const matchedProduct = findProductByScanCode(scannedValue)
-    if (!matchedProduct) {
-      setSearch(scannedValue)
-      setScannerNotice({
-        type: 'error',
-        message: `Code introuvable : ${scannedValue}. Verifiez le code-barres ou la reference du produit.`,
+  const handleBarcodeScan = useCallback((rawValue: string, quiet = false) => {
+    const code = rawValue.trim()
+    if (!code || !actorId) return
+    const version = scanVersion.current
+    const actor = actorId
+    scanQueue.current = scanQueue.current.then(async () => {
+      if (version !== scanVersion.current) return
+      const product = await lookupCatalogueCode(code, 'pos')
+      if (version !== scanVersion.current || useSalesStore.getState().draftOwnerId !== actor
+        || document.querySelector('[role="dialog"]')) return
+      if (!product) {
+        if (!quiet) {
+          setSearch(code)
+          setScannerNotice({ type: 'error', message: `Code introuvable : ${code}. Verifiez la reference de la variante.` })
+        }
+        return
+      }
+      if (handleAddToCart(product)) {
+        setSearch('')
+        setScannerNotice({ type: 'success', message: `${formatProductLabel(product)} ajoute au panier via scan.` })
+      }
+    }).catch((cause: unknown) => {
+      if (version === scanVersion.current) setScannerNotice({
+        type: 'error', message: cause instanceof Error ? cause.message : 'Lecture du code impossible.',
       })
-      return
-    }
-
-    handleAddToCart(matchedProduct)
-    setSearch('')
-    setScannerNotice({
-      type: 'success',
-      message: `${formatProductLabel(matchedProduct)} ajoute au panier via scan.`,
     })
-  }, [findProductByScanCode, handleAddToCart])
+  }, [handleAddToCart, actorId])
 
-  useBarcodeScanner({
-    enabled: !loadingProducts,
-    onScan: handleBarcodeScan,
-  })
+  useBarcodeScanner({ enabled: !!user?.id, onScan: handleBarcodeScan })
 
   const handleSelectGroup = (group: ProductGroup) => {
     const availableVariants = group.variants.filter((variant) => getRemainingQuantity(variant) > 0)
@@ -397,7 +355,7 @@ export function POSInterface({
         <div key={draft.id} className="flex min-w-0 items-center gap-2 border-b py-1">
           <span className="min-w-0 flex-1 truncate text-xs">{draft.customerName || 'Client comptoir'} · {draft.cart.length} article(s)</span>
           <button type="button" title="Reprendre le panier" aria-label="Reprendre le panier" disabled={activeCart.length > 0}
-            className="shrink-0 p-2 disabled:opacity-30" onClick={() => { resumeCart(draft.id); syncCartStock(products) }}><Play size={16} /></button>
+            className="shrink-0 p-2 disabled:opacity-30" onClick={() => resumeCart(draft.id)}><Play size={16} /></button>
           <button type="button" title="Supprimer le panier en attente" aria-label="Supprimer le panier en attente"
             className="shrink-0 p-2 text-red-600" onClick={() => deleteHeldCart(draft.id)}><Trash2 size={16} /></button>
         </div>
@@ -693,12 +651,8 @@ export function POSInterface({
                 if (event.key !== 'Enter') return
                 const rawValue = event.currentTarget.value.trim()
                 if (!rawValue) return
-
-                const matchedProduct = findProductByScanCode(rawValue)
-                if (!matchedProduct) return
-
                 event.preventDefault()
-                handleBarcodeScan(rawValue)
+                handleBarcodeScan(rawValue, true)
               }}
               className="h-12 w-full rounded-full border border-[#2D7D7D]/[0.14] bg-white pl-10 pr-4 text-sm text-[#1A3636] placeholder:text-[#6B7682] transition-all focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)]"
             />
@@ -762,7 +716,7 @@ export function POSInterface({
           {currencyNotice && (
             <div className="flex items-start justify-between gap-3 rounded-xl border border-[#2D7D7D]/15 bg-[#2D7D7D]/5 px-3 py-2.5 text-xs text-[#2D7D7D]">
               <span>{currencyNotice}</span>
-              <button type="button" onClick={() => setCurrencyNotice('')} className="font-semibold">Fermer</button>
+              <button type="button" onClick={() => setCurrencyNoticeDismissed(true)} className="font-semibold">Fermer</button>
             </div>
           )}
 
@@ -844,7 +798,7 @@ export function POSInterface({
                     <div className="mb-2 flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F8FAFD] p-2">
                       {group.image_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={group.image_url} alt={group.name} className="h-full w-full object-contain object-center" />
+                        <img loading="lazy" src={group.image_url} alt={group.name} className="h-full w-full object-contain object-center" />
                       ) : (
                         <Package size={20} className="text-[#6B7682]" />
                       )}
@@ -881,6 +835,8 @@ export function POSInterface({
               )}
             </div>
           )}
+          <CataloguePagination offset={catalogue.offset} total={catalogue.page?.totalGroups ?? 0}
+            loading={catalogue.loading} onChange={catalogue.setOffset} />
         </div>
 
         <div className="hidden lg:flex lg:w-80 lg:flex-col lg:gap-3 lg:rounded-2xl lg:border lg:border-[#2D7D7D]/[0.07] lg:bg-white lg:p-4 lg:shadow-[0_6px_20px_rgba(26,54,54,0.06)]">
@@ -895,20 +851,20 @@ export function POSInterface({
               type="button"
               onClick={() => setShowMobileCart(true)}
               aria-label={`Ouvrir le panier, ${itemCount} article(s), total ${formatCurrency(total)}`}
-              className="flex min-w-0 items-center justify-between gap-2 rounded-2xl bg-[#F4F7FB] px-2.5 py-2.5 text-left min-[400px]:gap-3 min-[400px]:px-3 min-[400px]:py-3"
+              className="flex min-w-0 flex-col items-stretch gap-1.5 rounded-2xl bg-[#F4F7FB] px-2.5 py-2.5 text-left min-[400px]:px-3 min-[400px]:py-3"
             >
               <div className="flex min-w-0 items-center gap-2 min-[400px]:gap-3">
-                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl bg-[#6C5CE7]/10 text-[#6C5CE7] min-[400px]:h-11 min-[400px]:w-11">
+                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-[#6C5CE7]/10 text-[#6C5CE7]">
                   <ShoppingCart size={16} className="min-[400px]:h-[18px] min-[400px]:w-[18px]" />
                 </div>
-                <div className="min-w-0">
-                  <p className="truncate text-[10px] font-semibold uppercase tracking-[0.06em] text-[#6B7682] min-[400px]:text-[11px]">A encaisser</p>
-                  <p className="truncate text-[15px] font-bold leading-none text-[#6C5CE7] min-[400px]:text-base">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-semibold uppercase text-[#6B7682] min-[400px]:text-[11px]">A encaisser</p>
+                  <p data-testid="pos-mobile-total" className="text-[15px] font-bold leading-tight text-[#6C5CE7] [overflow-wrap:anywhere] min-[400px]:text-base">
                     {formatCurrency(total)}
                   </p>
                 </div>
               </div>
-              <div className="flex flex-shrink-0 flex-col items-end gap-0.5 text-right">
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-semibold text-[#5C6B73] min-[400px]:text-[11px]">
                   {itemCount} article(s)
                 </span>

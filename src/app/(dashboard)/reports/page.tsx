@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Header } from '@/components/layout/Header'
 import { CashSessionPanel } from '@/components/sales/CashSessionPanel'
 import { Card, MetricCard } from '@/components/ui/Card'
@@ -11,6 +11,9 @@ import {
 } from 'recharts'
 import { closeCashSession, getCashSessionContext, getReportsData, openCashSession, type ReportsRangeInput, type ReportsRangePreset } from '@/lib/supabase/queries'
 import { useAccountRole } from '@/hooks/useAccountRole'
+import { useUser } from '@/hooks/useUser'
+import { getReportProductsForExport } from '@/lib/supabase/reports'
+import type { ReportSnapshot } from '@/lib/reports'
 import { ACCOUNT_ROLE_LABELS } from '@/lib/accountRoles'
 import type { CashSession } from '@/types'
 
@@ -102,54 +105,11 @@ function getRangeSlug(preset: ReportsRangePreset, startDate: string, endDate: st
   return preset
 }
 
-interface ReportsData {
-  monthlyData: { month: string; revenue: number; profit: number }[]
-  allProducts: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number }[]
-  topProducts: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number }[]
-  paymentMethodData: { method: 'cash' | 'wave' | 'orange_money' | 'card'; count: number; invoiced: number; collected: number; due: number }[]
-  topClients: { key: string; name: string; phone: string; salesCount: number; invoiced: number; collected: number; due: number; collectionRate: number }[]
-  totalSold: number
-  avgMargin: number
-  totalInvoiced: number
-  totalCollected: number
-  cashCollected: number
-  estimatedProfitCount: number
-  totalDue: number
-  salesCount: number
-  averageTicket: number
-  collectionRate: number
-  completedCount: number
-  partialCount: number
-  pendingCount: number
-  bestMonth: { month: string; revenue: number; profit: number } | null
-  bestProductByUnits: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number } | null
-  bestProductByProfit: { id: string; name: string; sold: number; revenue: number; profit: number; margin: number } | null
-  bestClientByRevenue: { key: string; name: string; phone: string; salesCount: number; invoiced: number; collected: number; due: number; collectionRate: number } | null
-  highestDueClient: { key: string; name: string; phone: string; salesCount: number; invoiced: number; collected: number; due: number; collectionRate: number } | null
-  sellerBreakdown: {
-    sellerId: string
-    sellerName: string
-    sellerEmail: string
-    sellerRole: 'admin' | 'employee' | 'cashier'
-    salesCount: number
-    totalSold: number
-    totalInvoiced: number
-    totalCollected: number
-    totalDue: number
-    averageTicket: number
-    collectionRate: number
-    lastSaleAt: string | null
-  }[]
-  sellerOptions: {
-    id: string
-    label: string
-    role: 'admin' | 'employee' | 'cashier'
-  }[]
-  appliedSellerId: string | null
-}
+type ReportsData = ReportSnapshot
 
 export default function ReportsPage() {
-  const { isCashier } = useAccountRole()
+  const { isCashier, role } = useAccountRole()
+  const { user, accountOwnerId } = useUser()
   const [rangePreset, setRangePreset] = useState<ReportsRangePreset>('6m')
   const [sellerFilter, setSellerFilter] = useState<string>('all')
   const [customStartDate, setCustomStartDate] = useState(() => {
@@ -158,7 +118,8 @@ export default function ReportsPage() {
     return toDateInputValue(date)
   })
   const [customEndDate, setCustomEndDate] = useState(() => toDateInputValue(new Date()))
-  const [data, setData] = useState<ReportsData | null>(null)
+  const [reportState, setReportState] = useState<{ key: string; data: ReportsData } | null>(null)
+  const [exporting, setExporting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
@@ -167,29 +128,35 @@ export default function ReportsPage() {
   const [activeCashSession, setActiveCashSession] = useState<CashSession | null>(null)
   const [cashSessionHistory, setCashSessionHistory] = useState<CashSession[]>([])
 
+  const reportAbort = useRef<AbortController | null>(null)
+  const exportAbort = useRef<AbortController | null>(null)
+  const reportKey = JSON.stringify({ rangePreset, customStartDate, customEndDate, sellerFilter, actorId:user?.id, accountOwnerId, role })
+  const data = reportState?.key === reportKey ? reportState.data : null
+
   const loadReports = useCallback(async (showRefreshState = false) => {
+    if (!user?.id || !role) return
+    reportAbort.current?.abort()
+    exportAbort.current?.abort()
+    const controller = new AbortController()
+    reportAbort.current = controller
     if (showRefreshState) setRefreshing(true)
     else setLoading(true)
     setError('')
     try {
-      const rangeInput: ReportsRangeInput = {
-        preset: rangePreset,
-        startDate: customStartDate,
-        endDate: customEndDate,
-        sellerId: isCashier || sellerFilter === 'all' ? null : sellerFilter,
-      }
-      setData(await getReportsData(rangeInput) as ReportsData)
-    } catch (err: unknown) {
-      console.error(err)
-      setError(err instanceof Error ? err.message : 'Impossible de charger les rapports')
+      const input: ReportsRangeInput = { preset:rangePreset,startDate:customStartDate,endDate:customEndDate,
+        sellerId:isCashier || sellerFilter==='all' ? null : sellerFilter }
+      const result = await getReportsData(input,controller.signal)
+      if (!controller.signal.aborted) setReportState({ key:reportKey,data:result })
+    } catch (cause: unknown) {
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Impossible de charger les rapports')
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (!controller.signal.aborted) { setLoading(false);setRefreshing(false) }
     }
-  }, [customEndDate, customStartDate, isCashier, rangePreset, sellerFilter])
+  }, [customEndDate, customStartDate, isCashier, rangePreset, sellerFilter, reportKey, user?.id, role])
 
   useEffect(() => {
     void loadReports()
+    return () => { reportAbort.current?.abort();exportAbort.current?.abort() }
   }, [loadReports])
 
   const loadCashSessions = useCallback(async () => {
@@ -287,67 +254,77 @@ export default function ReportsPage() {
     })
   }
 
-  const exportCsv = () => {
+  const exportCsv = async () => {
     if (!data) return
+    const controller = new AbortController()
+    exportAbort.current?.abort()
+    exportAbort.current = controller
+    setExporting(true)
+    try {
+      const products = await getReportProductsForExport(data,controller.signal)
+      if (controller.signal.aborted) return
 
-    const protectSpreadsheetCell = (value: string | number) => {
-      const text = String(value)
-      const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text
-      return `"${safeText.replace(/"/g, '""')}"`
-    }
-    const rows: Array<Array<string | number>> = [
-      ['Rapport Saytu Yef', rangeLabel],
-      ['Vue vendeur', isCashier ? 'Mes ventes personnelles' : (selectedSeller?.label ?? 'Toute l equipe')],
-      [],
-      ['Pilotage'],
-      ['Ventes', data.salesCount],
-      ['Montant facture (FCFA)', Math.round(data.totalInvoiced)],
-      ['Versements rattaches aux ventes de la periode (FCFA)', Math.round(data.totalCollected)],
-      ['Encaissements recus pendant la periode (FCFA)', Math.round(data.cashCollected)],
-      ['Articles avec cout historique estime', data.estimatedProfitCount],
-      ['Solde client (FCFA)', Math.round(data.totalDue)],
-      ['Ticket moyen (FCFA)', Math.round(data.averageTicket)],
-      ['Taux d encaissement (%)', data.collectionRate.toFixed(2)],
-      ['Ventes reglees', data.completedCount],
-      ['Ventes partielles', data.partialCount],
-      ['Ventes en attente', data.pendingCount],
-      [],
-      ['Synthèse mensuelle'],
-      ['Mois', 'Revenus HT (FCFA)', 'Bénéfice brut (FCFA)'],
-      ...data.monthlyData.map((month) => [month.month, Math.round(month.revenue), Math.round(month.profit)]),
-      [],
-      ['Produits vendus'],
-      ['Produit', 'Unités vendues', 'Revenus HT (FCFA)', 'Bénéfice brut (FCFA)', 'Marge (%)'],
-      ...data.allProducts.map((product) => [
-        product.name,
-        product.sold,
-        Math.round(product.revenue),
-        Math.round(product.profit),
-        product.margin.toFixed(2),
-      ]),
-      [],
-      ['Performance equipe'],
-      ['Vendeur', 'Role', 'Ventes', 'Articles', 'Facture (FCFA)', 'Encaisse (FCFA)', 'Reste (FCFA)', 'Ticket moyen (FCFA)', 'Taux encaissement (%)'],
-      ...data.sellerBreakdown.map((seller) => [
-        seller.sellerName,
-        ACCOUNT_ROLE_LABELS[seller.sellerRole],
-        seller.salesCount,
-        seller.totalSold,
-        Math.round(seller.totalInvoiced),
-        Math.round(seller.totalCollected),
-        Math.round(seller.totalDue),
-        Math.round(seller.averageTicket),
-        seller.collectionRate.toFixed(2),
-      ]),
-    ]
-    const csv = rows.map((row) => row.map(protectSpreadsheetCell).join(',')).join('\n')
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `rapport-saytu-yef-${getRangeSlug(rangePreset, customStartDate, customEndDate)}-${new Date().toISOString().slice(0, 10)}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+      const protectSpreadsheetCell = (value: string | number) => {
+        const text = String(value)
+        const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text
+        return `"${safeText.replace(/"/g, '""')}"`
+      }
+      const rows: Array<Array<string | number>> = [
+        ['Rapport Saytu Yef', rangeLabel],
+        ['Vue vendeur', isCashier ? 'Mes ventes personnelles' : (selectedSeller?.label ?? 'Toute l equipe')],
+        [],
+        ['Pilotage'],
+        ['Ventes', data.salesCount],
+        ['Montant facture (FCFA)', Math.round(data.totalInvoiced)],
+        ['Versements rattaches aux ventes de la periode (FCFA)', Math.round(data.totalCollected)],
+        ['Encaissements recus pendant la periode (FCFA)', Math.round(data.cashCollected)],
+        ['Articles avec cout historique estime', data.estimatedProfitCount],
+        ['Solde client (FCFA)', Math.round(data.totalDue)],
+        ['Ticket moyen (FCFA)', Math.round(data.averageTicket)],
+        ['Taux d encaissement (%)', data.collectionRate.toFixed(2)],
+        ['Ventes reglees', data.completedCount],
+        ['Ventes partielles', data.partialCount],
+        ['Ventes en attente', data.pendingCount],
+        [],
+        ['Synthèse mensuelle'],
+        ['Mois', 'Revenus HT (FCFA)', 'Bénéfice brut (FCFA)'],
+        ...data.monthlyData.map((month) => [month.month, Math.round(month.revenue), Math.round(month.profit)]),
+        [],
+        ['Produits vendus'],
+        ['Produit', 'Unités vendues', 'Revenus HT (FCFA)', 'Bénéfice brut (FCFA)', 'Marge (%)'],
+        ...products.map((product) => [
+          product.name,
+          product.sold,
+          Math.round(product.revenue),
+          Math.round(product.profit),
+          product.margin.toFixed(2),
+        ]),
+        [],
+        ['Performance equipe'],
+        ['Vendeur', 'Role', 'Ventes', 'Articles', 'Facture (FCFA)', 'Encaisse (FCFA)', 'Reste (FCFA)', 'Ticket moyen (FCFA)', 'Taux encaissement (%)'],
+        ...data.sellerBreakdown.map((seller) => [
+          seller.sellerName,
+          ACCOUNT_ROLE_LABELS[seller.sellerRole],
+          seller.salesCount,
+          seller.totalSold,
+          Math.round(seller.totalInvoiced),
+          Math.round(seller.totalCollected),
+          Math.round(seller.totalDue),
+          Math.round(seller.averageTicket),
+          seller.collectionRate.toFixed(2),
+        ]),
+      ]
+      const csv = rows.map((row) => row.map(protectSpreadsheetCell).join(',')).join('\n')
+      const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `rapport-saytu-yef-${getRangeSlug(rangePreset, customStartDate, customEndDate)}-${new Date().toISOString().slice(0, 10)}.csv`
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (cause: unknown) {
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Export impossible.')
+    } finally { setExporting(false) }
   }
 
   return (
@@ -406,8 +383,8 @@ export default function ReportsPage() {
           <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:w-auto">
             <button
               type="button"
-              onClick={exportCsv}
-              disabled={!data || loading}
+              onClick={() => void exportCsv()}
+              disabled={!data || loading || refreshing || exporting}
               className="flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
             >
               <Download size={14} /> Exporter CSV
@@ -587,7 +564,7 @@ export default function ReportsPage() {
                   <BarChart data={data?.monthlyData ?? []} margin={{ top: 5, right: 5, bottom: 0, left: 0 }} barCategoryGap="18%" maxBarSize={28}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                     <XAxis dataKey="month" tick={{ fill: '#9AA7AE', fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#9AA7AE', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(value) => formatCurrencyCompact(Number(value)).replace(' FCFA', '')} width={44} />
+                    <YAxis tick={{ fill: '#9AA7AE', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(value) => formatCurrencyCompact(Number(value)).replace(' FCFA', '')} width={96} />
                     <Tooltip
                       contentStyle={{ background: '#F4F7FB', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', fontSize: '12px' }}
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1,32 +1,66 @@
-import { describe,expect,it,vi } from 'vitest'
-const fixture = vi.hoisted(() => ({ calls:[] as { table:string; field:string; value:unknown }[],role:'admin' }))
-vi.mock('./account',() => ({ getAccountContext:async () => ({ user:{ id:'seller' },member:{ role:fixture.role } }) }))
-vi.mock('./client',() => ({ ensureBrowserSupabaseSession:async () => undefined,createClient:() => ({ from:(table:string) => {
-  const rows = table === 'sales' ? [{ id:'s1',seller_id:'seller',customer_name:'Client',total:1000,tax:0,amount_paid:1000,amount_due:0,payment_status:'completed',payment_method:'cash',created_at:'2026-10-10T12:00:00Z',items:[{ product_id:'p1',product_name:'Product',quantity:1,unit_price:1000,total:1000,unit_cost:400 }] }]
-    : table === 'products' ? [{ id:'p1',name:'Product',buying_price:900,selling_price:1000,quantity:10 }]
-      : table === 'sale_payments' ? [{ amount:300,payment_method:'wave',created_at:'2026-10-10T12:00:00Z',sale:{ seller_id:'seller',payment_status:'partial' } }] : [{ id:'seller',full_name:'Seller',email:'fixture@example.invalid',role:'admin' }]
-  const chain = { select:() => chain,order:() => chain,in:() => chain,range:() => chain,
-    gte:(field:string,value:unknown) => { fixture.calls.push({ table,field,value });return chain },
-    lt:(field:string,value:unknown) => { fixture.calls.push({ table,field,value });return chain },
-    eq:(field:string,value:unknown) => { fixture.calls.push({ table,field,value });return chain },
-    then:(resolve:(value:unknown) => unknown) => Promise.resolve({ data:rows,error:null }).then(resolve) }
-  return chain
-} }) }))
+import { beforeEach,expect,it,vi } from 'vitest'
+const fixture = vi.hoisted(() => ({rpc:vi.fn(),context:vi.fn(),role:'admin'}))
+vi.mock('./account',() => ({ getAccountContext:fixture.context }))
+vi.mock('./client',() => ({ ensureBrowserSupabaseSession:async () => {},createClient:() => ({rpc:fixture.rpc,
+  from:() => {throw new Error('A report must not download raw tables')} }) }))
 import { getReportsData } from './queries'
-describe('reports payment periods and cost snapshots', () => {
-  it('counts actual payment dates separately from the sales cohort and never replaces historical costs', async () => {
-    fixture.calls = [];fixture.role = 'admin'
-    const report = await getReportsData({ preset:'custom',startDate:'2026-10-01',endDate:'2026-10-31' })
-    expect(report.totalCollected).toBe(1000)
-    expect(report.cashCollected).toBe(300)
-    expect(report.paymentMethodData.find((entry) => entry.method === 'wave')?.collected).toBe(300)
-    expect(report.allProducts[0].profit).toBe(600)
-    expect(report.estimatedProfitCount).toBe(0)
-    expect(fixture.calls.filter((call) => call.table === 'sale_payments' && call.field === 'created_at')).toHaveLength(2)
+import { getReportProductsForExport } from './reports'
+
+const range={preset:'custom' as const,startDate:'2026-10-01',endDate:'2026-10-31'}
+const raw=() => ({ownerId:'owner',version:'v1',appliedSellerId:fixture.role==='cashier'?'seller':null,
+  monthlyData:[{key:'2026-10-10',revenue:1000,profit:600}],bestMonth:{key:'2026-10-10',revenue:1000,profit:600},
+  topProducts:[{id:'p1',name:'Product',sold:1,revenue:1000,profit:600,margin:60}],totalCollected:1000,cashCollected:300,
+  paymentMethodData:[{method:'wave',collected:300}],estimatedProfitCount:0})
+beforeEach(() => {
+  fixture.role='admin';fixture.rpc.mockReset();fixture.context.mockReset()
+  fixture.context.mockImplementation(async () => ({user:{id:'seller'},business:{id:'owner'},member:{role:fixture.role}}))
+  fixture.rpc.mockImplementation(() => Promise.resolve({data:raw(),error:null}))
+})
+it('uses only the aggregate RPC, preserves payment indicators and labels local buckets',async () => {
+  const r=await getReportsData(range)
+  expect(r.totalCollected).toBe(1000);expect(r.cashCollected).toBe(300)
+  expect(r.topProducts[0].profit).toBe(600)
+  expect(r.monthlyData[0]).toMatchObject({revenue:1000,profit:600})
+  expect(r.monthlyData[0].month).not.toBe('2026-10-10')
+  expect(r).not.toHaveProperty('allProducts')
+  expect(fixture.rpc).toHaveBeenCalledWith('get_reports_summary',{p_options:expect.objectContaining({
+    start:r.request.start,endExclusive:r.request.endExclusive,granularity:'day',timeZone:expect.any(String),sellerId:null})})
+})
+it('forces a cashier request to its own seller in addition to server-side enforcement',async () => {
+  fixture.role='cashier'
+  const r=await getReportsData({...range,sellerId:'another-seller'})
+  expect(r.appliedSellerId).toBe('seller')
+  expect(fixture.rpc.mock.calls[0][1].p_options.sellerId).toBe('seller')
+})
+it('exports all product aggregates by cursor with the original report snapshot',async () => {
+  const snapshot=await getReportsData(range)
+  const products=Array.from({length:123},(_,i) => ({id:`p${i}`,name:`Product ${i}`,sold:1,revenue:100000-i,profit:100,margin:1}))
+  fixture.rpc.mockImplementation((_name,args) => {
+    const offset=args.p_options.after ? products.findIndex((p) => p.id===args.p_options.after.id)+1 : 0
+    const rows=products.slice(offset,offset+50),last=rows.at(-1)
+    return Promise.resolve({data:{ownerId:'owner',version:'v1',appliedSellerId:null,products:rows,totalProducts:123,
+      nextCursor:last ? {id:last.id,revenue:String(last.revenue)} : null},error:null})
   })
-  it('forces a cashier report and its payments to the authenticated seller', async () => {
-    fixture.calls = [];fixture.role = 'cashier'
-    await getReportsData({ preset:'custom',startDate:'2026-10-01',endDate:'2026-10-31',sellerId:'another-seller' })
-    expect(fixture.calls).toEqual(expect.arrayContaining([{ table:'sales',field:'seller_id',value:'seller' },{ table:'sale_payments',field:'sale.seller_id',value:'seller' }]))
-  })
+  expect(await getReportProductsForExport(snapshot)).toHaveLength(123)
+  expect(fixture.rpc.mock.calls.slice(1).map((call)=>call[1].p_options.after?.id)).toEqual([undefined,'p49','p99'])
+})
+it('refuses a mixed export if financial data changed after the summary',async () => {
+  const snapshot=await getReportsData(range)
+  fixture.rpc.mockResolvedValue({data:{ownerId:'owner',version:'v2',appliedSellerId:null,products:[],totalProducts:0},error:null})
+  await expect(getReportProductsForExport(snapshot)).rejects.toThrow(/Actualisez/)
+})
+it('does not apply a stale response after a role or shop change',async () => {
+  fixture.context.mockResolvedValueOnce({user:{id:'seller'},business:{id:'owner'},member:{role:'admin'}})
+    .mockResolvedValueOnce({user:{id:'seller'},business:{id:'owner'},member:{role:'cashier'}})
+  await expect(getReportsData(range)).rejects.toThrow(/Session modifiee/)
+})
+it('fails closed when the migration is missing instead of loading the entire history',async () => {
+  fixture.rpc.mockResolvedValue({data:null,error:{code:'PGRST202',message:'missing'}})
+  await expect(getReportsData(range)).rejects.toThrow(/migration/)
+  expect(fixture.rpc).toHaveBeenCalledTimes(1)
+})
+it('rejects a cashier response scoped to another seller',async () => {
+  fixture.role='cashier'
+  fixture.rpc.mockResolvedValue({data:{...raw(),appliedSellerId:'other'},error:null})
+  await expect(getReportsData(range)).rejects.toThrow(/Session modifiee/)
 })

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -26,13 +26,16 @@ import {
 } from 'lucide-react'
 import { UsageLimitNotice } from '@/components/subscriptions/UsageLimitNotice'
 import { useBarcodeScanner } from '@/hooks/useBarcodeScanner'
+import { useCataloguePage } from '@/hooks/useCataloguePage'
+import { useUser } from '@/hooks/useUser'
+import { CataloguePagination } from '@/components/ui/CataloguePagination'
+import { emptyCatalogueSummary, getCatalogueExport, getCataloguePage, lookupCatalogueCode } from '@/lib/supabase/catalogue'
 import { useSubscriptionOverview } from '@/hooks/useSubscriptionOverview'
 import { getPlanDefinition, getUsageLimit, getUsageRatio } from '@/lib/subscriptions'
 import { buildProductGroups, getProductGroupPriceLabel } from '@/lib/productGroups'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
-import { normalizeBarcodeLookupValue } from '@/lib/barcodes'
 import { CategoryManager } from './CategoryManager'
 import { BarcodeLabelsModal } from './BarcodeLabelsModal'
 import { StockAdjustmentModal } from './StockAdjustmentModal'
@@ -44,7 +47,7 @@ import {
   getProductVariantSummary,
   getStockStatus,
 } from '@/lib/utils'
-import { deleteProductGroup, getProducts } from '@/lib/supabase/queries'
+import { deleteProductGroup } from '@/lib/supabase/queries'
 import type { Product, ProductGroup } from '@/types'
 
 interface ProductTableProps {
@@ -84,10 +87,6 @@ function normalizePhone(phone?: string): string {
   if (digits.startsWith('00')) digits = digits.slice(2)
   if (digits.length === 9 && digits.startsWith('7')) digits = `221${digits}`
   return digits
-}
-
-function normalizeScannableValue(value?: string | null) {
-  return normalizeBarcodeLookupValue(value).toLocaleLowerCase('fr')
 }
 
 function getGroupStockTone(group: ProductGroup) {
@@ -165,13 +164,11 @@ export function ProductTable({
 }: ProductTableProps) {
   const { overview } = useSubscriptionOverview()
   const [search, setSearch] = useState('')
+  const [scannedGroupId, setScannedGroupId] = useState<string | undefined>()
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [supplierFilter, setSupplierFilter] = useState('all')
   const [stockFilter, setStockFilter] = useState<'all' | 'available' | 'low' | 'out' | 'restock'>('all')
   const [sortBy, setSortBy] = useState<'recent' | 'name' | 'stock-low' | 'stock-high' | 'variants' | 'restock-cost'>('recent')
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [deleteCandidate, setDeleteCandidate] = useState<ProductGroup | null>(null)
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null)
@@ -185,32 +182,57 @@ export function ProductTable({
   const [barcodeLabelTarget, setBarcodeLabelTarget] = useState<{ groupId: string; variantId?: string | null } | null>(null)
   const [showInventoryBarcodeLabels, setShowInventoryBarcodeLabels] = useState(false)
 
-  const mergeActivatedProduct = useCallback((list: Product[]) => {
-    if (!activatedProduct || list.some((product) => product.id === activatedProduct.id)) {
-      return list
-    }
-    return [activatedProduct, ...list]
-  }, [activatedProduct])
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    setLoadError('')
-
-    try {
-      const data = await getProducts()
-      setProducts(mergeActivatedProduct(data))
-      if (activatedProduct) onActivatedProductMerged?.()
-    } catch (error: unknown) {
-      console.error(error)
-      setLoadError(error instanceof Error ? error.message : "Impossible de charger l'inventaire.")
-    } finally {
-      setLoading(false)
-    }
-  }, [activatedProduct, mergeActivatedProduct, onActivatedProductMerged])
+  const { user, accountOwnerId } = useUser()
+  const accountKey = `${user?.id ?? ''}:${accountOwnerId ?? ''}`
+  const catalogueOptions = useMemo(() => ({
+    scope: 'inventory' as const, search, group: scannedGroupId, category: categoryFilter, supplier: supplierFilter, stock: stockFilter, sort: sortBy,
+  }), [search, scannedGroupId, categoryFilter, supplierFilter, stockFilter, sortBy])
+  const catalogue = useCataloguePage(catalogueOptions, refreshKey)
+  const reloadCatalogue = catalogue.reload
+  const [bulkResult, setBulkResult] = useState<{ actor: string; products: Product[] }>({ actor: '', products: [] })
+  const [labelResult, setLabelResult] = useState<{ actor: string; products: Product[] }>({ actor: '', products: [] })
+  const bulkProducts = useMemo(() => bulkResult.actor === accountKey ? bulkResult.products : [], [bulkResult, accountKey])
+  const labelProducts = labelResult.actor === accountKey ? labelResult.products : []
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [exportBusy, setExportBusy] = useState(false)
+  const [bulkRevision, setBulkRevision] = useState(0)
+  const scanVersion = useRef(0)
+  const loading = catalogue.loading || (inventoryView === 'restock' && bulkBusy)
+  const loadError = catalogue.error
+  const products = catalogue.page?.products ?? []
+  const load = useCallback(() => {
+    reloadCatalogue()
+    setBulkRevision((value) => value + 1)
+  }, [reloadCatalogue])
 
   useEffect(() => {
-    void load()
-  }, [load, refreshKey])
+    scanVersion.current += 1
+    setShowInventoryBarcodeLabels(false)
+    setBarcodeLabelTarget(null)
+    setAdjustmentProduct(null)
+    setHistoryProduct(null)
+    setDeleteCandidate(null)
+    return () => { scanVersion.current += 1 }
+  }, [accountKey])
+
+  useEffect(() => {
+    if (!activatedProduct) return
+    load()
+    onActivatedProductMerged?.()
+  }, [activatedProduct, load, onActivatedProductMerged])
+
+  useEffect(() => {
+    if (inventoryView !== 'restock' || !user?.id) return
+    const abort = new AbortController()
+    setBulkBusy(true)
+    setBulkResult({ actor: accountKey, products: [] })
+    void getCatalogueExport(catalogueOptions, abort.signal).then((rows) => {
+      if (!abort.signal.aborted) setBulkResult({ actor: accountKey, products: rows })
+    }).catch((cause: unknown) => {
+      if (!abort.signal.aborted) setFeedback({ type: 'error', message: cause instanceof Error ? cause.message : 'Chargement impossible.' })
+    }).finally(() => { if (!abort.signal.aborted) setBulkBusy(false) })
+    return () => abort.abort()
+  }, [inventoryView, catalogueOptions, bulkRevision, refreshKey, user?.id, accountKey])
 
   useEffect(() => {
     if (!feedback) return
@@ -224,160 +246,46 @@ export function ProductTable({
     }
   }, [inventoryView, readOnly])
 
-  const productGroups = useMemo(() => buildProductGroups(products), [products])
+  const productGroups = catalogue.groups
   const barcodeLabelGroup = useMemo(() => (
     barcodeLabelTarget ? productGroups.find((group) => group.id === barcodeLabelTarget.groupId) ?? null : null
   ), [barcodeLabelTarget, productGroups])
 
-  const handleInventoryScan = useCallback((rawValue: string) => {
-    const scannedValue = rawValue.trim()
-    if (!scannedValue) return
-
-    const normalizedValue = normalizeScannableValue(scannedValue)
-    const matchedGroup = productGroups.find((group) => (
-      group.variants.some((variant) => (
-        normalizeScannableValue(variant.barcode) === normalizedValue
-        || normalizeScannableValue(variant.sku) === normalizedValue
-      ))
-    ))
-
-    setSearch(scannedValue)
-    setInventoryView('products')
-    setShowMobileFilters(false)
-
-    if (!matchedGroup) {
-      setFeedback({
-        type: 'error',
-        message: `Code introuvable : ${scannedValue}. Verifiez le code-barres ou la reference de la variante.`,
-      })
-      return
-    }
-
-    setExpandedGroupIds((current) => current.includes(matchedGroup.id) ? current : [matchedGroup.id, ...current])
-    setFeedback({
-      type: 'success',
-      message: `${matchedGroup.name} retrouve via scan. La liste a ete filtree sur la reference ${scannedValue}.`,
+  const handleInventoryScan = useCallback((rawValue: string, quiet = false) => {
+    const code = rawValue.trim()
+    if (!code || !user?.id) return
+    const version = scanVersion.current
+    void lookupCatalogueCode(code, 'inventory').then((product) => {
+      if (version !== scanVersion.current || document.querySelector('[role="dialog"]')) return
+      if (!product) {
+        if (!quiet) setFeedback({ type: 'error', message: `Code introuvable : ${code}.` })
+        return
+      }
+      setSearch(code)
+      setCategoryFilter('all')
+      setSupplierFilter('all')
+      setStockFilter('all')
+      setInventoryView('products')
+      setShowMobileFilters(false)
+      const groupId = product.product_group_id || product.id
+      setScannedGroupId(groupId)
+      setExpandedGroupIds((current) => current.includes(groupId) ? current : [groupId, ...current])
+      setFeedback({ type: 'success', message: `${product.name} retrouve via scan.` })
+    }).catch((cause: unknown) => {
+      if (version === scanVersion.current) setFeedback({ type: 'error', message: cause instanceof Error ? cause.message : 'Lecture impossible.' })
     })
-  }, [productGroups])
+  }, [user?.id])
 
-  useBarcodeScanner({
-    enabled: !loading,
-    onScan: handleInventoryScan,
-  })
-
-  const categoryOptions = useMemo(() => (
-    Array.from(
-      new Map(
-        productGroups
-          .filter((group) => group.category)
-          .map((group) => [group.category!.id, group.category!])
-      ).values()
-    ).sort((left, right) => left.name.localeCompare(right.name))
-  ), [productGroups])
-
-  const supplierOptions = useMemo(() => (
-    Array.from(
-      new Map(
-        productGroups
-          .filter((group) => group.supplier)
-          .map((group) => [group.supplier!.id, group.supplier!])
-      ).values()
-    ).sort((left, right) => left.name.localeCompare(right.name))
-  ), [productGroups])
-
-  const summary = useMemo(() => productGroups.reduce((acc, group) => {
-    const groupRestockUnits = group.variants.reduce((sum, variant) => sum + getRestockGap(variant), 0)
-    const groupBuyingValue = group.variants.reduce((sum, variant) => sum + (variant.buying_price * variant.quantity), 0)
-    const groupSellingValue = group.variants.reduce((sum, variant) => sum + (variant.selling_price * variant.quantity), 0)
-
-    acc.products += 1
-    acc.variants += group.variant_count
-    acc.units += group.quantity
-    acc.buyingValue += groupBuyingValue
-    acc.sellingValue += groupSellingValue
-    acc.lowVariants += group.low_variant_count
-    acc.outVariants += group.out_variant_count
-    if (groupRestockUnits > 0) {
-      acc.restockProducts += 1
-      acc.restockUnits += groupRestockUnits
-      acc.restockCost += group.variants.reduce((sum, variant) => sum + (getRestockGap(variant) * variant.buying_price), 0)
-    }
-    return acc
-  }, {
-    products: 0,
-    variants: 0,
-    units: 0,
-    buyingValue: 0,
-    sellingValue: 0,
-    lowVariants: 0,
-    outVariants: 0,
-    restockProducts: 0,
-    restockUnits: 0,
-    restockCost: 0,
-  }), [productGroups])
-
-  const filteredGroups = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase('fr')
-    const normalizedQuery = normalizeScannableValue(search)
-
-    return productGroups
-      .filter((group) => {
-        const matchesText = !query || [
-          group.name,
-          group.description,
-          group.category?.name,
-          group.supplier?.name,
-          ...group.variants.flatMap((variant) => [variant.size, variant.color]),
-        ]
-          .filter(Boolean)
-          .some((value) => value!.toLocaleLowerCase('fr').includes(query))
-
-        const matchesScannable = !!normalizedQuery && group.variants.some((variant) => (
-          normalizeScannableValue(variant.barcode).includes(normalizedQuery)
-          || normalizeScannableValue(variant.sku).includes(normalizedQuery)
-        ))
-
-        const matchesSearch = matchesText || matchesScannable
-
-        const matchesCategory = categoryFilter === 'all' || group.category_id === categoryFilter
-        const matchesSupplier = supplierFilter === 'all'
-          || (supplierFilter === 'none' ? !group.supplier_id : group.supplier_id === supplierFilter)
-
-        const groupAllOut = group.variants.every((variant) => variant.quantity === 0)
-        const groupHasLow = group.variants.some((variant) => variant.quantity > 0 && variant.quantity <= variant.min_quantity)
-        const groupHasAvailable = group.variants.some((variant) => variant.quantity > variant.min_quantity)
-        const groupNeedsRestock = group.variants.some((variant) => getRestockGap(variant) > 0)
-
-        const matchesStock = stockFilter === 'all'
-          || (stockFilter === 'available' && groupHasAvailable)
-          || (stockFilter === 'low' && !groupAllOut && groupHasLow)
-          || (stockFilter === 'out' && groupAllOut)
-          || (stockFilter === 'restock' && groupNeedsRestock)
-
-        return matchesSearch && matchesCategory && matchesSupplier && matchesStock
-      })
-      .sort((left, right) => {
-        if (sortBy === 'name') return left.name.localeCompare(right.name, 'fr', { sensitivity: 'base' })
-        if (sortBy === 'stock-low') return left.quantity - right.quantity
-        if (sortBy === 'stock-high') return right.quantity - left.quantity
-        if (sortBy === 'variants') return right.variant_count - left.variant_count
-        if (sortBy === 'restock-cost') {
-          const leftCost = left.variants.reduce((sum, variant) => sum + (getRestockGap(variant) * variant.buying_price), 0)
-          const rightCost = right.variants.reduce((sum, variant) => sum + (getRestockGap(variant) * variant.buying_price), 0)
-          return rightCost - leftCost
-        }
-
-        return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
-      })
-  }, [categoryFilter, productGroups, search, sortBy, stockFilter, supplierFilter])
+  useBarcodeScanner({ enabled: !!user?.id, onScan: handleInventoryScan })
+  const categoryOptions = catalogue.page?.categories ?? []
+  const supplierOptions = catalogue.page?.suppliers ?? []
+  const summary = catalogue.page?.summary ?? emptyCatalogueSummary
+  const filteredGroups = catalogue.groups
 
   const visibleVariants = useMemo(() => filteredGroups.flatMap((group) => group.variants), [filteredGroups])
-  const exportableLabelVariants = useMemo(() => visibleVariants.filter((variant) => (
-    Boolean(variant.barcode?.trim() || variant.sku?.trim())
-  )), [visibleVariants])
 
   const restockCandidates = useMemo<RestockCandidate[]>(() => (
-    visibleVariants
+    bulkProducts
       .filter((variant) => getRestockGap(variant) > 0)
       .map((variant) => ({
         product: variant,
@@ -389,7 +297,7 @@ export function ProductTable({
         || right.estimatedCost - left.estimatedCost
         || left.product.quantity - right.product.quantity
       ))
-  ), [visibleVariants])
+  ), [bulkProducts])
 
   const restockSummary = useMemo(() => restockCandidates.reduce((acc, item) => ({
     products: acc.products + 1,
@@ -447,6 +355,7 @@ export function ProductTable({
   const currentPlanName = overview ? getPlanDefinition(overview.plan).name : 'actuel'
 
   const resetFilters = () => {
+    setScannedGroupId(undefined)
     setSearch('')
     setCategoryFilter('all')
     setSupplierFilter('all')
@@ -470,8 +379,7 @@ export function ProductTable({
 
     try {
       await deleteProductGroup(group)
-      const idsToRemove = new Set(group.variants.map((variant) => variant.id))
-      setProducts((current) => current.filter((product) => !idsToRemove.has(product.id)))
+      load()
       setDeleteCandidate(null)
       setFeedback({
         type: 'success',
@@ -490,9 +398,7 @@ export function ProductTable({
   }
 
   const handleStockAdjusted = (productId: string, quantity: number) => {
-    setProducts((current) => current.map((product) => (
-      product.id === productId ? { ...product, quantity } : product
-    )))
+    load()
 
     const adjustedProduct = products.find((product) => product.id === productId)
     setFeedback({
@@ -501,65 +407,98 @@ export function ProductTable({
     })
   }
 
-  const exportCsv = () => {
-    const rows = visibleVariants.map((variant) => ({
-      Produit: variant.name,
-      Variante: getProductVariantSummary(variant) || 'Standard',
-      Code_barres: variant.barcode ?? '',
-      SKU: variant.sku ?? '',
-      Categorie: variant.category?.name ?? '',
-      Fournisseur: variant.supplier?.name ?? '',
-      Quantite: variant.quantity,
-      Stock_minimum: variant.min_quantity,
-      Reappro_unites: getRestockGap(variant),
-      Cout_reappro: getRestockGap(variant) * variant.buying_price,
-      Prix_achat: variant.buying_price,
-      Prix_vente: variant.selling_price,
-      Valeur_achat_stock: variant.buying_price * variant.quantity,
-      Valeur_vente_stock: variant.selling_price * variant.quantity,
-      Devise: variant.currency,
-      Statut: getStockStatus(variant.quantity, variant.min_quantity).label,
-      Date_ajout: new Date(variant.created_at).toLocaleString('fr-SN'),
-    }))
+  const exportCsv = async () => {
+    const version = scanVersion.current
+    setExportBusy(true)
+    try {
+      const variants = await getCatalogueExport(catalogueOptions)
+      if (version !== scanVersion.current) return
+      const rows = variants.map((variant) => ({
+        Produit: variant.name,
+        Variante: getProductVariantSummary(variant) || 'Standard',
+        Code_barres: variant.barcode ?? '',
+        SKU: variant.sku ?? '',
+        Categorie: variant.category?.name ?? '',
+        Fournisseur: variant.supplier?.name ?? '',
+        Quantite: variant.quantity,
+        Stock_minimum: variant.min_quantity,
+        Reappro_unites: getRestockGap(variant),
+        Cout_reappro: getRestockGap(variant) * variant.buying_price,
+        Prix_achat: variant.buying_price,
+        Prix_vente: variant.selling_price,
+        Valeur_achat_stock: variant.buying_price * variant.quantity,
+        Valeur_vente_stock: variant.selling_price * variant.quantity,
+        Devise: variant.currency,
+        Statut: getStockStatus(variant.quantity, variant.min_quantity).label,
+        Date_ajout: new Date(variant.created_at).toLocaleString('fr-SN'),
+      }))
 
-    const headers = Object.keys(rows[0] ?? {
-      Produit: '',
-      Variante: '',
-      Code_barres: '',
-      SKU: '',
-      Categorie: '',
-      Fournisseur: '',
-      Quantite: '',
-      Stock_minimum: '',
-      Reappro_unites: '',
-      Cout_reappro: '',
-      Prix_achat: '',
-      Prix_vente: '',
-      Valeur_achat_stock: '',
-      Valeur_vente_stock: '',
-      Devise: '',
-      Statut: '',
-      Date_ajout: '',
-    })
+      const headers = Object.keys(rows[0] ?? {
+        Produit: '',
+        Variante: '',
+        Code_barres: '',
+        SKU: '',
+        Categorie: '',
+        Fournisseur: '',
+        Quantite: '',
+        Stock_minimum: '',
+        Reappro_unites: '',
+        Cout_reappro: '',
+        Prix_achat: '',
+        Prix_vente: '',
+        Valeur_achat_stock: '',
+        Valeur_vente_stock: '',
+        Devise: '',
+        Statut: '',
+        Date_ajout: '',
+      })
 
-    const protectCell = (value: string | number) => {
-      const text = String(value)
-      const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text
-      return `"${safeText.replace(/"/g, '""')}"`
+      const protectCell = (value: string | number) => {
+        const text = String(value)
+        const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text
+        return `"${safeText.replace(/"/g, '""')}"`
+      }
+
+      const csv = [
+        headers.map(protectCell).join(','),
+        ...rows.map((row) => headers.map((header) => protectCell(row[header as keyof typeof row] ?? '')).join(',')),
+      ].join('\n')
+
+      const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `inventaire-variantes-${new Date().toISOString().slice(0, 10)}.csv`
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (cause: unknown) {
+      if (version === scanVersion.current) setFeedback({ type: 'error', message: cause instanceof Error ? cause.message : 'Export impossible.' })
+    } finally { setExportBusy(false) }
+  }
+
+  const openInventoryLabels = async () => {
+    const version = scanVersion.current
+    setExportBusy(true)
+    try {
+      const variants = await getCatalogueExport(catalogueOptions)
+      if (version !== scanVersion.current) return
+      setLabelResult({ actor: accountKey, products: variants.filter((variant) => Boolean(variant.barcode?.trim() || variant.sku?.trim())) })
+      setShowInventoryBarcodeLabels(true)
+    } catch (cause: unknown) {
+      if (version === scanVersion.current) setFeedback({ type: 'error', message: cause instanceof Error ? cause.message : 'Chargement des etiquettes impossible.' })
+    } finally { setExportBusy(false) }
+  }
+
+  const editRestockProduct = async (product: Product) => {
+    const version = scanVersion.current
+    try {
+      const page = await getCataloguePage({ group: product.product_group_id || product.id, limit: 1 })
+      if (version !== scanVersion.current) return
+      const group = buildProductGroups(page.products)[0]
+      if (group) onEditProduct(group)
+    } catch (cause: unknown) {
+      if (version === scanVersion.current) setFeedback({ type: 'error', message: cause instanceof Error ? cause.message : 'Chargement impossible.' })
     }
-
-    const csv = [
-      headers.map(protectCell).join(','),
-      ...rows.map((row) => headers.map((header) => protectCell(row[header as keyof typeof row] ?? '')).join(',')),
-    ].join('\n')
-
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `inventaire-variantes-${new Date().toISOString().slice(0, 10)}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
   }
 
   const handleCopyRestockBatch = async (group: RestockSupplierGroup) => {
@@ -803,24 +742,14 @@ export function ProductTable({
                 aria-label="Rechercher un produit"
                 placeholder="Rechercher ou scanner un produit, un code-barres, une taille, une couleur ou une reference..."
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => { setScannedGroupId(undefined); setSearch(event.target.value) }}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter') return
                   const rawValue = event.currentTarget.value.trim()
                   if (!rawValue) return
 
-                  const normalizedSearch = normalizeScannableValue(rawValue)
-                  const hasExactSkuMatch = productGroups.some((group) => (
-                    group.variants.some((variant) => (
-                      normalizeScannableValue(variant.barcode) === normalizedSearch
-                      || normalizeScannableValue(variant.sku) === normalizedSearch
-                    ))
-                  ))
-
-                  if (!hasExactSkuMatch) return
-
                   event.preventDefault()
-                  handleInventoryScan(rawValue)
+                  handleInventoryScan(rawValue, true)
                 }}
                 className="h-12 w-full rounded-full border border-[#2D7D7D]/[0.14] bg-[#F8FAFD] pl-11 pr-4 text-sm text-[#1A3636] placeholder:text-[#6B7682] transition-all focus:border-[#6C5CE7]/60 focus:shadow-[0_0_0_4px_rgba(108,92,231,0.10)]"
               />
@@ -837,15 +766,15 @@ export function ProductTable({
                   {isRestockView ? 'Retour aux produits' : 'Plan de reapprovisionnement'}
                 </Button>
               )}
-              <Button variant="outline" size="sm" leftIcon={<Download size={14} />} onClick={exportCsv}>
+              <Button variant="outline" size="sm" leftIcon={<Download size={14} />} onClick={() => void exportCsv()} disabled={exportBusy}>
                 Exporter
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 leftIcon={<Printer size={14} />}
-                onClick={() => setShowInventoryBarcodeLabels(true)}
-                disabled={exportableLabelVariants.length === 0}
+                onClick={() => void openInventoryLabels()}
+                disabled={exportBusy || !catalogue.page?.totalVariants}
               >
                 Choisir etiquettes
               </Button>
@@ -976,7 +905,7 @@ export function ProductTable({
             </div>
           </div>
 
-          {restockCandidates.length === 0 ? (
+          {loading ? <p role="status" className="py-6 text-sm">Chargement...</p> : restockCandidates.length === 0 ? (
             <div className="px-4 py-12 text-center text-[#6B7682]">
               <Truck size={28} className="mx-auto mb-3 opacity-40" />
               <p className="text-sm">Aucune variante n&apos;a besoin de reapprovisionnement pour le moment.</p>
@@ -1078,7 +1007,7 @@ export function ProductTable({
                         <Button variant="outline" size="sm" leftIcon={<SlidersHorizontal size={14} />} onClick={() => setAdjustmentProduct(product)}>
                           Ajuster
                         </Button>
-                        <Button variant="ghost" size="sm" leftIcon={<Edit size={14} />} onClick={() => onEditProduct(buildProductGroups([product])[0])}>
+                        <Button variant="ghost" size="sm" leftIcon={<Edit size={14} />} onClick={() => void editRestockProduct(product)}>
                           Modifier le parent
                         </Button>
                       </div>
@@ -1134,7 +1063,7 @@ export function ProductTable({
                         <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F8FAFD] p-1.5">
                           {group.image_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={group.image_url} alt={group.name} className="h-full w-full object-contain object-center" />
+                            <img loading="lazy" src={group.image_url} alt={group.name} className="h-full w-full object-contain object-center" />
                           ) : (
                             <Package size={18} className="text-[#6B7682]" />
                           )}
@@ -1211,7 +1140,7 @@ export function ProductTable({
                         <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F8FAFD] p-1.5">
                           {group.image_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={group.image_url} alt={group.name} className="h-full w-full object-contain object-center" />
+                            <img loading="lazy" src={group.image_url} alt={group.name} className="h-full w-full object-contain object-center" />
                           ) : (
                             <Package size={20} className="text-[#6B7682]" />
                           )}
@@ -1310,7 +1239,7 @@ export function ProductTable({
                       <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#2D7D7D]/[0.08] bg-[#F8FAFD] p-1.5">
                         {group.image_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={group.image_url} alt={group.name} className="h-full w-full object-contain object-center" />
+                          <img loading="lazy" src={group.image_url} alt={group.name} className="h-full w-full object-contain object-center" />
                         ) : (
                           <Package size={18} className="text-[#6B7682]" />
                         )}
@@ -1456,6 +1385,8 @@ export function ProductTable({
               {filteredGroups.length} produit(s) affiches · {visibleVariants.length} variante(s)
             </p>
           )}
+          <CataloguePagination offset={catalogue.offset} total={catalogue.page?.totalGroups ?? 0}
+            loading={catalogue.loading} onChange={catalogue.setOffset} />
         </>
       )}
 
@@ -1481,7 +1412,7 @@ export function ProductTable({
 
       <BarcodeLabelsModal
         group={null}
-        products={exportableLabelVariants}
+        products={labelProducts}
         isOpen={showInventoryBarcodeLabels}
         onClose={() => setShowInventoryBarcodeLabels(false)}
         title="Etiquettes inventaire"
