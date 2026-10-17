@@ -54,4 +54,12 @@ describe('report PDF', () => {
     expect(pdf.getPageCount()).toBeGreaterThan(8)
     expect(pdf.getPageCount()).toBeLessThan(30)
   })
+  it('bounds repeated headers even with an exceptionally long selected seller name', async () => {
+    const snapshot = fixture()
+    snapshot.appliedSellerId = 'cashier'
+    snapshot.sellerOptions = [{ id: 'cashier', label: 'Nom de vendeur tres long '.repeat(500), role: 'cashier' }]
+    const products = Array.from({ length: 60 }, (_, index) => ({ id: String(index), name: `Produit ${index}`, sold: 1, revenue: 1000, profit: 100, margin: 10 }))
+    const bytes = await buildReportPdf({ snapshot, products, business: { name: 'Boutique test' } })
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBeLessThan(10)
+  })
 })

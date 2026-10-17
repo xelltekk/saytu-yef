@@ -116,7 +116,14 @@ export async function buildReportPdf({ snapshot: data, products, business, gener
       text("Rapport d'activité", MARGIN, y, 23, bold); y += 34
     }
     for (const line of wrap(period, CONTENT, 9)) { text(line, MARGIN, y, 9, regular, MUTED); y += 13 }
-    for (const line of wrap(`Vendeur : ${seller}`, CONTENT, 9)) { text(line, MARGIN, y, 9, bold); y += 13 }
+    const sellerLines = wrap(`Vendeur : ${seller}`, CONTENT, 9, bold)
+    const visibleSellerLines = sellerLines.slice(0, 2)
+    if (sellerLines.length > 2) {
+      let lastLine = visibleSellerLines[1]
+      while (bold.widthOfTextAtSize(`${lastLine}...`, 9) > CONTENT) lastLine = lastLine.slice(0, -1)
+      visibleSellerLines[1] = `${lastLine}...`
+    }
+    for (const line of visibleSellerLines) { text(line, MARGIN, y, 9, bold); y += 13 }
     y += 7
     rule(y); y += 18
   }
