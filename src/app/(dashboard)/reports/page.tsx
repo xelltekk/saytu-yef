@@ -4,7 +4,7 @@ import { Header } from '@/components/layout/Header'
 import { CashSessionPanel } from '@/components/sales/CashSessionPanel'
 import { Card, MetricCard } from '@/components/ui/Card'
 import { formatCurrency, formatCurrencyCompact } from '@/lib/utils'
-import { TrendingUp, Package, DollarSign, BarChart3, Download, RefreshCw, Wallet, Receipt, TriangleAlert, Target, Users, CreditCard, Smartphone } from 'lucide-react'
+import { TrendingUp, Package, DollarSign, BarChart3, Download, FileDown, LoaderCircle, RefreshCw, Wallet, Receipt, TriangleAlert, Target, Users, CreditCard, Smartphone } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
@@ -109,7 +109,7 @@ type ReportsData = ReportSnapshot
 
 export default function ReportsPage() {
   const { isCashier, role } = useAccountRole()
-  const { user, accountOwnerId } = useUser()
+  const { user, accountOwnerId, businessName, businessAddress, businessPhone, businessNinea, businessLogoUrl } = useUser()
   const [rangePreset, setRangePreset] = useState<ReportsRangePreset>('6m')
   const [sellerFilter, setSellerFilter] = useState<string>('all')
   const [customStartDate, setCustomStartDate] = useState(() => {
@@ -119,7 +119,8 @@ export default function ReportsPage() {
   })
   const [customEndDate, setCustomEndDate] = useState(() => toDateInputValue(new Date()))
   const [reportState, setReportState] = useState<{ key: string; data: ReportsData } | null>(null)
-  const [exporting, setExporting] = useState(false)
+  const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null)
+  const [exportNotice, setExportNotice] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
@@ -259,7 +260,9 @@ export default function ReportsPage() {
     const controller = new AbortController()
     exportAbort.current?.abort()
     exportAbort.current = controller
-    setExporting(true)
+    setExporting('csv')
+    setExportNotice('')
+    setError('')
     try {
       const products = await getReportProductsForExport(data,controller.signal)
       if (controller.signal.aborted) return
@@ -324,7 +327,31 @@ export default function ReportsPage() {
       URL.revokeObjectURL(url)
     } catch (cause: unknown) {
       if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Export impossible.')
-    } finally { setExporting(false) }
+    } finally { if (exportAbort.current === controller) setExporting(null) }
+  }
+
+  const exportPdf = async () => {
+    if (!data || exporting) return
+    const controller = new AbortController()
+    exportAbort.current?.abort()
+    exportAbort.current = controller
+    setExporting('pdf')
+    setExportNotice('')
+    setError('')
+    try {
+      const products = await getReportProductsForExport(data, controller.signal)
+      if (controller.signal.aborted) return
+      const { downloadReportPdf } = await import('@/lib/reportPdf')
+      if (controller.signal.aborted) return
+      const result = await downloadReportPdf(data, products, {
+        name: businessName || 'Saytu Yef', address: businessAddress, phone: businessPhone,
+        ninea: businessNinea, logoUrl: businessLogoUrl,
+      }, controller.signal)
+      if (!controller.signal.aborted) setExportNotice(result.logoOmitted
+        ? 'PDF téléchargé sans logo : image indisponible.' : 'Rapport PDF téléchargé.')
+    } catch (cause: unknown) {
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Export PDF impossible.')
+    } finally { if (exportAbort.current === controller) setExporting(null) }
   }
 
   return (
@@ -380,12 +407,20 @@ export default function ReportsPage() {
               </select>
             )}
           </div>
-          <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 sm:w-auto">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+            <button
+              type="button"
+              onClick={() => void exportPdf()}
+              disabled={!data || loading || refreshing || !!exporting}
+              className="flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#2D7D7D] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#246868] disabled:opacity-50"
+            >
+              {exporting === 'pdf' ? <LoaderCircle size={14} className="animate-spin" /> : <FileDown size={14} />} Exporter PDF
+            </button>
             <button
               type="button"
               onClick={() => void exportCsv()}
-              disabled={!data || loading || refreshing || exporting}
-              className="flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
+              disabled={!data || loading || refreshing || !!exporting}
+              className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
             >
               <Download size={14} /> Exporter CSV
             </button>
@@ -393,12 +428,16 @@ export default function ReportsPage() {
               type="button"
               onClick={() => void loadReports(true)}
               disabled={refreshing || loading}
-              className="flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50"
+              className="col-span-2 flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#2D7D7D]/[0.12] bg-white px-3 text-xs font-semibold text-[#2D7D7D] transition-colors hover:bg-[#2D7D7D]/[0.05] disabled:opacity-50 sm:col-auto"
             >
               <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Actualiser
             </button>
           </div>
         </div>
+
+        {(exporting || exportNotice) && <p role="status" className="text-xs text-[#2D7D7D]">
+          {exporting ? `Préparation du rapport ${exporting.toUpperCase()}...` : exportNotice}
+        </p>}
 
         {error && (
           <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
