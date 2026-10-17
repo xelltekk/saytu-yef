@@ -8,6 +8,12 @@ La copie initiale etait complete, mais le controle suivant a rencontre le verrou
 
 Preuve : `Documents/Saytu-Yef-Backups/application-archives/verified-20261014T1957442919916Z.json`, empreinte associee et journal root des purges. Apres deploiement, environ 12 Go libres, disque a 40 %. Les sauvegardes PostgreSQL, Storage et l'application active sont conserves.
 
+## Rotation Du 17 Octobre 2026
+
+Avant le deploiement du mode restaurant, le plus ancien secours `saytu-yef-release-7f19313c1be060310f95391091a372dcc48bc0ef-20261014T140614Z` a ete exporte puis retire par le helper apres verification SHA256 et lecture des 46 003 entrees. Archive Windows privee de 290 119 482 octets, empreinte `69d2d3bc86127387b9c6a7d3e922cf3cd1cb749061c8acc0e0bccbf3d361ffb2`. Preuve : `Documents/Saytu-Yef-Backups/application-archives/verified-20261017T1705308644014Z.json`.
+
+Le moniteur a ete suspendu temporairement pendant l'archivage pour eviter une collision de verrou, puis reactive dans `finally`. Les deux secours les plus recents ont ete conserves; la bascule ajoute le runtime precedent `19f70a6` du 17 octobre. Aucune suppression de l'application active, des sauvegardes PostgreSQL ou de Storage. Apres deploiement : disque a 40 %, environ 12 Go libres, supervision et sauvegarde actives.
+
 ## Nettoyage du 12 octobre 2026
 
 Le disque de 19 Go etait rempli a 95 %, avec environ 982 Mo disponibles. Dix anciennes copies completes de juin occupaient environ 12 Go dans `/var/www/saytu-yef-backup-*`.
