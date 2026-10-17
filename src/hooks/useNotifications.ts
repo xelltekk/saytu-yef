@@ -33,6 +33,7 @@ type NotificationStockRow = {
   name: string
   quantity: number
   min_quantity: number
+  track_stock?: boolean
   status: 'active' | 'inactive' | 'pending'
   updated_at: string
 }
@@ -71,7 +72,7 @@ function saveReadState(readIds: string[]) {
 
 function buildLowStockNotifications(items: NotificationStockRow[]): HeaderNotificationItem[] {
   return items
-    .filter((item) => item.status === 'active' && item.quantity <= item.min_quantity)
+    .filter((item) => item.track_stock !== false && item.status === 'active' && item.quantity <= item.min_quantity)
     .sort((left, right) => left.quantity - right.quantity || left.name.localeCompare(right.name, 'fr'))
     .slice(0, 8)
     .map((item) => ({
@@ -132,7 +133,7 @@ export function useNotifications(input: { userId?: string | null; role?: User['r
 
       const { data, error: queryError } = await supabase
         .from('products')
-        .select('id,name,quantity,min_quantity,status,updated_at')
+        .select('id,name,quantity,min_quantity,status,updated_at,track_stock')
         .eq('status', 'active')
         .order('quantity', { ascending: true })
         .limit(30)

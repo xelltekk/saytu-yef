@@ -47,6 +47,8 @@ export interface Product {
   selling_price: number
   quantity: number
   min_quantity: number
+  track_stock?: boolean
+  is_available?: boolean
   image_url?: string
   currency: string
   status: 'active' | 'inactive' | 'pending'
@@ -92,6 +94,8 @@ export interface ProductVariantDraft {
   selling_price: number
   quantity: number
   min_quantity: number
+  track_stock?: boolean
+  is_available?: boolean
 }
 
 export interface StockMovement {
@@ -175,6 +179,7 @@ export interface Sale {
 }
 
 export interface SaleItem {
+  stock_tracked?: boolean
   unit_cost?: number | null
   product_id: string
   product_name: string
@@ -186,6 +191,7 @@ export interface SaleItem {
 export interface CartItem extends SaleItem {
   image_url?: string
   max_quantity: number
+  track_stock?: boolean
   product_base_name?: string
   variant_label?: string
   size?: string

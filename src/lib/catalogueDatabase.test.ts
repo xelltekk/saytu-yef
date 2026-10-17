@@ -44,6 +44,9 @@ beforeAll(async () => {
     CREATE POLICY categories_owner ON public.categories FOR SELECT TO authenticated USING(user_id=(SELECT public.current_account_id()));
     CREATE POLICY suppliers_owner ON public.suppliers FOR SELECT TO authenticated USING(user_id=(SELECT public.current_account_id()));`)
   await db.exec(readFileSync(resolve('supabase/migrations/20261013165734_catalogue_pagination.sql'),'utf8'))
+  await db.exec('ALTER TABLE public.products ADD track_stock boolean NOT NULL DEFAULT true, ADD is_available boolean NOT NULL DEFAULT true')
+  const restaurant = readFileSync(resolve('supabase/migrations/20261017163255_restaurant_stock_optional.sql'),'utf8')
+  await db.exec(restaurant.slice(restaurant.indexOf('-- Catalogue respects'), restaurant.indexOf("NOTIFY pgrst")))
   await db.exec('ANALYZE public.products; SET ROLE authenticated;')
 }, 120000)
 beforeEach(async () => {
@@ -55,6 +58,20 @@ async function page(options: Record<string, unknown> = {}) {
   return (await db.query<{result: CataloguePage}>('SELECT public.list_catalogue_page($1::jsonb) AS result',[JSON.stringify(options)])).rows[0].result
 }
 describe('100 isolated shops with 1000 variants each', () => {
+  it('includes untracked dishes in POS and scanner without counting them in stock or restock', async () => {
+    try {
+      await db.exec(`RESET ROLE; BEGIN; UPDATE public.products SET track_stock=false,quantity=0 WHERE barcode='CODE-1-1'; SET ROLE authenticated`)
+      const result = await page({scope:'pos',group:'30000000-0000-0000-0001-000000000001'})
+      expect(result.products.find((p) => p.barcode==='CODE-1-1')).toMatchObject({track_stock:false,quantity:0})
+      expect((await page({stock:'untracked'})).totalGroups).toBe(1)
+      expect((await page()).summary.units).toBe(4499)
+      const lookup = async () => (await db.query<{r:{product:unknown}}>("SELECT public.lookup_catalogue_code('CODE-1-1','pos') r")).rows[0].r.product
+      expect(await lookup()).toBeTruthy()
+      await db.exec(`RESET ROLE; UPDATE public.products SET is_available=false WHERE barcode='CODE-1-1'; SET ROLE authenticated`)
+      expect(await lookup()).toBeNull()
+      expect((await page({scope:'pos',group:'30000000-0000-0000-0001-000000000001'})).products).toHaveLength(1)
+    } finally { await db.exec('ROLLBACK; SET ROLE authenticated') }
+  })
   it('bounds a page to complete groups and preserves global totals', async () => {
     const result = await page()
     expect(result.totalGroups).toBe(500)

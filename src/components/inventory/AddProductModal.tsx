@@ -29,6 +29,8 @@ type VariantRow = {
   selling_price: string
   quantity: string
   min_quantity: string
+  track_stock: boolean
+  is_available: boolean
 }
 
 const CURRENCIES = [
@@ -58,6 +60,8 @@ function createEmptyVariant(overrides: Partial<VariantRow> = {}): VariantRow {
     selling_price: '',
     quantity: '0',
     min_quantity: '5',
+    track_stock: true,
+    is_available: true,
     ...overrides,
   }
 }
@@ -77,6 +81,8 @@ function mapGroupVariants(productGroup?: ProductGroup | null): VariantRow[] {
     selling_price: variant.selling_price.toString(),
     quantity: variant.quantity.toString(),
     min_quantity: variant.min_quantity.toString(),
+    track_stock: variant.track_stock !== false,
+    is_available: variant.is_available !== false,
   }))
 }
 
@@ -202,6 +208,8 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
       ...current,
       createEmptyVariant({
         min_quantity: current[0]?.min_quantity || '5',
+        track_stock: current[0]?.track_stock ?? true,
+        is_available: current[0]?.is_available ?? true,
       }),
     ])
   }
@@ -261,8 +269,10 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
     for (const [index, variant] of variants.entries()) {
       const buyingPrice = variant.buying_price === '' ? 0 : Number(variant.buying_price)
       const sellingPrice = variant.selling_price === '' ? 0 : Number(variant.selling_price)
-      const quantity = variant.quantity === '' ? 0 : Number(variant.quantity)
-      const minQuantity = variant.min_quantity === '' ? 5 : Number(variant.min_quantity)
+      const quantity = !variant.track_stock && !variant.id ? 0 : variant.quantity === '' ? 0 : Number(variant.quantity)
+      const minQuantity = !variant.track_stock
+        ? productGroup?.variants.find((product) => product.id === variant.id)?.min_quantity ?? 5
+        : variant.min_quantity === '' ? 5 : Number(variant.min_quantity)
       const sku = (variant.sku.trim() || buildVariantSku(form.name, variant, index)).trim()
       const barcode = (variant.barcode.trim() || buildVariantBarcode(form.name, variant, index)).trim()
 
@@ -328,6 +338,8 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
         selling_price: sellingPrice,
         quantity,
         min_quantity: minQuantity,
+        track_stock: variant.track_stock,
+        is_available: variant.is_available,
       })
     }
 
@@ -386,7 +398,7 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
         <>
           <Button variant="ghost" onClick={onClose}>Annuler</Button>
           <Button variant="primary" isLoading={isLoading} onClick={handleSubmit}>
-            {productGroup ? 'Enregistrer' : 'Ajouter au stock'}
+            {productGroup || variants.every((variant) => !variant.track_stock) ? 'Enregistrer' : 'Ajouter au stock'}
           </Button>
         </>
       )}
@@ -521,7 +533,7 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
             {variants.map((variant, index) => {
               const buyingPrice = Number(variant.buying_price)
               const sellingPrice = Number(variant.selling_price)
-              const margin = Number.isFinite(buyingPrice) && Number.isFinite(sellingPrice) && sellingPrice > 0
+              const margin = variant.buying_price.trim() !== '' && Number.isFinite(buyingPrice) && Number.isFinite(sellingPrice) && sellingPrice > 0
                 ? getProfitMargin(buyingPrice, sellingPrice)
                 : null
 
@@ -530,11 +542,11 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-[#1A3636]">{buildVariantTitle(variant, index)}</p>
-                      <p className="mt-1 text-xs text-[#6B7682]">
+                      {variant.track_stock && <p className="mt-1 text-xs text-[#6B7682]">
                         {variant.id
                           ? "Stock actuel conserve. Utilisez 'Ajuster' depuis l'inventaire pour tracer les mouvements."
                           : 'Definissez la couleur, la taille, le prix et le stock de depart.'}
-                      </p>
+                      </p>}
                     </div>
                     <button
                       type="button"
@@ -604,9 +616,21 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
                     </div>
                   </div>
 
+                  <div className="mt-4 flex flex-wrap gap-4 text-sm text-[#1A3636]">
+                    <label className="inline-flex items-center gap-2">
+                      <input type="checkbox" checked={!variant.track_stock}
+                        onChange={(event) => updateVariant(variant.key, { track_stock: !event.target.checked })} />
+                      Sans suivi de stock
+                    </label>
+                    <label className="inline-flex items-center gap-2">
+                      <input type="checkbox" checked={variant.is_available}
+                        onChange={(event) => updateVariant(variant.key, { is_available: event.target.checked })} />
+                      Disponible a la vente
+                    </label>
+                  </div>
                   <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
                     <Input
-                      label="Prix d'achat"
+                      label={variant.track_stock ? "Prix d'achat" : 'Cout unitaire'}
                       type="number"
                       inputMode="decimal"
                       min="0"
@@ -625,7 +649,7 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
                       value={variant.selling_price}
                       onChange={(event) => updateVariant(variant.key, { selling_price: event.target.value })}
                     />
-                    <Input
+                    {variant.track_stock && <Input
                       label={variant.id ? 'Stock actuel' : 'Stock initial'}
                       type="number"
                       inputMode="numeric"
@@ -636,8 +660,8 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
                       onChange={(event) => updateVariant(variant.key, { quantity: event.target.value })}
                       disabled={!!variant.id}
                       className="disabled:cursor-not-allowed disabled:bg-[#F4F7FB] disabled:text-[#6B7682]"
-                    />
-                    <Input
+                    />}
+                    {variant.track_stock && <Input
                       label="Stock minimum"
                       type="number"
                       inputMode="numeric"
@@ -646,7 +670,7 @@ export function AddProductModal({ isOpen, onClose, productGroup, onSaved }: AddP
                       placeholder="5"
                       value={variant.min_quantity}
                       onChange={(event) => updateVariant(variant.key, { min_quantity: event.target.value })}
-                    />
+                    />}
                   </div>
 
                   {margin !== null && (

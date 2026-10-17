@@ -49,6 +49,8 @@ beforeAll(async () => {
       throw new Error(`${file}: ${diagnostic.message} ${diagnostic.where ?? ''} ${diagnostic.internalQuery ?? ''} position=${position} context=${source.slice(Math.max(0,position - 400),position + 100)}`)
     }
   }
+  await db.exec(sqlFile('migrations/20261013165734_catalogue_pagination.sql'))
+  await db.exec(sqlFile('migrations/20261017163255_restaurant_stock_optional.sql'))
 },90000)
 beforeEach(async () => {
   await db.exec(`RESET ROLE; TRUNCATE public.profiles CASCADE;
@@ -63,6 +65,49 @@ beforeEach(async () => {
 afterAll(async () => { await db?.close() })
 
 describe('retail PostgreSQL transactions', () => {
+  it('sells zero-stock dishes with partial payments and retries without stock movements', async () => {
+    await db.exec(`UPDATE public.products SET track_stock=false, quantity=0 WHERE id='${product}'`)
+    const request = randomUUID()
+    const sale = await checkout(salePayload(30), [{ amount:1000,payment_method:'wave' }], request)
+    expect((await checkout(salePayload(30), [{ amount:1000,payment_method:'wave' }], request)).id).toBe(sale.id)
+    expect(await stock()).toBe(0)
+    expect((await db.query('SELECT * FROM public.stock_movements')).rows).toHaveLength(0)
+    expect((await db.query<{stock_tracked:boolean}>('SELECT stock_tracked FROM public.sale_items')).rows[0].stock_tracked).toBe(false)
+    expect(Number(sale.amount_due)).toBe(26000)
+    await db.exec(`UPDATE public.products SET track_stock=true, quantity=5 WHERE id='${product}'`)
+    await db.query("SELECT public.reverse_sale_with_stock($1,'refunded','Plat rembourse')", [sale.id])
+    expect(await stock()).toBe(5)
+  })
+  it('restores a previously tracked sale even if tracking was disabled afterwards', async () => {
+    const sale = await checkout()
+    await db.exec(`UPDATE public.products SET track_stock=false WHERE id='${product}'`)
+    await db.query("SELECT public.reverse_sale_with_stock($1,'refunded','Test')", [sale.id])
+    expect(await stock()).toBe(10)
+  })
+  it('rejects unavailable dishes on the server and does not trust a forged tracking flag', async () => {
+    await db.exec(`UPDATE public.products SET track_stock=false, is_available=false, quantity=0 WHERE id='${product}'`)
+    await expect(checkout()).rejects.toThrow(/indisponible/)
+    expect((await db.query('SELECT * FROM public.sales')).rows).toHaveLength(0)
+    await db.exec(`UPDATE public.products SET track_stock=true, is_available=true, quantity=1 WHERE id='${product}'`)
+    const payload = salePayload(2)
+    Object.assign(payload.items[0], { stock_tracked:false })
+    await expect(checkout(payload)).rejects.toThrow(/Stock insuffisant/)
+    expect(await stock()).toBe(1)
+  })
+  it('rejects stock adjustments and supplier orders for untracked dishes', async () => {
+    await db.exec(`UPDATE public.products SET track_stock=false WHERE id='${product}'`)
+    await expect(db.query('SELECT public.adjust_product_stock($1,2,false,null)',[product])).rejects.toThrow(/sans suivi/)
+    await expect(db.query('SELECT public.create_purchase_order($1,$2::jsonb,null)',[supplier,JSON.stringify([{product_id:product,quantity:2,unit_cost:400}])])).rejects.toThrow(/non autorise/)
+  })
+  it('keeps stock-mode changes restricted to managers and trigger functions private', async () => {
+    await actor(cashier)
+    await db.exec(`UPDATE public.products SET track_stock=false,is_available=false WHERE id='${product}'`)
+    expect((await db.query<{track_stock:boolean;is_available:boolean}>('SELECT track_stock,is_available FROM public.products WHERE id=$1',[product])).rows[0])
+      .toEqual({track_stock:true,is_available:true})
+    await expect(db.exec('SELECT public.snapshot_sale_item_cost()')).rejects.toThrow(/permission denied/)
+    await db.exec('RESET ROLE; SET ROLE anon')
+    await expect(db.query("SELECT public.reverse_sale_with_stock($1,'refunded','Test')",[randomUUID()])).rejects.toThrow(/permission denied/)
+  })
   it('stores a large monetary discount with a partial payment without numeric overflow', async () => {
     const payload = { ...salePayload(),subtotal:700000,discount:70000,total:630000,
       items:[{ product_id:product,product_name:'Computer',quantity:2,unit_price:350000,total:700000 }] }

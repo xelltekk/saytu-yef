@@ -27,7 +27,7 @@ export function ReplenishmentPanel({ suppliers }: { suppliers: Supplier[] }) {
       const client = createClient()
       const [products, history] = await Promise.all([
         readAllPages((start,end) => client.from('products').select('id,name,size,color,quantity,min_quantity,buying_price,supplier_id')
-          .eq('status','active').eq('currency','XOF').order('id').range(start,end)),
+          .eq('status','active').eq('track_stock',true).eq('currency','XOF').order('id').range(start,end)),
         client.from('purchase_orders').select('id,supplier_id,status,created_at,items:purchase_order_items(product_id,quantity,unit_cost)')
           .order('created_at',{ ascending:false }).order('id').range(from,from + 19),
       ])

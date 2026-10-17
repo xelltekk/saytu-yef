@@ -35,6 +35,18 @@ it('does not replace a nonempty cart when resuming a pending one', () => {
 })
 
 const product = { id:'p1',name:'Mouse',selling_price:5000,quantity:3,status:'active',currency:'XOF' } as Product
+it('keeps untracked dishes unlimited in the cart, across refresh and hold/resume', () => {
+  const state = useSalesStore.getState()
+  state.addToCart({...item, max_quantity:0, track_stock:false})
+  for (let i=0;i<15;i++) state.addToCart({...item,max_quantity:0,track_stock:false})
+  state.syncCartStock([{...product,quantity:0,track_stock:false}],['p1'])
+  expect(useSalesStore.getState().cart[0]).toMatchObject({quantity:16,total:80000,track_stock:false})
+  state.holdCart(); state.resumeCart(useSalesStore.getState().heldCarts[0].id)
+  state.updateCartQuantity('p1',25)
+  expect(useSalesStore.getState().cart[0].quantity).toBe(25)
+  state.syncCartStock([{...product,quantity:0,track_stock:false,is_available:false}],['p1'])
+  expect(useSalesStore.getState().cart).toEqual([])
+})
 it('only changes stock for explicitly checked cart IDs, keeping off-page and recently added articles', () => {
   const state = useSalesStore.getState()
   state.addToCart(item)

@@ -1,4 +1,5 @@
 'use client'
+import { isProductAvailable, tracksStock } from '@/lib/productStock'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -151,7 +152,7 @@ export function POSInterface({
       if (current.checkoutRequest) return
       const productMap = new Map(available.map((product) => [product.id, product]))
       const changed = current.cart.some((item) => ids.includes(item.product_id)
-        && (!productMap.has(item.product_id) || item.quantity > productMap.get(item.product_id)!.quantity))
+        && (!productMap.has(item.product_id) || (tracksStock(productMap.get(item.product_id)!) && item.quantity > productMap.get(item.product_id)!.quantity)))
       syncCartStock(available, ids)
       setStockNotice(changed ? 'Le panier a ete ajuste au stock disponible.'
         : !restoredDraftNoticeShown.current ? 'Votre panier en cours a ete restaure.' : '')
@@ -206,6 +207,8 @@ export function POSInterface({
   ].filter(Boolean)
 
   const getRemainingQuantity = useCallback((product: Product) => {
+    if (!isProductAvailable(product)) return 0
+    if (!tracksStock(product)) return Number.POSITIVE_INFINITY
     const inCart = activeCart.find((item) => item.product_id === product.id)?.quantity ?? 0
     return Math.max(0, product.quantity - inCart)
   }, [activeCart])
@@ -217,7 +220,7 @@ export function POSInterface({
 
     return variantPickerGroup.variants.filter((variant) => {
       const inCart = activeCart.find((item) => item.product_id === variant.id)?.quantity ?? 0
-      return variant.quantity - inCart > 0
+      return isProductAvailable(variant) && (!tracksStock(variant) || variant.quantity - inCart > 0)
     })
   }, [activeCart, variantPickerGroup])
 
@@ -277,7 +280,7 @@ export function POSInterface({
       return false
     }
     const inCart = state.cart.find((item) => item.product_id === product.id)?.quantity ?? 0
-    if (inCart >= product.quantity) {
+    if (!isProductAvailable(product) || (tracksStock(product) && inCart >= product.quantity)) {
       setScannerNotice({ type: 'error', message: 'Stock disponible deja dans le panier.' })
       return false
     }
@@ -285,7 +288,7 @@ export function POSInterface({
     const item: CartItem = {
       product_id: product.id, product_name: formatProductLabel(product), product_base_name: product.name,
       variant_label: getProductVariantSummary(product) || undefined, unit_price: product.selling_price,
-      quantity: 1, total: product.selling_price, max_quantity: product.quantity,
+      quantity: 1, total: product.selling_price, max_quantity: product.quantity, track_stock: tracksStock(product),
       image_url: product.image_url, size: product.size, color: product.color, sku: product.sku, barcode: product.barcode,
     }
     addToCart(item)
@@ -475,7 +478,7 @@ export function POSInterface({
                     type="button"
                     onClick={() => updateCartQuantity(item.product_id, item.quantity + 1)}
                     className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-[#1A3636] shadow-sm disabled:opacity-35"
-                    disabled={item.quantity >= item.max_quantity}
+                    disabled={item.track_stock !== false && item.quantity >= item.max_quantity}
                     aria-label={`Augmenter ${item.product_name}`}
                   >
                     <Plus size={15} />
@@ -514,7 +517,7 @@ export function POSInterface({
                   type="button"
                   onClick={() => updateCartQuantity(item.product_id, item.quantity + 1)}
                   className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#2D7D7D]/[0.08] text-[#1A3636] transition-colors hover:bg-[#2D7D7D]/[0.14]"
-                  disabled={item.quantity >= item.max_quantity}
+                  disabled={item.track_stock !== false && item.quantity >= item.max_quantity}
                   aria-label={`Augmenter ${item.product_name}`}
                 >
                   <Plus size={11} />
@@ -768,7 +771,7 @@ export function POSInterface({
                   group.sizes.length > 0 ? `Tailles: ${summarizeValues(group.sizes)}` : '',
                   group.colors.length > 0 ? `Couleurs: ${summarizeValues(group.colors)}` : '',
                 ].filter(Boolean).join(' · ')
-                const helperText = group.variant_count > 1
+                const helperText = availableVariants.some((variant) => !tracksStock(variant)) ? 'Disponible · Sans suivi de stock' : group.variant_count > 1
                   ? `${availableVariants.length}/${group.variant_count} variantes dispo · ${totalRemaining} unite(s)`
                   : totalRemaining === 0
                     ? 'Stock epuise'
@@ -946,7 +949,7 @@ export function POSInterface({
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="info">{filteredVariantPickerVariants.length} variante(s)</Badge>
                 <Badge variant="purple">
-                  {filteredVariantPickerVariants.reduce((sum, variant) => sum + getRemainingQuantity(variant), 0)} unite(s)
+                  {filteredVariantPickerVariants.some((variant) => !tracksStock(variant)) ? 'Sans suivi de stock' : `${filteredVariantPickerVariants.reduce((sum, variant) => sum + getRemainingQuantity(variant), 0)} unite(s)`}
                 </Badge>
                 {(selectedVariantSize || selectedVariantColor) && (
                   <button
@@ -1090,7 +1093,7 @@ export function POSInterface({
                           {getProductVariantSummary(variant) || 'Variante standard'}
                         </p>
                         <p className="mt-1 text-xs text-[#6B7682]">
-                          SKU {variant.sku || 'Sans reference'} · Reste {getRemainingQuantity(variant)}
+                          SKU {variant.sku || 'Sans reference'} · {tracksStock(variant) ? `Reste ${getRemainingQuantity(variant)}` : 'Sans suivi de stock'}
                         </p>
                       </div>
                       <div className="text-right">

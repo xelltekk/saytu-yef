@@ -27,6 +27,7 @@ export function LowStockAlert({ refreshKey = 0 }: { refreshKey?: number }) {
         .from('products')
         .select('id, name, quantity, min_quantity, category:categories(name)')
         .eq('status', 'active')
+        .eq('track_stock', true)
         .order('quantity')
 
       if (!active) return

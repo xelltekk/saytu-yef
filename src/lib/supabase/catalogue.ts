@@ -2,6 +2,7 @@ import type { Category, Product, Supplier } from '@/types'
 import { normalizeBarcodeLookupValue } from '@/lib/barcodes'
 import { createClient, ensureBrowserSupabaseSession } from './client'
 import { getAccountContext } from './account'
+import { isProductAvailable } from '@/lib/productStock'
 
 export type CatalogueOptions = {
   scope?: 'inventory' | 'pos'; search?: string; category?: string; supplier?: string
@@ -92,5 +93,5 @@ export async function getCartProducts(ids: string[], signal?: AbortSignal) {
   if (current.user.id !== account.user.id || (current.business?.id ?? current.user.id) !== ownerId) {
     throw new Error('Session modifiee, veuillez reessayer')
   }
-  return products.filter((product) => product.status === 'active' && product.quantity > 0 && product.currency === 'XOF')
+  return products.filter((product) => isProductAvailable(product) && product.currency === 'XOF')
 }

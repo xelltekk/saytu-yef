@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { CartItem, Product, Sale } from '@/types'
 import { formatProductLabel } from '@/lib/utils'
+import { isProductAvailable, tracksStock } from '@/lib/productStock'
 
 type HeldCart = { id: string; cart: CartItem[]; discount: number; customerName: string; customerPhone: string; paymentMethod: SalesState['paymentMethod']; checkoutRequest: SalesState['checkoutRequest'] }
 
@@ -80,7 +81,7 @@ export const useSalesStore = create<SalesState>()(
     set((state) => {
       const existing = state.cart.find((c) => c.product_id === item.product_id)
       if (existing) {
-        const nextQuantity = Math.min(existing.quantity + 1, existing.max_quantity)
+        const nextQuantity = Math.min(existing.quantity + 1, existing.track_stock === false ? Number.POSITIVE_INFINITY : existing.max_quantity)
         return {
           cart: state.cart.map((c) =>
             c.product_id === item.product_id
@@ -97,7 +98,8 @@ export const useSalesStore = create<SalesState>()(
     set((state) => ({
       cart: state.cart.map((c) =>
         c.product_id === productId ? (() => {
-          const nextQuantity = Math.max(1, Math.min(quantity, c.max_quantity))
+          if (!Number.isSafeInteger(quantity)) return c
+          const nextQuantity = Math.max(1, Math.min(quantity, c.track_stock === false ? Number.POSITIVE_INFINITY : c.max_quantity))
           return { ...c, quantity: nextQuantity, total: nextQuantity * c.unit_price }
         })() : c
       ),
@@ -111,9 +113,9 @@ export const useSalesStore = create<SalesState>()(
         cart: state.cart.flatMap((item) => {
           if (checked && !checked.has(item.product_id)) return [item]
           const product = productMap.get(item.product_id)
-          if (!product || product.status !== 'active' || product.quantity <= 0 || product.currency !== 'XOF') return []
+          if (!product || !isProductAvailable(product) || product.currency !== 'XOF') return []
 
-          const quantity = Math.min(item.quantity, product.quantity)
+          const quantity = tracksStock(product) ? Math.min(item.quantity, product.quantity) : item.quantity
           return [{
             ...item,
             product_name: formatProductLabel(product),
@@ -123,6 +125,7 @@ export const useSalesStore = create<SalesState>()(
             quantity,
             total: quantity * product.selling_price,
             max_quantity: product.quantity,
+            track_stock: tracksStock(product),
             image_url: product.image_url,
             size: product.size,
             color: product.color,

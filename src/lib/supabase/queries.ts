@@ -284,6 +284,8 @@ function buildGroupedVariantPayload(
     selling_price: variant.selling_price,
     quantity: variant.quantity,
     min_quantity: variant.min_quantity,
+    track_stock: variant.track_stock !== false,
+    is_available: variant.is_available !== false,
     updated_at: new Date().toISOString(),
   }
 }
@@ -461,6 +463,7 @@ export async function getStockMovements(productId: string, currentQuantity: numb
       .from('sale_items')
       .select('id,sale_id,product_id,quantity,created_at')
       .eq('product_id', productId)
+      .eq('stock_tracked', true)
       .order('created_at', { ascending: false })
       .limit(limit),
   ])
@@ -506,6 +509,17 @@ export async function getStockMovements(productId: string, currentQuantity: numb
       runningQuantity = movement.previous_quantity
       return movement
     })
+}
+
+export async function setProductAvailability(id: string, available: boolean): Promise<Product> {
+  const { user, business } = await getAccountContext()
+  const client = createClient()
+  await ensureBrowserSupabaseSession(client)
+  const { data, error } = await client.from('products')
+    .update({ is_available: available, updated_at: new Date().toISOString() })
+    .eq('user_id', business?.id ?? user.id).eq('id', id).select('*').single()
+  if (error) throw new Error(error.message)
+  return data as Product
 }
 
 // ─── CATÉGORIES ───────────────────────────────────────────────────────────────
@@ -1128,7 +1142,7 @@ export async function getDashboardMetrics() {
 
     supabase
       .from('products')
-      .select('id, quantity, min_quantity, buying_price, selling_price, status'),
+      .select('id, quantity, min_quantity, buying_price, selling_price, status, track_stock'),
 
     recentSalesQuery,
   ])
@@ -1147,10 +1161,10 @@ export async function getDashboardMetrics() {
   const revenueMonth = (salesMonth.data ?? []).reduce((s, r) => s + Number(r.total), 0)
   const dueToday = (salesToday.data ?? []).reduce((sum, sale) => sum + Number(sale.amount_due ?? 0), 0)
   const dueMonth = (salesMonth.data ?? []).reduce((sum, sale) => sum + Number(sale.amount_due ?? 0), 0)
-  const inventoryProducts = ((products.data ?? []) as unknown as Array<Pick<Product, 'quantity' | 'min_quantity' | 'buying_price' | 'selling_price' | 'status'>>)
+  const inventoryProducts = ((products.data ?? []) as unknown as Array<Pick<Product, 'quantity' | 'min_quantity' | 'buying_price' | 'selling_price' | 'status' | 'track_stock'>>)
   const activeProducts = inventoryProducts.filter((product) => product.status === 'active')
   const totalProducts = activeProducts.length
-  const lowStockCount = activeProducts.filter((product) => product.quantity <= product.min_quantity).length
+  const lowStockCount = activeProducts.filter((product) => product.track_stock !== false && product.quantity <= product.min_quantity).length
 
   // Calcul marge moyenne
   const validProducts = activeProducts.filter((product) => product.selling_price > 0)

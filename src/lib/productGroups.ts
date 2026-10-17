@@ -1,5 +1,6 @@
 import { formatCurrency } from '@/lib/utils'
 import type { Product, ProductGroup } from '@/types'
+import { tracksStock } from './productStock'
 
 function compareVariantValues(left?: string, right?: string) {
   return (left ?? '').localeCompare(right ?? '', 'fr', { sensitivity: 'base' })
@@ -18,10 +19,10 @@ export function buildProductGroups(products: Product[]): ProductGroup[] {
 
     if (current) {
       current.variants.push(product)
-      current.quantity += product.quantity
+      current.quantity += tracksStock(product) ? product.quantity : 0
       current.variant_count += 1
-      if (product.quantity === 0) current.out_variant_count += 1
-      if (product.quantity > 0 && product.quantity <= product.min_quantity) current.low_variant_count += 1
+      if (tracksStock(product) && product.quantity === 0) current.out_variant_count += 1
+      if (tracksStock(product) && product.quantity > 0 && product.quantity <= product.min_quantity) current.low_variant_count += 1
       current.price_min = Math.min(current.price_min, product.selling_price)
       current.price_max = Math.max(current.price_max, product.selling_price)
       if (product.size && !current.sizes.includes(product.size)) current.sizes.push(product.size)
@@ -48,10 +49,10 @@ export function buildProductGroups(products: Product[]): ProductGroup[] {
       category: product.category,
       supplier: product.supplier,
       variants: [product],
-      quantity: product.quantity,
+      quantity: tracksStock(product) ? product.quantity : 0,
       variant_count: 1,
-      low_variant_count: product.quantity > 0 && product.quantity <= product.min_quantity ? 1 : 0,
-      out_variant_count: product.quantity === 0 ? 1 : 0,
+      low_variant_count: tracksStock(product) && product.quantity > 0 && product.quantity <= product.min_quantity ? 1 : 0,
+      out_variant_count: tracksStock(product) && product.quantity === 0 ? 1 : 0,
       price_min: product.selling_price,
       price_max: product.selling_price,
       sizes: product.size ? [product.size] : [],

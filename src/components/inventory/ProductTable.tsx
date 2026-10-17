@@ -45,9 +45,9 @@ import {
   formatCurrencyCompact,
   formatProductLabel,
   getProductVariantSummary,
-  getStockStatus,
 } from '@/lib/utils'
-import { deleteProductGroup } from '@/lib/supabase/queries'
+import { deleteProductGroup, setProductAvailability } from '@/lib/supabase/queries'
+import { getGroupQuantityLabel, getProductStockStatus, isProductAvailable, tracksStock } from '@/lib/productStock'
 import type { Product, ProductGroup } from '@/types'
 
 interface ProductTableProps {
@@ -77,6 +77,7 @@ interface RestockSupplierGroup {
 }
 
 function getRestockGap(product: Product): number {
+  if (!tracksStock(product)) return 0
   if (product.quantity > product.min_quantity) return 0
   return Math.max(product.min_quantity - product.quantity + 1, 1)
 }
@@ -90,9 +91,13 @@ function normalizePhone(phone?: string): string {
 }
 
 function getGroupStockTone(group: ProductGroup) {
-  const availableVariants = group.variants.filter((variant) => variant.quantity > variant.min_quantity).length
-  const lowVariants = group.variants.filter((variant) => variant.quantity > 0 && variant.quantity <= variant.min_quantity).length
-  const outVariants = group.variants.filter((variant) => variant.quantity === 0).length
+  const availableVariants = group.variants.filter(isProductAvailable).length
+  const lowVariants = group.variants.filter((variant) => tracksStock(variant) && variant.quantity > 0 && variant.quantity <= variant.min_quantity).length
+  const outVariants = group.variants.filter((variant) => tracksStock(variant) && variant.quantity === 0).length
+
+  if (!availableVariants && group.variants.some((variant) => !tracksStock(variant) || variant.is_available === false)) {
+    return { label: 'Indisponible', variant: 'danger' as const, helper: 'Non disponible a la vente' }
+  }
 
   if (outVariants === group.variant_count) {
     return { label: 'Rupture', variant: 'danger' as const, helper: `${outVariants} variante(s) indisponible(s)` }
@@ -167,7 +172,7 @@ export function ProductTable({
   const [scannedGroupId, setScannedGroupId] = useState<string | undefined>()
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [supplierFilter, setSupplierFilter] = useState('all')
-  const [stockFilter, setStockFilter] = useState<'all' | 'available' | 'low' | 'out' | 'restock'>('all')
+  const [stockFilter, setStockFilter] = useState<'all' | 'available' | 'low' | 'out' | 'restock' | 'untracked' | 'unavailable'>('all')
   const [sortBy, setSortBy] = useState<'recent' | 'name' | 'stock-low' | 'stock-high' | 'variants' | 'restock-cost'>('recent')
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [deleteCandidate, setDeleteCandidate] = useState<ProductGroup | null>(null)
@@ -175,6 +180,7 @@ export function ProductTable({
   const [showCategories, setShowCategories] = useState(false)
   const [showMobileFilters, setShowMobileFilters] = useState(false)
   const [inventoryView, setInventoryView] = useState<'products' | 'restock'>('products')
+  const [availabilityBusy, setAvailabilityBusy] = useState<string | null>(null)
   const [expandedGroupIds, setExpandedGroupIds] = useState<string[]>([])
   const [adjustmentProduct, setAdjustmentProduct] = useState<Product | null>(null)
   const [historyProduct, setHistoryProduct] = useState<Product | null>(null)
@@ -407,6 +413,18 @@ export function ProductTable({
     })
   }
 
+  const toggleAvailability = async (product: Product) => {
+    if (availabilityBusy) return
+    setAvailabilityBusy(product.id)
+    try {
+      await setProductAvailability(product.id, product.is_available === false)
+      load()
+      setFeedback({ type: 'success', message: `${formatProductLabel(product)} : ${product.is_available === false ? 'disponible' : 'indisponible'}.` })
+    } catch (cause) {
+      setFeedback({ type: 'error', message: cause instanceof Error ? cause.message : 'Modification impossible.' })
+    } finally { setAvailabilityBusy(null) }
+  }
+
   const exportCsv = async () => {
     const version = scanVersion.current
     setExportBusy(true)
@@ -420,16 +438,18 @@ export function ProductTable({
         SKU: variant.sku ?? '',
         Categorie: variant.category?.name ?? '',
         Fournisseur: variant.supplier?.name ?? '',
-        Quantite: variant.quantity,
-        Stock_minimum: variant.min_quantity,
+        Suivi_stock: tracksStock(variant) ? 'Oui' : 'Non',
+        Disponible: isProductAvailable(variant) ? 'Oui' : 'Non',
+        Quantite: tracksStock(variant) ? variant.quantity : '',
+        Stock_minimum: tracksStock(variant) ? variant.min_quantity : '',
         Reappro_unites: getRestockGap(variant),
         Cout_reappro: getRestockGap(variant) * variant.buying_price,
         Prix_achat: variant.buying_price,
         Prix_vente: variant.selling_price,
-        Valeur_achat_stock: variant.buying_price * variant.quantity,
-        Valeur_vente_stock: variant.selling_price * variant.quantity,
+        Valeur_achat_stock: tracksStock(variant) ? variant.buying_price * variant.quantity : '',
+        Valeur_vente_stock: tracksStock(variant) ? variant.selling_price * variant.quantity : '',
         Devise: variant.currency,
-        Statut: getStockStatus(variant.quantity, variant.min_quantity).label,
+        Statut: getProductStockStatus(variant).label,
         Date_ajout: new Date(variant.created_at).toLocaleString('fr-SN'),
       }))
 
@@ -440,6 +460,8 @@ export function ProductTable({
         SKU: '',
         Categorie: '',
         Fournisseur: '',
+        Suivi_stock: '',
+        Disponible: '',
         Quantite: '',
         Stock_minimum: '',
         Reappro_unites: '',
@@ -529,8 +551,8 @@ export function ProductTable({
   }
 
   const renderVariantRow = (group: ProductGroup, variant: Product) => {
-    const stock = getStockStatus(variant.quantity, variant.min_quantity)
-    const stockBadgeVariant = variant.quantity === 0 ? 'danger' : variant.quantity <= variant.min_quantity ? 'warning' : 'success'
+    const stock = getProductStockStatus(variant)
+    const stockBadgeVariant = !isProductAvailable(variant) ? 'danger' : tracksStock(variant) && variant.quantity <= variant.min_quantity ? 'warning' : 'success'
     const supplierPhone = normalizePhone(group.supplier?.phone)
     const variantSummary = getProductVariantSummary(variant) || 'Variante standard'
 
@@ -567,7 +589,7 @@ export function ProductTable({
                 </span>
               )}
               <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-[#5C6B73]">
-                Stock {variant.quantity} · Min {variant.min_quantity}
+                {tracksStock(variant) ? `Stock ${variant.quantity} · Min ${variant.min_quantity}` : 'Sans suivi de stock'}
               </span>
               {getRestockGap(variant) > 0 && (
                 <span className="rounded-full bg-amber-500/10 px-2.5 py-1 font-semibold text-amber-700">
@@ -589,7 +611,15 @@ export function ProductTable({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {!readOnly && (
+            {!readOnly && !tracksStock(variant) && (
+              <label className="inline-flex min-h-8 items-center gap-2 text-xs font-medium text-[#1A3636]">
+                <input type="checkbox" checked={variant.is_available !== false} disabled={availabilityBusy !== null}
+                  aria-label={`Disponibilite de ${formatProductLabel(variant)}`}
+                  onChange={() => void toggleAvailability(variant)} />
+                Disponible a la vente
+              </label>
+            )}
+            {!readOnly && tracksStock(variant) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -849,6 +879,8 @@ export function ProductTable({
                 <option value="low">Stock faible</option>
                 <option value="out">Rupture</option>
                 <option value="restock">A reapprovisionner</option>
+                <option value="untracked">Sans suivi de stock</option>
+                <option value="unavailable">Indisponibles a la vente</option>
               </select>
             </label>
 
@@ -1115,7 +1147,7 @@ export function ProductTable({
                       <div className="mt-3 flex items-center justify-between gap-3 border-t border-[#2D7D7D]/[0.08] pt-3">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-[#6C5CE7]">{getProductGroupPriceLabel(group)}</p>
-                          <p className="mt-1 text-[11px] text-[#6B7682]">{group.quantity} unite(s) · {stockTone.helper}</p>
+                          <p className="mt-1 text-[11px] text-[#6B7682]">{getGroupQuantityLabel(group)} · {stockTone.helper}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           {!readOnly && (
@@ -1200,7 +1232,7 @@ export function ProductTable({
                         </div>
                         <div className="rounded-2xl bg-[#F8FAFD] p-3">
                           <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Stock</p>
-                          <p className="mt-1 text-sm font-semibold text-[#1A3636]">{group.quantity} unite(s)</p>
+                          <p className="mt-1 text-sm font-semibold text-[#1A3636]">{getGroupQuantityLabel(group)}</p>
                           <p className="mt-1 text-[11px] text-[#6B7682]">{stockTone.helper}</p>
                         </div>
                         <div className="rounded-2xl bg-[#F8FAFD] p-3">
@@ -1271,7 +1303,7 @@ export function ProductTable({
 
                       <div className="w-20 flex-shrink-0 text-right">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#5C6B73]">Stock</p>
-                        <p className="mt-1 text-sm font-semibold text-[#1A3636]">{group.quantity}</p>
+                        <p className="mt-1 text-xs font-semibold text-[#1A3636]">{getGroupQuantityLabel(group)}</p>
                       </div>
 
                       <div className="hidden w-24 flex-shrink-0 text-right xl:block">

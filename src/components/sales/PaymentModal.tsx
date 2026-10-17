@@ -174,7 +174,7 @@ export function PaymentModal({ isOpen, onClose }: PaymentModalProps) {
       return
     }
 
-    const invalidItem = cart.find((item) => item.quantity > item.max_quantity)
+    const invalidItem = cart.find((item) => item.track_stock !== false && item.quantity > item.max_quantity)
     if (invalidItem) {
       setError(`Stock insuffisant pour ${invalidItem.product_name}`)
       return

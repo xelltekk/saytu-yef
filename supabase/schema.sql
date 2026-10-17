@@ -148,6 +148,8 @@ CREATE TABLE IF NOT EXISTS public.products (
   selling_price NUMERIC(12,2) NOT NULL DEFAULT 0,
   quantity INTEGER NOT NULL DEFAULT 0,
   min_quantity INTEGER DEFAULT 5,
+  track_stock BOOLEAN NOT NULL DEFAULT true,
+  is_available BOOLEAN NOT NULL DEFAULT true,
   image_url TEXT,
   currency TEXT DEFAULT 'XOF',
   status TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'pending')),
@@ -199,6 +201,7 @@ CREATE TABLE IF NOT EXISTS public.sales (
 
 -- Sale items
 CREATE TABLE IF NOT EXISTS public.sale_items (
+  stock_tracked BOOLEAN NOT NULL DEFAULT true,
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   sale_id UUID REFERENCES public.sales(id) ON DELETE CASCADE NOT NULL,
   product_id UUID REFERENCES public.products(id) ON DELETE SET NULL,
