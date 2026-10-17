@@ -8,6 +8,12 @@ La copie initiale etait complete, mais le controle suivant a rencontre le verrou
 
 Preuve : `Documents/Saytu-Yef-Backups/application-archives/verified-20261014T1957442919916Z.json`, empreinte associee et journal root des purges. Apres deploiement, environ 12 Go libres, disque a 40 %. Les sauvegardes PostgreSQL, Storage et l'application active sont conserves.
 
+## Rotation Pour Les Rapports PDF Du 17 Octobre 2026
+
+Le secours `saytu-yef-release-c3dd7a94833c03da7462f0162ca58354cc3ca8de-20261014T154903Z` a ete exporte dans le dossier Windows prive puis retire du VPS par le helper, apres correspondance SHA256 et lecture des 46 030 entrees. Archive de 290 291 001 octets, empreinte `bc4c3c70e42733fb24436ca1f56a4d579e244af31638ce9aea91b65692f6157c`. Manifest : `Documents/Saytu-Yef-Backups/application-archives/verified-20261017T1758337691801Z.json`.
+
+Les deux secours recents sont conserves; la bascule PDF ajoute le runtime precedent `4aa7e66` a 23:31 UTC. Supervision suspendue seulement autour des operations protegees puis reactivee dans `finally`. Apres deploiement : application stable, disque a 40 %, environ 12 Go libres. Les sauvegardes PostgreSQL et Storage ne sont pas purgees par cette rotation.
+
 ## Rotation Du 17 Octobre 2026
 
 Avant le deploiement du mode restaurant, le plus ancien secours `saytu-yef-release-7f19313c1be060310f95391091a372dcc48bc0ef-20261014T140614Z` a ete exporte puis retire par le helper apres verification SHA256 et lecture des 46 003 entrees. Archive Windows privee de 290 119 482 octets, empreinte `69d2d3bc86127387b9c6a7d3e922cf3cd1cb749061c8acc0e0bccbf3d361ffb2`. Preuve : `Documents/Saytu-Yef-Backups/application-archives/verified-20261017T1705308644014Z.json`.
