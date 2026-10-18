@@ -70,7 +70,7 @@ function saveReadState(readIds: string[]) {
   )
 }
 
-function buildLowStockNotifications(items: NotificationStockRow[]): HeaderNotificationItem[] {
+export function buildLowStockNotifications(items: NotificationStockRow[]): HeaderNotificationItem[] {
   return items
     .filter((item) => item.track_stock !== false && item.status === 'active' && item.quantity <= item.min_quantity)
     .sort((left, right) => left.quantity - right.quantity || left.name.localeCompare(right.name, 'fr'))
@@ -81,7 +81,7 @@ function buildLowStockNotifications(items: NotificationStockRow[]): HeaderNotifi
       tone: item.quantity === 0 ? 'danger' as const : 'warning' as const,
       title: item.quantity === 0 ? `Rupture: ${item.name}` : `Stock faible: ${item.name}`,
       message: `${item.quantity} unite(s) restantes pour un seuil minimum de ${item.min_quantity}.`,
-      href: '/inventory',
+      href: `/inventory?product=${encodeURIComponent(item.id)}`,
       createdAt: item.updated_at,
     }))
 }

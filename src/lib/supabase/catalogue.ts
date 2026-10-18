@@ -1,4 +1,5 @@
-import type { Category, Product, Supplier } from '@/types'
+import type { Category, Product, ProductGroup, Supplier } from '@/types'
+import { buildProductGroups } from '@/lib/productGroups'
 import { normalizeBarcodeLookupValue } from '@/lib/barcodes'
 import { createClient, ensureBrowserSupabaseSession } from './client'
 import { getAccountContext } from './account'
@@ -45,6 +46,30 @@ export function getCataloguePage(options: CatalogueOptions, signal?: AbortSignal
   return catalogueRpc<CataloguePage>('list_catalogue_page', {
     p_options: { ...options, code: normalizeBarcodeLookupValue(options.search) },
   }, signal)
+}
+
+export type InventoryProductTarget = { product: Product; group: ProductGroup }
+
+// Resolve the exact variant without depending on the current catalogue page or filters.
+export async function getInventoryProductTarget(productId: string, signal?: AbortSignal): Promise<InventoryProductTarget | null> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId)) return null
+  const initial = await getAccountContext()
+  const ownerId = initial.business?.id ?? initial.user.id
+  const client = createClient()
+  await ensureBrowserSupabaseSession(client)
+  const request = client.from('products').select('id,product_group_id').eq('user_id', ownerId).eq('id', productId)
+  const { data, error } = await (signal ? request.abortSignal(signal) : request).maybeSingle()
+  checkError(error)
+  const groupId = data?.product_group_id || productId
+  const page = data ? await getCataloguePage({ scope: 'inventory', group: groupId, limit: 1 }, signal) : null
+  const current = await getAccountContext()
+  if (current.user.id !== initial.user.id || (current.business?.id ?? current.user.id) !== ownerId
+    || current.member?.role !== initial.member?.role || (page && page.ownerId !== ownerId)) {
+    throw new Error('Session modifiee, veuillez reessayer')
+  }
+  const group = page ? buildProductGroups(page.products).find((item) => item.id === groupId) : undefined
+  const product = group?.variants.find((item) => item.id === productId)
+  return group && product ? { product, group } : null
 }
 
 export async function lookupCatalogueCode(code: string, scope: 'inventory' | 'pos') {

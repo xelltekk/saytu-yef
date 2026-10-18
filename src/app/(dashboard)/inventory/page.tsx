@@ -1,11 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { CheckCircle2, Globe, Package, Truck } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
 import { ProductTable } from '@/components/inventory/ProductTable'
 import { AddProductModal } from '@/components/inventory/AddProductModal'
+import { InventoryProductTarget } from '@/components/inventory/InventoryProductTarget'
 import { AbroadBatchEntry } from '@/components/inventory/AbroadBatchEntry'
 import { useAccountRole } from '@/hooks/useAccountRole'
 import { canManageInventory, canUseAbroadEntry } from '@/lib/accountRoles'
@@ -28,6 +29,12 @@ export default function InventoryPage() {
     (state) => state.abroadProducts.filter((product) => !product.activated).length
   )
   const clearActivatedProduct = useCallback(() => setActivatedProduct(null), [])
+  const showStock = useCallback(() => setTab('stock'), [])
+  const refreshStock = useCallback(() => setRefreshKey((current) => current + 1), [])
+  const editTargetProduct = useCallback((group: ProductGroup) => {
+    setTab('stock')
+    setEditProductGroup(group)
+  }, [])
 
   useEffect(() => {
     if (!notice) return
@@ -128,6 +135,9 @@ export default function InventoryPage() {
         )}
       </div>
 
+      <Suspense fallback={null}>
+        <InventoryProductTarget onResolved={showStock} onEditProduct={editTargetProduct} onStockChanged={refreshStock} />
+      </Suspense>
       <AddProductModal
         isOpen={!inventoryReadOnly && (showAdd || !!editProductGroup)}
         onClose={() => {
