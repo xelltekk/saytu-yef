@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Package, ShoppingCart, BarChart3,
   Settings, ChevronLeft, ChevronRight, LogOut,
-  Globe, User, Users, Truck, UserRoundCog,
+  Globe, User, Users, Truck, UserRoundCog, ReceiptText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
@@ -12,6 +12,7 @@ import { useUser } from '@/hooks/useUser'
 import { useAccountRole } from '@/hooks/useAccountRole'
 import { BrandLogo } from '@/components/brand/BrandLogo'
 import { isCashierRole } from '@/lib/accountRoles'
+import { isBusinessOwner } from '@/lib/expenses'
 
 const navItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Tableau de bord', cashier: false },
@@ -19,6 +20,7 @@ const navItems = [
   { href: '/sales', icon: ShoppingCart, label: 'Ventes', cashier: true },
   { href: '/clients', icon: Users, label: 'Clients & dettes', cashier: true },
   { href: '/suppliers', icon: Truck, label: 'Fournisseurs', cashier: false },
+  { href: '/expenses', icon: ReceiptText, label: 'Depenses', cashier: false, ownerOnly: true },
   { href: '/team', icon: UserRoundCog, label: 'Equipe & roles', cashier: false },
   { href: '/reports', icon: BarChart3, label: 'Rapports', cashier: true },
   { href: '/abroad', icon: Globe, label: 'Saisie etranger', cashier: false },
@@ -28,9 +30,10 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
-  const { displayName, businessName, initials, loading } = useUser()
+  const { user, accountOwnerId, displayName, businessName, initials, loading } = useUser()
   const { role, loading: roleLoading } = useAccountRole()
-  const visibleItems = navItems.filter((item) => item.cashier || !isCashierRole(role))
+  const owner = !loading && !roleLoading && isBusinessOwner(user?.id,accountOwnerId,role)
+  const visibleItems = navItems.filter((item) => (item.cashier || !isCashierRole(role)) && (!('ownerOnly' in item) || !item.ownerOnly || owner))
 
   return (
     <aside

@@ -72,10 +72,46 @@ function Get-StorageObjectUrl([string]$Bucket, [string]$Name) {
   return "https://$project.supabase.co/storage/v1/object/public/$([Uri]::EscapeDataString($Bucket))/$encoded"
 }
 
+function Save-PrivateStorageObject($Bucket, $Object, [string]$Path) {
+  if ($Bucket.id -cne 'expense-receipts' -or $Object.name -cnotmatch '^[0-9a-f-]{36}/[0-9a-f-]{36}\.(jpg|png|webp)$' -or
+    $null -eq $Object.metadata.size -or [long]$Object.metadata.size -lt 1 -or [long]$Object.metadata.size -gt 5242880) {
+    throw 'Objet prive non pris en charge; aucune sauvegarde complete ne sera declaree.'
+  }
+  $request = @{ bucket=$Bucket.id; name=$Object.name; size=[long]$Object.metadata.size; etag=$Object.metadata.eTag } | ConvertTo-Json -Compress
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($request))
+  $info = [Diagnostics.ProcessStartInfo]::new((Get-Command ssh.exe -ErrorAction Stop).Source)
+  $info.UseShellExecute = $false
+  $info.CreateNoWindow = $true
+  $info.RedirectStandardOutput = $true
+  $info.RedirectStandardError = $true
+  foreach ($argument in @('-i',$IdentityFile,'-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15',
+    '-o','ServerAliveInterval=15','-o','ServerAliveCountMax=2','ubuntu@179.237.84.35',
+    "sudo -n node /usr/local/lib/saytu-yef/backup-private-storage.mjs $encoded")) { $info.ArgumentList.Add($argument) }
+  $process = [Diagnostics.Process]::new()
+  $process.StartInfo = $info
+  $null = $process.Start()
+  $errors = $process.StandardError.ReadToEndAsync()
+  try {
+    $file = [IO.FileStream]::new($Path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write)
+    try {
+      $buffer = [byte[]]::new(65536)
+      $size = 0L
+      while (($read = $process.StandardOutput.BaseStream.Read($buffer,0,$buffer.Length)) -gt 0) {
+        $size += $read
+        if ($size -gt [long]$Object.metadata.size) { throw 'Justificatif prive trop volumineux.' }
+        $file.Write($buffer,0,$read)
+      }
+    } finally { $file.Dispose() }
+    $process.WaitForExit()
+    $null = $errors.GetAwaiter().GetResult()
+    if ($process.ExitCode -ne 0 -or $size -ne [long]$Object.metadata.size) { throw 'Copie privee incomplete. Verifier la cle de sauvegarde sur le VPS.' }
+  } finally { if (-not $process.HasExited) { $process.Kill() }; $process.Dispose() }
+}
+
 $inventory = Get-StorageInventory
 $buckets = @(ConvertFrom-Json -InputObject $inventory)
 foreach ($bucket in $buckets) {
-  if (-not $bucket.public -and $bucket.objects.Count -gt 0) {
+  if (-not $bucket.public -and $bucket.objects.Count -gt 0 -and $bucket.id -cne 'expense-receipts') {
     throw 'Un bucket prive contient des fichiers. Configurer un acces Storage protege avant de declarer la sauvegarde complete.'
   }
 }
@@ -95,6 +131,15 @@ try {
       $keyBytes = [Text.Encoding]::UTF8.GetBytes("$($bucket.id)/$($object.name)")
       $filename = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($keyBytes)).ToLowerInvariant() + '.bin'
       $path = Join-Path (Join-Path $partial 'objects') $filename
+      if (-not $bucket.public) {
+        Save-PrivateStorageObject $bucket $object $path
+        $entries.Add([ordered]@{
+          bucket=$bucket.id; name=$object.name; id=$object.id; updated_at=$object.updated_at; metadata=$object.metadata
+          file="objects/$filename"; size=(Get-Item -LiteralPath $path).Length
+          sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        })
+        continue
+      }
       $deadline = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(60))
       $response = $null
       try {

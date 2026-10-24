@@ -31,7 +31,7 @@ export const TEAM_ROLE_OPTIONS: Array<{
 ]
 
 const CASHIER_ALLOWED_PREFIXES = ['/sales', '/inventory', '/clients', '/reports'] as const
-const CASHIER_BLOCKED_PREFIXES = ['/dashboard', '/suppliers', '/team', '/settings', '/abroad'] as const
+const CASHIER_BLOCKED_PREFIXES = ['/dashboard', '/suppliers', '/team', '/settings', '/abroad', '/expenses'] as const
 
 function matchesRoutePrefix(pathname: string, prefixes: readonly string[]) {
   return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))

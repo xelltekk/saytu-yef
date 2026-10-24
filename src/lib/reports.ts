@@ -1,4 +1,5 @@
 import type { TeamMember } from '@/types'
+import type { ExpenseSummary } from './expenses'
 
 export type ReportsRangePreset = 'today' | '7d' | '30d' | 'month' | '3m' | '6m' | '12m' | 'custom'
 
@@ -169,4 +170,4 @@ export interface ReportsData {
 
 export type ReportRequest = { start: string; endExclusive: string; granularity: 'day' | 'month'; timeZone: string; sellerId: string | null }
 export type ReportProduct = ReportsData['topProducts'][number]
-export type ReportSnapshot = ReportsData & { ownerId: string; version: string; request: ReportRequest }
+export type ReportSnapshot = ReportsData & { ownerId: string; version: string; request: ReportRequest; expenses?: ExpenseSummary }

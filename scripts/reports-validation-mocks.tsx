@@ -3,6 +3,7 @@ import type { ReportSnapshot, ReportsRangeInput } from '../src/lib/reports'
 import { resolveReportsRange } from '../src/lib/reports'
 
 let role = 'admin'
+let actorRevision = 0
 const listeners = new Set<() => void>()
 const user = { id: 'seller', user_metadata: {} }
 const calls: string[] = []
@@ -19,10 +20,17 @@ const client = { key: 'client', name: 'Client fictif', phone: '', salesCount: 12
 Object.assign(window, { reportCalls: calls, reportCompleted: completed, reportRole(next: string) {
   role = next
   listeners.forEach((listener) => listener())
+}, reportActor(next: string) {
+  user.id = next
+  actorRevision++
+  listeners.forEach((listener) => listener())
 } })
-export function useUser() { return { user, accountOwnerId: 'owner', businessName: 'Commerce Demonstration',
+export function useUser() {
+  useSyncExternalStore((listener) => { listeners.add(listener); return () => listeners.delete(listener) }, () => actorRevision)
+  return { user, accountOwnerId: 'owner', businessName: 'Commerce Demonstration',
   businessAddress: 'Dakar, Senegal', businessPhone: '77 000 00 00', businessNinea: 'DEMO-2026',
-  businessLogoUrl: 'https://reports-fixture.invalid/logo.png' } }
+  businessLogoUrl: 'https://reports-fixture.invalid/logo.png' }
+}
 export function useAccountRole() {
   const current = useSyncExternalStore((listener) => { listeners.add(listener); return () => listeners.delete(listener) }, () => role)
   return { role: current, isCashier: current === 'cashier' }
@@ -38,6 +46,10 @@ export async function getReportsData(input: ReportsRangeInput): Promise<ReportSn
   const range = resolveReportsRange(input)
   return {
     ownerId: 'owner', version: 'fixture', appliedSellerId: role === 'cashier' ? 'seller' : input.sellerId ?? null,
+    expenses: user.id==='owner' && role==='admin' && !input.sellerId ? {
+      ownerId:'owner',version:'expenses-v1',startDate:range.start.toISOString().slice(0,10),endExclusive:range.endExclusive.toISOString().slice(0,10),
+      count:2,total:30000,byCategory:[{category:'rent',total:25000,count:1},{category:'fees',total:5000,count:1}],byMonth:[{month:range.start.toISOString().slice(0,7),total:30000,count:2}],
+    } : undefined,
     request: { start: range.start.toISOString(), endExclusive: range.endExclusive.toISOString(), granularity: range.granularity, timeZone: 'UTC', sellerId: input.sellerId ?? null },
     monthlyData: [{ month: input.preset, revenue: 1230000, profit: 492000 }],
     topProducts: products.slice(0, 10), paymentMethodData: [{ method: 'cash', count: 123, invoiced: 1230000, collected: 1000000, due: 230000 }],

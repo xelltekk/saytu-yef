@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf
 import { ACCOUNT_ROLE_LABELS } from './accountRoles'
 import { getSafeLogoUrl, prepareBusinessLogo } from './businessLogo'
 import type { ReportProduct, ReportSnapshot } from './reports'
+import { expenseCategoryLabel } from './expenses'
 
 export type ReportBusiness = {
   name: string
@@ -240,6 +241,19 @@ export async function buildReportPdf({ snapshot: data, products, business, gener
     y += 24
   }
   const amountColumns: Column[] = [{ label: 'Revenus HT (FCFA)', width: 115, right: true }, { label: 'Bénéfice brut (FCFA)', width: 115, right: true }]
+  if (data.expenses && !data.appliedSellerId) {
+    newPage()
+    heading('Depenses et resultat estime')
+    paragraph(`Benefice brut des ventes : ${money(profit)} FCFA.`, 10, INK)
+    paragraph(`Frais d'exploitation payes : ${money(data.expenses.total)} FCFA (${data.expenses.count} depense(s)).`, 10, INK)
+    const estimatedResult = profit-data.expenses.total
+    paragraph(`Resultat estime apres depenses saisies : ${money(estimatedResult)} FCFA.`, 11, estimatedResult < 0 ? RED : GREEN)
+    paragraph('Estimation de gestion : marge brute moins frais enregistres. Ne constitue pas un resultat comptable et ne comprend pas les charges non saisies. Les achats de stock sont deja pris en compte dans le cout des ventes.', 8)
+    table('Depenses par categorie', [{ label:'Categorie',width:CONTENT-160 },{ label:'Montant (FCFA)',width:160,right:true }],
+      data.expenses.byCategory.map((item) => [expenseCategoryLabel(item.category),money(item.total)]),'Aucune depense enregistree sur cette periode.')
+    table('Depenses par mois', [{ label:'Mois',width:CONTENT-160 },{ label:'Montant (FCFA)',width:160,right:true }],
+      data.expenses.byMonth.map((item) => [item.month,money(item.total)]),'Aucune depense enregistree sur cette periode.')
+  }
   newPage()
   table('Activité par période', [{ label: 'Période', width: CONTENT - 230 }, ...amountColumns],
     data.monthlyData.map((bucket) => [bucket.month, money(bucket.revenue), money(bucket.profit)]), 'Aucune vente sur cette période.')

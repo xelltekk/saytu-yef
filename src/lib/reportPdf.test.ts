@@ -44,6 +44,14 @@ describe('report PDF', () => {
       expect(page.getHeight()).toBeCloseTo(841.89)
     }
   })
+  it('adds the owners operating-expense section, but never attributes it to a filtered seller', async () => {
+    const snapshot=fixture()
+    snapshot.expenses={ownerId:'owner',startDate:'2026-09-01',endExclusive:'2026-10-01',version:'e1',count:1,total:100000,
+      byCategory:[{category:'rent',total:100000,count:1}],byMonth:[{month:'2026-09',total:100000,count:1}]}
+    expect((await PDFDocument.load(await buildReportPdf({snapshot,products:[],business:{name:'Boutique test'}}))).getPageCount()).toBe(4)
+    snapshot.appliedSellerId='cashier'
+    expect((await PDFDocument.load(await buildReportPdf({snapshot,products:[],business:{name:'Boutique test'}}))).getPageCount()).toBe(3)
+  })
   it('paginates all products and tolerates long names, unsupported symbols and losses', async () => {
     const snapshot = fixture()
     snapshot.monthlyData = Array.from({ length: 24 }, (_, index) => ({ month: `Periode ${index + 1}`, revenue: 100000, profit: -5000 }))

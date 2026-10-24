@@ -1,4 +1,5 @@
 'use client'
+import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Header } from '@/components/layout/Header'
 import { CashSessionPanel } from '@/components/sales/CashSessionPanel'
@@ -16,6 +17,7 @@ import { getReportProductsForExport } from '@/lib/supabase/reports'
 import type { ReportSnapshot } from '@/lib/reports'
 import { ACCOUNT_ROLE_LABELS } from '@/lib/accountRoles'
 import type { CashSession } from '@/types'
+import { expenseCategoryLabel, isBusinessOwner } from '@/lib/expenses'
 
 const COLORS = ['#6C5CE7', '#8b5cf6', '#f97316', '#10b981', '#0ea5e9', '#94a3b8']
 const PAYMENT_METHOD_META = {
@@ -110,6 +112,7 @@ type ReportsData = ReportSnapshot
 export default function ReportsPage() {
   const { isCashier, role } = useAccountRole()
   const { user, accountOwnerId, businessName, businessAddress, businessPhone, businessNinea, businessLogoUrl } = useUser()
+  const owner = isBusinessOwner(user?.id,accountOwnerId,role)
   const [rangePreset, setRangePreset] = useState<ReportsRangePreset>('6m')
   const [sellerFilter, setSellerFilter] = useState<string>('all')
   const [customStartDate, setCustomStartDate] = useState(() => {
@@ -288,6 +291,13 @@ export default function ReportsPage() {
         ['Ventes reglees', data.completedCount],
         ['Ventes partielles', data.partialCount],
         ['Ventes en attente', data.pendingCount],
+        ...(owner && data.expenses ? [
+          ['Depenses payees de la periode (FCFA)',data.expenses.total],
+          ['Resultat estime apres depenses saisies (FCFA)',totalProfit-data.expenses.total],
+          ['Estimation de gestion, hors bilan comptable'],
+          [],['Depenses par categorie'],['Categorie','Montant (FCFA)'],
+          ...data.expenses.byCategory.map((item) => [expenseCategoryLabel(item.category),item.total]),
+        ] : []),
         [],
         ['Synthèse mensuelle'],
         ['Mois', 'Revenus HT (FCFA)', 'Bénéfice brut (FCFA)'],
@@ -456,6 +466,18 @@ export default function ReportsPage() {
             Vue filtree sur {selectedSeller.label}. Les cartes, graphiques et exports montrent uniquement ses ventes sur la periode.
           </div>
         )}
+
+        {owner && <div className="flex flex-wrap items-center justify-between gap-3 border-y border-[#2D7D7D]/10 py-4">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-[#1A3636]">Depenses et resultat estime</h2>
+            {data?.expenses ? <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-3 text-sm">
+              <div><dt className="text-xs text-[#5C6B73]">Depenses payees</dt><dd className="mt-1 font-semibold text-[#1A3636]">{formatCurrency(data.expenses.total)}</dd></div>
+              <div><dt className="text-xs text-[#5C6B73]">Marge brute moins depenses saisies</dt><dd className={`mt-1 font-semibold ${totalProfit-data.expenses.total < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{formatCurrency(totalProfit-data.expenses.total)}</dd></div>
+            </dl> : <p className="mt-1 text-xs text-[#5C6B73]">{selectedSeller ? 'Vue vendeur : depenses globales non attribuees.' : 'Chargement...'}</p>}
+            {data?.expenses && <p className="mt-2 text-xs text-[#6B7682]">Estimation basee sur les frais saisis, hors bilan comptable.</p>}
+          </div>
+          <Link href="/expenses" className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-[#2D7D7D]"><Receipt size={16} />Depenses</Link>
+        </div>}
 
         <CashSessionPanel
           activeSession={activeCashSession}
