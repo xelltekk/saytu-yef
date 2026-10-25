@@ -10,12 +10,12 @@ export const metadata: Metadata = {
     "Application SaaS de gestion de stock et de ventes pour les entreprises senegalaises. Wave, Orange Money integres. Saisie hors ligne depuis l'etranger.",
   keywords: ['gestion stock', 'ventes', 'Senegal', 'Wave', 'Orange Money', 'inventaire', 'POS'],
   authors: [{ name: 'Saytu Yef' }],
-  manifest: '/manifest.json',
+  manifest: '/manifest.json?v=20261025-gradient',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'Saytu Yef',
-    startupImage: [{ url: '/icons/icon-512x512.png' }],
+    startupImage: [{ url: '/icons/icon-512x512.png?v=20261025-gradient' }],
   },
   openGraph: {
     title: 'Saytu Yef - Stock & Ventes simplifies',
@@ -25,16 +25,16 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/icons/saytu-yef-16.png', sizes: '16x16', type: 'image/png' },
-      { url: '/icons/saytu-yef-32.png', sizes: '32x32', type: 'image/png' },
-      { url: '/icons/saytu-yef-48.png', sizes: '48x48', type: 'image/png' },
+      { url: '/icons/saytu-yef-16.png?v=20261025-gradient', sizes: '16x16', type: 'image/png' },
+      { url: '/icons/saytu-yef-32.png?v=20261025-gradient', sizes: '32x32', type: 'image/png' },
+      { url: '/icons/saytu-yef-48.png?v=20261025-gradient', sizes: '48x48', type: 'image/png' },
     ],
     apple: [
-      { url: '/brand/logo-saytu-yef-mark-v2.png', type: 'image/png' },
-      { url: '/icons/icon-152x152.png', sizes: '152x152', type: 'image/png' },
-      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/apple-icon.png?v=20261025-gradient', sizes: '180x180', type: 'image/png' },
+      { url: '/icons/icon-152x152.png?v=20261025-gradient', sizes: '152x152', type: 'image/png' },
+      { url: '/icons/icon-192x192.png?v=20261025-gradient', sizes: '192x192', type: 'image/png' },
     ],
-    shortcut: '/favicon.ico?v=saytu-yef-20261009',
+    shortcut: '/favicon.ico?v=20261025-gradient',
   },
   robots: { index: true, follow: true },
 }
