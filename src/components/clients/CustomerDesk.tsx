@@ -10,6 +10,9 @@ import { createClient } from '@/lib/supabase/client'
 import { getCustomerAccounts, getCustomerSales, type CustomerAccount, type CustomerAccounts } from '@/lib/supabase/retail'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { SALE_STATUS_LABELS } from '@/lib/sales'
+import { buildDebtReminder } from '@/lib/debtReminders'
+import { useUser } from '@/hooks/useUser'
+import { useAccountStore } from '@/store/accountStore'
 import type { Sale } from '@/types'
 
 const METHODS = [{ value: 'cash', label: 'Especes' }, { value: 'wave', label: 'Wave' }, { value: 'orange_money', label: 'Orange Money' }, { value: 'card', label: 'Carte' }]
@@ -17,6 +20,8 @@ const FILTERS = [{ value: 'all', label: 'Tous les clients' }, { value: 'debt', l
 type Reminder = { id: string; channel: string; note: string; created_at: string }
 
 export function CustomerDesk() {
+  const { businessName } = useUser()
+  const paymentPhone = useAccountStore((state) => state.business?.phone)
   const [data, setData] = useState<CustomerAccounts | null>(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
@@ -121,7 +126,7 @@ export function CustomerDesk() {
     } catch (err) { setError(err instanceof Error ? err.message : 'Export impossible') }
     finally { setExporting(false) }
   }
-  const reminderText = selected ? `Bonjour ${selected.name || 'cher client'}, votre solde restant est de ${formatCurrency(Number(selected.due))}. Merci de nous contacter pour le reglement.` : ''
+  const reminderText = selected ? buildDebtReminder({ customerName: selected.name, amountDue: Number(selected.due), businessName, businessPhone: paymentPhone }) : ''
   const digits = selected?.phone.replace(/\D/g,'') ?? ''
   const contact = digits.length === 9 ? `221${digits}` : digits
   return <div className="space-y-4 p-3 sm:p-6">

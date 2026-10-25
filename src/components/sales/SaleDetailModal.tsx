@@ -11,6 +11,8 @@ import { printInvoice, printReceipt, type InvoiceData, type ReceiptData } from '
 import { getSaleAmountDue, getSaleAmountPaid, getSaleComputedStatus, getSalePaymentLabel, SALE_METHOD_LABELS, SALE_METHOD_VARIANTS, SALE_STATUS_LABELS, SALE_STATUS_VARIANTS } from '@/lib/sales'
 import { useUser } from '@/hooks/useUser'
 import { useAccountRole } from '@/hooks/useAccountRole'
+import { useAccountStore } from '@/store/accountStore'
+import { buildDebtReminder } from '@/lib/debtReminders'
 import type { Sale } from '@/types'
 
 const METHOD_OPTIONS = [
@@ -36,6 +38,7 @@ interface SaleDetailModalProps {
 export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps) {
   const { businessName, businessAddress, businessPhone, businessNinea, businessLogoUrl, loading: loadingBusiness } = useUser()
   const { isAdmin } = useAccountRole()
+  const paymentPhone = useAccountStore((state) => state.business?.phone)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [recordingPayment, setRecordingPayment] = useState(false)
@@ -167,9 +170,8 @@ export function SaleDetailModal({ sale, onClose, onSaved }: SaleDetailModalProps
   )
   const debtReminder = useMemo(() => {
     if (!sale || amountDue <= 0) return ''
-    const customer = sale.customer_name ? ` ${sale.customer_name}` : ''
-    return `Bonjour${customer}, nous vous rappelons qu’il reste ${formatCurrency(amountDue)} à régler sur votre achat chez ${businessName || 'Saytu Yef'} (reçu ${sale.id.slice(0, 8).toUpperCase()}). Merci.`
-  }, [amountDue, businessName, sale])
+    return buildDebtReminder({ customerName: sale.customer_name, amountDue, businessName, businessPhone: paymentPhone, reference: sale.id.slice(0, 8).toUpperCase() })
+  }, [amountDue, businessName, paymentPhone, sale])
   const reversalTarget = amountPaid > 0 ? 'refunded' : 'cancelled'
   const paymentQuickAmounts = useMemo(() => {
     const presets = [
