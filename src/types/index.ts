@@ -29,6 +29,7 @@ export interface TeamMember {
   role: 'admin' | 'employee' | 'cashier'
   account_owner_id?: string
   created_at: string
+  updated_at?: string
 }
 
 export interface Product {

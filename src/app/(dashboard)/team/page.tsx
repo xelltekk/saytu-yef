@@ -1,194 +1,169 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
 import { Header } from '@/components/layout/Header'
 import { UsageLimitNotice } from '@/components/subscriptions/UsageLimitNotice'
 import { useSubscriptionOverview } from '@/hooks/useSubscriptionOverview'
-import { Card } from '@/components/ui/Card'
+import { useUser } from '@/hooks/useUser'
+import { useAccountRole } from '@/hooks/useAccountRole'
+import { refreshAccount } from '@/store/accountStore'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
-import { getPlanDefinition, getUsageLimit, getUsageRatio } from '@/lib/subscriptions'
-import { addTeamMember, getTeamContext, removeTeamMember, updateTeamMemberRole } from '@/lib/supabase/queries'
+import { getPlanDefinition, getUsageLimit } from '@/lib/subscriptions'
+import { addTeamMember, getTeamContext, removeTeamMember } from '@/lib/supabase/queries'
+import { updateTeamMember } from '@/lib/supabase/team'
 import { ACCOUNT_ROLE_LABELS, TEAM_ROLE_OPTIONS } from '@/lib/accountRoles'
+import { canEditTeamMember, filterTeamMembers, type TeamMemberDraft } from '@/lib/team'
 import type { TeamMember } from '@/types'
-import { ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react'
+import { Pencil, RefreshCw, Search, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react'
+
+const roleOptions = TEAM_ROLE_OPTIONS.map((option) => ({ value: option.value, label: option.teamLabel }))
+type Dialog = { kind: 'add' } | { kind: 'edit' | 'remove'; member: TeamMember } | null
 
 export default function TeamPage() {
+  const { user, accountOwnerId, loading } = useUser()
+  const { role, loading: roleLoading } = useAccountRole()
+  return <div className="min-h-screen">
+    <Header title="Equipe et roles" subtitle="Membres de votre entreprise" />
+    {loading || roleLoading ? <p role="status" className="p-4 text-sm">Chargement de l&apos;equipe...</p>
+      : user && role ? <TeamContent key={`${user.id}:${accountOwnerId}:${role}`} actorId={user.id} ownerId={accountOwnerId ?? user.id} actorRole={role} />
+        : <p role="alert" className="p-4 text-sm text-red-600">Connexion requise pour consulter l&apos;equipe.</p>}
+  </div>
+}
+
+function TeamContent({ actorId, ownerId, actorRole }: { actorId: string; ownerId: string; actorRole: TeamMember['role'] }) {
   const { overview } = useSubscriptionOverview()
   const [members, setMembers] = useState<TeamMember[]>([])
   const [current, setCurrent] = useState<TeamMember | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [open, setOpen] = useState(false)
+  const [dialog, setDialog] = useState<Dialog>(null)
   const [email, setEmail] = useState('')
-  const [role, setRole] = useState<TeamMember['role']>('cashier')
+  const [draft, setDraft] = useState<TeamMemberDraft>({ full_name: '', role: 'cashier' })
+  const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
   const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
     try {
       const data = await getTeamContext()
+      if (data.current.id !== actorId || (data.current.account_owner_id ?? data.current.id) !== ownerId || data.current.role !== actorRole) {
+        setMembers([])
+        setCurrent(null)
+        setDialog(null)
+        void refreshAccount(true)
+        throw new Error('Votre acces a change. Rechargez la page.')
+      }
       setCurrent(data.current)
-      setMembers(data.members)
+      setMembers(data.members.filter((member) => (member.account_owner_id ?? member.id) === ownerId))
     } catch (e) {
       setError(e instanceof Error ? e.message : "Impossible de charger l'equipe.")
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+    } finally { setLoading(false) }
+  }, [actorId, ownerId, actorRole])
 
   useEffect(() => { void load() }, [load])
   const isAdmin = current?.role === 'admin'
-  const ownerId = current?.account_owner_id ?? current?.id
-  const teamLimit = overview ? getUsageLimit(overview.plan, 'teamMembers') : null
-  const teamRatio = overview ? getUsageRatio(members.length, teamLimit) : 0
-  const isTeamLimitReached = !!teamLimit && members.length >= teamLimit
-  const isTeamLimitNear = !isTeamLimitReached && !!teamLimit && teamRatio >= 80
-  const currentPlanName = overview ? getPlanDefinition(overview.plan).name : 'actuel'
+  const limit = overview ? getUsageLimit(overview.plan, 'teamMembers') : null
+  const limitReached = limit !== null && members.length >= limit
+  const visible = filterTeamMembers(members, search, roleFilter)
+  const busy = saving || loading
 
-  const add = async () => {
-    if (!email.trim()) return
+  function openDialog(next: NonNullable<Dialog>) {
+    setError('')
+    setNotice('')
+    setEmail('')
+    setDraft(next.kind === 'edit' ? { full_name: next.member.full_name ?? '', role: next.member.role } : { full_name: '', role: 'cashier' })
+    setDialog(next)
+  }
+
+  async function save() {
+    if (!dialog || saving || !isAdmin) return
     setSaving(true)
     setError('')
     setNotice('')
     try {
-      await addTeamMember(email.trim(), role)
-      setEmail('')
-      setRole('cashier')
-      setOpen(false)
-      setNotice('Le membre a ete rattache a votre entreprise.')
+      if (dialog.kind === 'add') {
+        await addTeamMember(email.trim(), draft.role)
+        setNotice('Membre ajoute a votre entreprise.')
+      } else if (dialog.kind === 'edit') {
+        await updateTeamMember(dialog.member, draft)
+        setNotice('Modifications enregistrees.')
+      } else {
+        await removeTeamMember(dialog.member.id)
+        setNotice('Membre retire de votre entreprise.')
+      }
+      setDialog(null)
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Impossible d'ajouter ce membre.")
-    } finally {
-      setSaving(false)
-    }
+      setError(e instanceof Error ? e.message : 'Operation impossible.')
+    } finally { setSaving(false) }
   }
 
-  const changeRole = async (member: TeamMember, nextRole: TeamMember['role']) => {
-    setError('')
-    try {
-      await updateTeamMemberRole(member.id, nextRole)
-      await load()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Modification impossible.')
-    }
-  }
-
-  const remove = async (member: TeamMember) => {
-    if (!window.confirm(`Retirer ${member.full_name || member.email} de l'entreprise ?`)) return
-    setError('')
-    try {
-      await removeTeamMember(member.id)
-      setNotice('Membre retire.')
-      await load()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Suppression impossible.')
-    }
-  }
-
-  return (
-    <div className="min-h-screen">
-      <Header title="Equipe" subtitle="Administrateurs, employes et membres caisse de votre entreprise" />
-      <div className="space-y-4 p-3 sm:p-4 lg:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm text-[#6B7682]"><Users size={17} /> {members.length} membre(s)</div>
-          {isAdmin && (
-            <Button
-              onClick={() => { setError(''); setOpen(true) }}
-              disabled={isTeamLimitReached}
-              title={isTeamLimitReached ? `Limite atteinte sur le plan ${currentPlanName}` : 'Ajouter un membre'}
-            >
-              <UserPlus size={16} /> Ajouter un membre
-            </Button>
-          )}
-        </div>
-        {isTeamLimitReached && (
-          <UsageLimitNotice
-            tone="danger"
-            title="Limite equipe atteinte"
-            detail={`Le plan ${currentPlanName} autorise ${teamLimit} utilisateur(s) au total. Passez a une formule superieure pour agrandir l'equipe.`}
-          />
-        )}
-        {isTeamLimitNear && teamLimit && (
-          <UsageLimitNotice
-            title="Capacite equipe bientot atteinte"
-            detail={`${members.length} utilisateur(s) actifs sur ${teamLimit}. Vous arrivez au plafond du plan ${currentPlanName}.`}
-          />
-        )}
-        {notice && <div role="status" className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-700">{notice}</div>}
-        {error && <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">{error}</div>}
-        {!isAdmin && !loading && <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700">Seul un administrateur peut modifier l&apos;equipe.</div>}
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {members.map((member) => {
-            const isOwner = member.id === ownerId
-            return (
-              <Card key={member.id} className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-[#1A3636]">{member.full_name || 'Utilisateur'}</p>
-                    <p className="truncate text-xs text-[#6B7682]">{member.email}</p>
-                  </div>
-                  <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
-                    member.role === 'admin'
-                      ? 'bg-violet-500/10 text-violet-700'
-                      : member.role === 'cashier'
-                        ? 'bg-emerald-500/10 text-emerald-700'
-                        : 'bg-sky-500/10 text-sky-700'
-                  }`}>
-                    {ACCOUNT_ROLE_LABELS[member.role]}
-                  </span>
-                </div>
-                <div className="mt-4 flex items-center gap-2">
-                  {isAdmin && !isOwner ? (
-                    <>
-                      <Select
-                        value={member.role}
-                        onChange={(e) => void changeRole(member, e.target.value as TeamMember['role'])}
-                        options={TEAM_ROLE_OPTIONS.map((option) => ({ value: option.value, label: option.teamLabel }))}
-                      />
-                      <button type="button" onClick={() => void remove(member)} className="rounded-xl p-2 text-red-500 hover:bg-red-500/10" aria-label="Retirer le membre"><Trash2 size={16} /></button>
-                    </>
-                  ) : (
-                    <p className="flex items-center gap-1.5 text-xs text-[#6B7682]"><ShieldCheck size={14} /> {isOwner ? 'Proprietaire du compte' : 'Acces partage'}</p>
-                  )}
-                </div>
-              </Card>
-            )
-          })}
-        </div>
+  const close = () => { if (!saving) { setDialog(null); setError('') } }
+  return <div className="space-y-4 p-3 sm:p-4 lg:p-6">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-center gap-2 text-sm text-[#5C6B73]"><Users size={17} /> {members.length} membre(s){limit !== null && ` / ${limit}`}</div>
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={() => void load()} disabled={busy} aria-label="Actualiser l'equipe" title="Actualiser l'equipe" className="grid size-9 shrink-0 place-items-center rounded-lg border border-[#2D7D7D]/20 text-[#2D7D7D] disabled:opacity-40"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /></button>
+        {isAdmin && <Button size="sm" leftIcon={<UserPlus size={15} />} onClick={() => openDialog({ kind: 'add' })} disabled={busy || limitReached}>Ajouter un membre</Button>}
       </div>
-
-      <Modal
-        isOpen={open}
-        onClose={() => !saving && setOpen(false)}
-        title="Ajouter un membre"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setOpen(false)} disabled={saving}>Annuler</Button>
-            <Button onClick={() => void add()} isLoading={saving} disabled={!email.trim()}>Ajouter</Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-xs text-[#6B7682]">Le membre doit d&apos;abord creer gratuitement son compte Saytu Yef avec cette adresse email.</p>
-          {isTeamLimitReached && (
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-700">
-              Votre formule actuelle a atteint sa limite equipe. Passez par <Link href="/settings?tab=subscription" className="font-semibold underline">Abonnement</Link> avant d&apos;ajouter un nouveau compte.
-            </div>
-          )}
-          <Input label="Email du compte" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="employe@exemple.com" />
-          <Select
-            label="Role"
-            value={role}
-            onChange={(e) => setRole(e.target.value as TeamMember['role'])}
-            options={TEAM_ROLE_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-          />
-          {error && <div role="alert" className="rounded-xl bg-red-500/10 px-3 py-2 text-xs text-red-600">{error}</div>}
-        </div>
-      </Modal>
     </div>
-  )
+    {limitReached && <UsageLimitNotice tone="danger" title="Limite equipe atteinte" detail={`Le plan ${overview ? getPlanDefinition(overview.plan).name : 'actuel'} autorise ${limit} utilisateur(s) au total.`} />}
+    {notice && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</p>}
+    {error && !dialog && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px]">
+      <Input label="Rechercher un membre" placeholder="Nom ou email" value={search} onChange={(e) => setSearch(e.target.value)} leftAddon={<Search size={16} />} className="h-10" />
+      <Select label="Role" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} options={[{ value: '', label: 'Tous les roles' }, ...roleOptions]} className="h-10" />
+    </div>
+    <section aria-label="Liste des membres" aria-busy={loading} className="overflow-hidden border-y border-[#2D7D7D]/15 bg-white">
+      <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1fr)_150px_140px_88px] gap-4 border-b border-[#2D7D7D]/10 bg-[#F4F7FA] px-3 py-2 text-xs uppercase text-[#5C6B73] lg:grid">
+        <span>Membre</span><span>Role</span><span>Ajoute le</span><span className="text-right">Actions</span>
+      </div>
+      {loading && members.length === 0 && <p role="status" className="p-4 text-sm text-[#5C6B73]">Chargement...</p>}
+      {!loading && !visible.length && <p className="p-4 text-sm text-[#5C6B73]">{members.length ? 'Aucun membre ne correspond aux filtres.' : 'Aucun membre a afficher.'}</p>}
+      {visible.map((member) => {
+        const owner = member.id === ownerId
+        const editable = current && canEditTeamMember(current, member)
+        const name = member.full_name || member.email
+        return <article key={member.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)_80px] items-center gap-x-3 gap-y-2 border-b border-[#2D7D7D]/10 px-3 py-3 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_150px_140px_88px] lg:gap-4">
+          <div className="min-w-0">
+            <p className="break-words text-sm font-semibold text-[#1A3636]">{member.full_name || 'Utilisateur'}{member.id === actorId && <span className="ml-2 text-xs font-normal text-[#5C6B73]">Vous</span>}</p>
+            <p className="break-all text-xs text-[#5C6B73]">{member.email}</p>
+          </div>
+          <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-2 lg:col-auto lg:row-auto">
+            <span className={`rounded px-2 py-1 text-xs ${owner ? 'bg-amber-50 text-amber-800' : member.role === 'admin' ? 'bg-violet-50 text-violet-700' : member.role === 'cashier' ? 'bg-emerald-50 text-emerald-700' : 'bg-sky-50 text-sky-700'}`}>{owner ? 'Proprietaire' : ACCOUNT_ROLE_LABELS[member.role]}</span>
+          </div>
+          <time className="hidden text-xs text-[#5C6B73] lg:block" dateTime={member.created_at}>{new Date(member.created_at).toLocaleDateString('fr-FR')}</time>
+          <div className="col-start-2 row-span-2 row-start-1 flex justify-end gap-1 lg:col-auto lg:row-auto lg:row-span-1">
+            {editable ? <>
+              <button type="button" disabled={busy} aria-label={`Modifier ${name}`} title={`Modifier ${name}`} onClick={() => openDialog({ kind: 'edit', member })} className="grid size-9 shrink-0 place-items-center rounded-lg text-[#2D7D7D] hover:bg-[#EEF5F5] disabled:opacity-40"><Pencil size={16} /></button>
+              <button type="button" disabled={busy} aria-label={`Retirer ${name}`} title={`Retirer ${name}`} onClick={() => openDialog({ kind: 'remove', member })} className="grid size-9 shrink-0 place-items-center rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-40"><Trash2 size={16} /></button>
+            </> : owner ? <span title="Proprietaire du compte" className="p-2 text-[#2D7D7D]"><ShieldCheck size={17} aria-label="Proprietaire du compte" /></span> : null}
+          </div>
+        </article>
+      })}
+    </section>
+    <Modal isOpen={dialog !== null} onClose={close} title={dialog?.kind === 'add' ? 'Ajouter un membre' : dialog?.kind === 'edit' ? 'Modifier le membre' : 'Retirer le membre'} footer={<div className="flex flex-wrap justify-end gap-2">
+      <Button variant="ghost" onClick={close} disabled={saving}>Annuler</Button>
+      <Button type="submit" form="team-member-form" variant={dialog?.kind === 'remove' ? 'danger' : 'primary'} isLoading={saving} disabled={loading}>{dialog?.kind === 'add' ? 'Ajouter' : dialog?.kind === 'edit' ? 'Enregistrer' : 'Retirer'}</Button>
+    </div>}>
+      <form id="team-member-form" onSubmit={(e) => { e.preventDefault(); void save() }} className="space-y-4">
+        {dialog?.kind === 'remove' ? <p className="break-words text-sm text-[#1A3636]">Retirer <strong>{dialog.member.full_name || dialog.member.email}</strong> de votre entreprise ? Son compte ne sera pas supprime.</p> : <>
+          {dialog?.kind === 'add' ? <>
+            <p className="text-xs text-[#5C6B73]">Le membre doit deja posseder un compte avec cette adresse email.</p>
+            <Input label="Email du compte" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} disabled={saving} />
+          </> : <>
+            <Input label="Nom complet" value={draft.full_name} onChange={(e) => setDraft({ ...draft, full_name: e.target.value })} required maxLength={120} disabled={saving} autoComplete="off" />
+            <Input label="Email de connexion" type="email" value={dialog?.kind === 'edit' ? dialog.member.email : ''} readOnly className="bg-[#F4F7FA]" />
+          </>}
+          <Select label="Role du membre" value={draft.role} onChange={(e) => setDraft({ ...draft, role: e.target.value as TeamMember['role'] })} options={roleOptions} disabled={saving} />
+        </>}
+        {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      </form>
+    </Modal>
+  </div>
 }

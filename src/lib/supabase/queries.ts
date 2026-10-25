@@ -168,12 +168,13 @@ async function assertSubscriptionCapacity(key: SubscriptionLimitKey, increment =
 
 export async function getTeamContext(): Promise<{ current: TeamMember; members: TeamMember[] }> {
   const supabase = createClient()
+  await ensureBrowserSupabaseSession(supabase)
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Non connecté')
 
   const { data: members, error } = await supabase
     .from('profiles')
-    .select('id,email,full_name,role,account_owner_id,created_at')
+    .select('id,email,full_name,role,account_owner_id,created_at,updated_at')
     .order('created_at')
   if (error) throw error
 
