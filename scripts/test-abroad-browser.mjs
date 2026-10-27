@@ -101,7 +101,7 @@ try {
     await page.getByRole('button', { name: 'Transferer', exact: true }).click()
     await page.getByLabel('Prix de vente (FCFA)').fill('100000')
     await page.getByRole('dialog').getByRole('button', { name: 'Transferer', exact: true }).click()
-    await expect(page.getByText('Aucun article a activer', { exact: true })).toBeVisible()
+    await expect(page.getByText('Aucun article pour cette selection', { exact: true })).toBeVisible()
     assert.equal(await page.evaluate(() => window.abroadAudit.find((item) => item.action === 'transfer').product.image_url), '/photo.png')
     assert.deepEqual(errors, [])
     console.log(`PASS ${width}px: photo selection/removal/camera input, offline persistence, failed/retried sync, edits and photo retained on inventory transfer.`)

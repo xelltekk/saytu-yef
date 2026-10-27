@@ -3,11 +3,12 @@ import { beforeEach, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   from: vi.fn(), insert: vi.fn(), update: vi.fn(), eq: vi.fn(), select: vi.fn(), single: vi.fn(),
   getUser: vi.fn(), upload: vi.fn(),
+  rpc: vi.fn(),
 }))
-vi.mock('./client', () => ({ createClient: () => ({ from: mocks.from, auth: { getUser: mocks.getUser } }) }))
+vi.mock('./client', () => ({ createClient: () => ({ from: mocks.from, rpc: mocks.rpc, auth: { getUser: mocks.getUser } }) }))
 vi.mock('./account', () => ({ getAccountContext: vi.fn() }))
 vi.mock('./retail', () => ({ uploadProductImage: mocks.upload }))
-import { saveAbroadProduct, updateAbroadProductRecord } from './queries'
+import { activateAbroadProduct, saveAbroadProduct, updateAbroadProductRecord } from './queries'
 
 const draft = { name: 'Telephone', purchase_price: 100, quantity: 2, currency: 'CNY', source_country: 'CN', synced: true, activated: false, local_id: 'draft-1' }
 const image = 'data:image/jpeg;base64,aGVsbG8='
@@ -58,4 +59,24 @@ it('removes an existing photo explicitly with null without uploading anything', 
   await updateAbroadProductRecord('saved', { image_url: null })
   expect(mocks.update).toHaveBeenCalledWith({ image_url: null })
   expect(mocks.upload).not.toHaveBeenCalled()
+})
+
+it('uses only the atomic RPC for transfers, including replenishment at a product quota', async () => {
+  const result = { abroad: { ...draft, transferred_quantity: 1 }, product: { id: 'product' }, transfer: { id: 'receipt', quantity: 1 } }
+  mocks.rpc.mockResolvedValue({ data: result, error: null })
+  const options = { expected_transferred: 0, sku: 'SKU' }
+  expect(await activateAbroadProduct('request', 'source', 1, options)).toEqual(result)
+  expect(mocks.rpc).toHaveBeenCalledWith('transfer_abroad_product', { p_request_id: 'request', p_abroad_id: 'source', p_quantity: 1, p_options: options })
+  expect(mocks.from).not.toHaveBeenCalled()
+})
+
+it('reports missing migrations without falling back to the unsafe two-write transfer', async () => {
+  mocks.rpc.mockResolvedValue({ data: null, error: { code: 'PGRST202' } })
+  await expect(activateAbroadProduct('request', 'source', 1, { expected_transferred: 0, sku: 'SKU' })).rejects.toThrow(/mise a jour/)
+  expect(mocks.from).not.toHaveBeenCalled()
+})
+
+it('surfaces RPC failures as readable errors', async () => {
+  mocks.rpc.mockResolvedValue({ data: null, error: { message: 'La quantite depasse le reste' } })
+  await expect(activateAbroadProduct('request', 'source', 1, { expected_transferred: 0, sku: 'SKU' })).rejects.toThrow(/quantite depasse/)
 })

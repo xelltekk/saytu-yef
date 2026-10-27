@@ -1,5 +1,5 @@
 import { createClient, ensureBrowserSupabaseSession } from './client'
-import type { Product, ProductGroup, ProductVariantDraft, Category, Supplier, Sale, SalePayment, CashSession, CashSessionSummary, AbroadProduct, StockMovement, TeamMember, SubscriptionPlan, User as AppUser } from '@/types'
+import type { Product, ProductGroup, ProductVariantDraft, Category, Supplier, Sale, SalePayment, CashSession, CashSessionSummary, AbroadProduct, AbroadTransfer, StockMovement, TeamMember, SubscriptionPlan, User as AppUser } from '@/types'
 import { buildProductGroups } from '@/lib/productGroups'
 import { getPlanDefinition, getSubscriptionOverview, getUsageLimit } from '@/lib/subscriptions'
 import { normalizeAccountRole } from '@/lib/accountRoles'
@@ -1032,13 +1032,11 @@ export async function reverseSale(
 
 export async function getAbroadProducts(): Promise<AbroadProduct[]> {
   const supabase = createClient()
-  const { data, error } = await supabase
+  const { data } = await readAllPages<AbroadProduct>((from, to) => supabase
     .from('abroad_products')
     .select('*')
-    .order('created_at', { ascending: false })
-
-  if (error) throw error
-  return (data ?? []) as AbroadProduct[]
+    .order('created_at', { ascending: false }).order('id').range(from, to))
+  return data
 }
 
 export async function saveAbroadProduct(product: Omit<AbroadProduct, 'id' | 'user_id' | 'created_at'>): Promise<AbroadProduct> {
@@ -1071,30 +1069,27 @@ export async function updateAbroadProductRecord(
 }
 
 export async function activateAbroadProduct(
-  abroadId: string,
-  productPayload: Omit<Product, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'category' | 'supplier'>,
-  conversion?: Pick<AbroadProduct, 'exchange_rate' | 'converted_purchase_price' | 'rate_source' | 'rate_updated_at'>
-): Promise<Product> {
-  await assertSubscriptionCapacity('products')
-  const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  requestId: string, abroadId: string, quantity: number,
+  options: { expected_transferred: number; sku: string; buying_price?: number; selling_price?: number;
+    category_id?: string; exchange_rate?: number; rate_source?: string; rate_updated_at?: string }
+): Promise<{ abroad: AbroadProduct; product: Product | null; transfer: AbroadTransfer }> {
+  const { data, error } = await createClient().rpc('transfer_abroad_product', {
+    p_request_id: requestId, p_abroad_id: abroadId, p_quantity: quantity, p_options: options,
+  })
+  if (error) {
+    if (error.code === 'PGRST202') throw new Error('La mise a jour des transferts doit etre appliquee a la base de donnees.')
+    throw new Error(error.message || 'Transfert impossible. Reessayez sans modifier la demande.')
+  }
+  if (!data?.abroad || !data?.transfer) throw new Error('Reponse de transfert incomplete. Reessayez la meme demande.')
+  return data
+}
 
-  // Créer le produit dans l'inventaire principal
-  const { data: newProduct, error: productError } = await supabase
-    .from('products')
-    .insert({ ...productPayload, user_id: user!.id })
-    .select()
-    .single()
-
-  if (productError) throw productError
-
-  // Marquer comme activé dans abroad_products
-  await supabase
-    .from('abroad_products')
-    .update({ activated: true, synced: true, ...conversion })
-    .eq('id', abroadId)
-
-  return newProduct as Product
+export async function getAbroadTransfers(abroadId: string): Promise<AbroadTransfer[]> {
+  const { data, error } = await createClient().from('abroad_transfers')
+    .select('id,abroad_product_id,product_id,quantity,buying_price,selling_price,created_at')
+    .eq('abroad_product_id', abroadId).order('created_at', { ascending: false }).limit(50)
+  if (error) throw new Error(error.message || 'Historique indisponible.')
+  return (data ?? []) as AbroadTransfer[]
 }
 
 export async function deleteAbroadProduct(id: string): Promise<void> {

@@ -6,6 +6,7 @@ import {
   ArrowRight,
   CheckCircle,
   Globe,
+  History,
   Pencil,
   Plus,
   RefreshCw,
@@ -22,15 +23,17 @@ import { Modal } from '@/components/ui/Modal'
 import { ProductPhotoPicker } from './ProductPhotoPicker'
 import { useInventoryStore } from '@/store/inventoryStore'
 import { formatCurrency, generateSKU } from '@/lib/utils'
+import { getRemainingQuantity, getTransferredQuantity, validateTransferQuantity } from '@/lib/abroadTransfers'
 import {
   activateAbroadProduct as activateAbroadProductRecord,
   deleteAbroadProduct as deleteAbroadProductRecord,
   getAbroadProducts,
+  getAbroadTransfers,
   getCategories,
   saveAbroadProduct,
   updateAbroadProductRecord,
 } from '@/lib/supabase/queries'
-import type { AbroadProduct, Category, Product } from '@/types'
+import type { AbroadProduct, AbroadTransfer, Category, Product } from '@/types'
 
 const CURRENCIES = [
   { value: 'XOF', label: 'FCFA (XOF)' },
@@ -62,6 +65,9 @@ interface ActivateModalState {
   exchangeRate: number | null
   rateUpdatedAt: string | null
   rateSource: string | null
+  quantity: string
+  requestId: string
+  sku: string
 }
 
 type Feedback = { type: 'success' | 'warning' | 'error'; message: string }
@@ -115,6 +121,10 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
     typeof window !== 'undefined' ? window.navigator.onLine : true
   )
   const [showForm, setShowForm] = useState(false)
+  const [listFilter, setListFilter] = useState('pending')
+  const [search, setSearch] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+  const [history, setHistory] = useState<{ product: AbroadProduct; rows: AbroadTransfer[]; loading: boolean; error: string } | null>(null)
   const [activateModal, setActivateModal] = useState<ActivateModalState>({
     open: false,
     product: null,
@@ -124,6 +134,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
     exchangeRate: null,
     rateUpdatedAt: null,
     rateSource: null,
+    quantity: '', requestId: '', sku: '',
   })
   const [form, setForm] = useState({
     name: '',
@@ -145,8 +156,32 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
     image_url: '',
   })
 
-  const notActivated = abroadProducts.filter((product) => !product.activated)
+  const notActivated = abroadProducts.filter((product) => getRemainingQuantity(product) > 0)
+  const visibleProducts = abroadProducts.filter((product) =>
+    (listFilter === 'all' || (listFilter === 'pending' ? getRemainingQuantity(product) > 0 : getRemainingQuantity(product) === 0))
+    && product.name.toLocaleLowerCase('fr').includes(search.trim().toLocaleLowerCase('fr')))
   const pendingSync = abroadProducts.filter((product) => !product.synced)
+
+  const refreshProducts = async () => {
+    setRefreshing(true)
+    try {
+      const remote = await getAbroadProducts()
+      setAbroadProducts(mergeRemoteWithLocal(remote, useInventoryStore.getState().abroadProducts))
+    } catch (error) {
+      setFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Actualisation impossible.' })
+    } finally { setRefreshing(false) }
+  }
+
+  const openHistory = async (product: AbroadProduct) => {
+    setHistory({ product, rows: [], loading: true, error: '' })
+    try {
+      const rows = await getAbroadTransfers(product.id)
+      setHistory((current) => current?.product.id === product.id ? { ...current, rows, loading: false } : current)
+    } catch (error) {
+      setHistory((current) => current?.product.id === product.id ? { ...current, loading: false,
+        error: error instanceof Error ? error.message : 'Historique indisponible.' } : current)
+    }
+  }
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true)
@@ -242,6 +277,9 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
       exchangeRate: product.currency === 'XOF' ? 1 : null,
       rateUpdatedAt: product.currency === 'XOF' ? new Date().toISOString() : null,
       rateSource: product.currency === 'XOF' ? 'Taux fixe XOF' : null,
+      quantity: String(getRemainingQuantity(product)),
+      requestId: crypto.randomUUID(),
+      sku: generateSKU(product.name),
     })
   }
 
@@ -298,6 +336,10 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
 
     const editedProduct = abroadProducts.find((product) => product.id === editId)
     if (!editedProduct) return
+    if (quantity < getTransferredQuantity(editedProduct)) {
+      setEditError('La quantite totale ne peut pas etre inferieure au nombre deja transfere.')
+      return
+    }
     if (!isOnline && editedProduct.synced) {
       setEditError('Une connexion est requise pour modifier un article déjà synchronisé.')
       return
@@ -438,11 +480,14 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
 
     const buyingPrice = Number(activateModal.buyingPrice)
     const sellingPrice = Number(activateModal.sellingPrice)
-    if (!Number.isFinite(buyingPrice) || buyingPrice < 0) {
+    const quantityError = validateTransferQuantity(activateModal.quantity, product)
+    if (quantityError) { setTransferError(quantityError); return }
+    const restocking = getTransferredQuantity(product) > 0
+    if (!restocking && (!activateModal.buyingPrice.trim() || !Number.isFinite(buyingPrice) || buyingPrice < 0)) {
       setTransferError("Saisissez le prix d'achat converti en FCFA.")
       return
     }
-    if (!Number.isFinite(sellingPrice) || sellingPrice <= 0) {
+    if (!restocking && (!Number.isFinite(sellingPrice) || sellingPrice <= 0)) {
       setTransferError('Le prix de vente doit être supérieur à zéro.')
       return
     }
@@ -457,31 +502,26 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
     try {
       const productToActivate = product.synced ? product : await pushLocalProduct(product)
 
-      const createdProduct = await activateAbroadProductRecord(
+      // Keep the remote id after syncing, even if the transfer subsequently fails.
+      setActivateModal((current) => ({ ...current, product: productToActivate }))
+      const result = await activateAbroadProductRecord(
+        activateModal.requestId,
         productToActivate.id,
+        Number(activateModal.quantity),
         {
-          name: product.name,
-          sku: generateSKU(product.name),
+          expected_transferred: getTransferredQuantity(product),
+          sku: activateModal.sku,
           category_id: activateModal.categoryId || undefined,
-          supplier_id: undefined,
-          description: product.notes || undefined,
-          image_url: productToActivate.image_url || undefined,
-          buying_price: buyingPrice,
-          selling_price: sellingPrice,
-          quantity: product.quantity,
-          min_quantity: 5,
-          currency: 'XOF',
-          status: 'active',
-        } as Parameters<typeof activateAbroadProductRecord>[1],
-        {
-          exchange_rate: activateModal.exchangeRate ?? undefined,
-          converted_purchase_price: buyingPrice,
-          rate_source: activateModal.rateSource ?? 'Saisie manuelle',
-          rate_updated_at: activateModal.rateUpdatedAt ?? new Date().toISOString(),
+          buying_price: restocking ? undefined : buyingPrice,
+          selling_price: restocking ? undefined : sellingPrice,
+          exchange_rate: restocking ? undefined : activateModal.exchangeRate ?? undefined,
+          rate_source: restocking ? undefined : activateModal.rateSource ?? 'Saisie manuelle',
+          rate_updated_at: restocking ? undefined : activateModal.rateUpdatedAt ?? undefined,
         }
       )
 
-      updateAbroadProduct(productToActivate.id, { activated: true, synced: true })
+      updateAbroadProduct(productToActivate.id, result.abroad)
+      setFeedback({ type: 'success', message: `${result.transfer.quantity} unite(s) transferee(s). Reste : ${getRemainingQuantity(result.abroad)}.` })
       setActivateModal({
         open: false,
         product: null,
@@ -491,8 +531,9 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
         exchangeRate: null,
         rateUpdatedAt: null,
         rateSource: null,
+        quantity: '', requestId: '', sku: '',
       })
-      onTransferred?.(createdProduct)
+      if (result.product) onTransferred?.(result.product)
     } catch (error: unknown) {
       console.error(error)
       setTransferError(error instanceof Error ? error.message : 'Erreur lors du transfert vers le stock principal.')
@@ -696,24 +737,28 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
       </Card>
 
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-[#1A3636]">
-            Articles enregistres ({notActivated.length} a activer)
+            Articles enregistres ({notActivated.length} a transferer)
           </h3>
+          <Button size="sm" variant="ghost" leftIcon={<RefreshCw size={14} />} onClick={() => void refreshProducts()}
+            isLoading={refreshing} disabled={!isOnline || transferring || syncing || savingAdd || savingEdit}>Actualiser</Button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input aria-label="Rechercher une saisie" placeholder="Rechercher un produit..." value={search} onChange={(event) => setSearch(event.target.value)} />
+          <Select aria-label="Etat du transfert" value={listFilter} onChange={(event) => setListFilter(event.target.value)}
+            options={[{ value: 'pending', label: 'A transferer' }, { value: 'completed', label: 'Transferes' }, { value: 'all', label: 'Tous les articles' }]} />
         </div>
 
-        {notActivated.length === 0 ? (
+        {visibleProducts.length === 0 ? (
           <Card>
             <div className="py-8 text-center">
               <Globe size={28} className="mx-auto mb-3 text-[#6B7682] opacity-50" />
-              <p className="text-sm font-medium text-[#1A3636]">Aucun article a activer</p>
-              <p className="mt-1 text-xs text-[#6B7682]">
-                Les articles deja transferes restent enregistres mais ne s&apos;affichent plus ici.
-              </p>
+              <p className="text-sm font-medium text-[#1A3636]">Aucun article pour cette selection</p>
             </div>
           </Card>
         ) : (
-          notActivated.map((product) => (
+          visibleProducts.map((product) => (
             <Card key={product.id} className="relative">
               <div className="flex items-start gap-3">
                 {product.image_url && (
@@ -736,6 +781,9 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                       <p className="break-words text-sm font-medium text-[#1A3636]">
                         {product.name}
                       </p>
+                      <p className="mt-1 text-xs font-medium text-[#2D7D7D]">
+                        Transfere : {getTransferredQuantity(product)} · Reste : {getRemainingQuantity(product)}
+                      </p>
                       <p className="mt-0.5 text-xs text-[#6B7682]">
                         {
                           COUNTRIES.find((country) => country.value === product.source_country)
@@ -753,8 +801,10 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                         {product.activated ? (
                           <Badge variant="success">
                             <CheckCircle size={10} className="mr-1" />
-                            Active
+                            Transfere
                           </Badge>
+                        ) : getTransferredQuantity(product) > 0 ? (
+                          <Badge variant="warning">Partiel</Badge>
                         ) : product.synced ? (
                           <Badge variant="info">Synchronise</Badge>
                         ) : (
@@ -768,15 +818,20 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                           className="shrink-0 whitespace-nowrap"
                           rightIcon={<ArrowRight size={13} />}
                           onClick={() => openActivate(product)}
-                          disabled={syncing || savingAdd}
+                          disabled={syncing || savingAdd || transferring || refreshing}
                         >
-                          Transferer
+                          {getTransferredQuantity(product) > 0 ? 'Transferer le reste' : 'Transferer'}
                         </Button>
                       )}
                     </div>
                   </div>
                 </div>
                 <div className="flex flex-shrink-0 flex-col gap-1">
+                  {getTransferredQuantity(product) > 0 && (
+                    <button type="button" onClick={() => void openHistory(product)} disabled={!isOnline}
+                      title="Historique des transferts" aria-label={`Historique de ${product.name}`}
+                      className="rounded-lg p-1.5 text-[#2D7D7D] hover:bg-[#2D7D7D]/10"><History size={16} /></button>
+                  )}
                   {!product.activated && (
                     <button
                       onClick={() => openEdit(product)}
@@ -788,7 +843,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                       <Pencil size={14} />
                     </button>
                   )}
-                  <button
+                  {getTransferredQuantity(product) === 0 && <button
                     onClick={() => { setDeleteCandidate(product); setFeedback(null) }}
                     disabled={syncing || savingAdd || transferring}
                     title="Supprimer"
@@ -796,7 +851,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                     className="rounded-lg p-1.5 text-[#6B7682] transition-colors hover:bg-red-500/5 hover:text-red-600"
                   >
                     <Trash2 size={14} />
-                  </button>
+                  </button>}
                 </div>
               </div>
             </Card>
@@ -813,7 +868,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
         }}
         title="Transferer vers le stock principal"
         footer={
-          <>
+          <div className="flex flex-wrap justify-end gap-2">
             <Button
               variant="ghost"
               onClick={() => {
@@ -828,15 +883,16 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
               variant="primary"
               onClick={() => void handleActivate()}
               isLoading={transferring}
-              disabled={!activateModal.sellingPrice || !activateModal.buyingPrice}
+              disabled={!isOnline || loadingRate || !activateModal.product || !!validateTransferQuantity(activateModal.quantity, activateModal.product)
+                || (getTransferredQuantity(activateModal.product) === 0 && (!activateModal.sellingPrice || !activateModal.buyingPrice))}
             >
               Transferer
             </Button>
-          </>
+          </div>
         }
       >
         {activateModal.product && (
-          <div className="space-y-4">
+          <fieldset disabled={transferring} className="min-w-0 space-y-4">
             {transferError && (
               <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-600">
                 {transferError}
@@ -855,9 +911,16 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                 · Qte: {activateModal.product.quantity}
               </p>
             </div>
-            <p className="text-xs text-[#6B7682]">
-              Ce produit sera ajouté à votre inventaire principal avec la quantité saisie. Les prix ci-dessous doivent être en FCFA.
-            </p>
+            <Input label="Quantite a transferer" type="number" min="1" max={getRemainingQuantity(activateModal.product)} step="1" inputMode="numeric"
+              value={activateModal.quantity} onChange={(event) => setActivateModal((current) => ({ ...current, quantity: event.target.value }))}
+              error={validateTransferQuantity(activateModal.quantity, activateModal.product) ?? undefined} />
+            <dl className="grid grid-cols-2 gap-3 border-y border-[#2D7D7D]/10 py-3 text-sm">
+              <div><dt className="text-xs text-[#6B7682]">Disponible</dt><dd className="font-semibold text-[#1A3636]">{getRemainingQuantity(activateModal.product)} unite(s)</dd></div>
+              <div><dt className="text-xs text-[#6B7682]">Reste apres transfert</dt><dd className="font-semibold text-[#2D7D7D]">{validateTransferQuantity(activateModal.quantity, activateModal.product) ? '-' : getRemainingQuantity(activateModal.product) - Number(activateModal.quantity)} unite(s)</dd></div>
+            </dl>
+            {getTransferredQuantity(activateModal.product) > 0 ? (
+              <p className="text-sm text-[#2D7D7D]">Destination : fiche produit existante. Prix d&apos;achat et de vente conserves.</p>
+            ) : <>
             {activateModal.product.currency !== 'XOF' && (
               <div className="rounded-xl border border-[#2D7D7D]/15 bg-[#2D7D7D]/5 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -874,7 +937,7 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                     variant="secondary"
                     onClick={() => void loadExchangeRate()}
                     isLoading={loadingRate}
-                    disabled={!isOnline}
+                    disabled={!isOnline || transferring}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
                     Obtenir le taux
@@ -931,7 +994,8 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
                 }
               />
             </div>
-          </div>
+            </>}
+          </fieldset>
         )}
       </Modal>
 
@@ -940,14 +1004,14 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
         onClose={() => { if (!savingEdit && !editPhotoBusy) setEditId(null) }}
         title="Modifier l'article"
         footer={
-          <>
+          <div className="flex flex-wrap justify-end gap-2">
             <Button variant="ghost" onClick={() => setEditId(null)} disabled={savingEdit || editPhotoBusy}>
               Annuler
             </Button>
             <Button variant="primary" onClick={() => void handleSaveEdit()} isLoading={savingEdit} disabled={editPhotoBusy}>
               Enregistrer
             </Button>
-          </>
+          </div>
         }
       >
         <fieldset disabled={savingEdit} className="min-w-0 space-y-4">
@@ -1019,15 +1083,30 @@ export function AbroadBatchEntry({ onTransferred }: AbroadBatchEntryProps) {
         title="Supprimer la saisie"
         size="sm"
         footer={
-          <>
+          <div className="flex flex-wrap justify-end gap-2">
             <Button variant="ghost" onClick={() => setDeleteCandidate(null)} disabled={deleting}>Annuler</Button>
             <Button variant="danger" onClick={() => void handleDeleteItem()} isLoading={deleting}>Supprimer</Button>
-          </>
+          </div>
         }
       >
         <p className="text-sm text-[#5C6B73]">
           Voulez-vous vraiment supprimer <strong className="text-[#1A3636]">{deleteCandidate?.name}</strong> ?
         </p>
+      </Modal>
+      <Modal isOpen={history !== null} onClose={() => setHistory(null)} title="Historique des transferts">
+        {history && <div className="space-y-3">
+          <p className="break-words text-sm font-semibold text-[#1A3636]">{history.product.name}</p>
+          <p className="text-sm text-[#2D7D7D]">{getTransferredQuantity(history.product)} transfere(s) sur {history.product.quantity}</p>
+          {history.loading ? <p role="status" className="text-sm text-[#6B7682]">Chargement...</p>
+            : history.error ? <div role="alert" className="text-sm text-red-600">{history.error}
+              <Button size="sm" variant="ghost" onClick={() => void openHistory(history.product)}>Reessayer</Button></div>
+            : history.rows.length === 0 ? <p className="text-sm text-[#6B7682]">Transfert anterieur au suivi detaille.</p>
+            : <ul className="divide-y divide-[#2D7D7D]/10">{history.rows.map((row) => <li key={row.id} className="flex flex-wrap justify-between gap-2 py-3 text-sm">
+              <time className="text-[#6B7682]" dateTime={row.created_at}>{new Date(row.created_at).toLocaleString('fr-FR')}</time>
+              <span className="font-semibold text-[#2D7D7D]">+{row.quantity} unite(s)</span>
+            </li>)}</ul>}
+          {history.rows.length === 50 && <p className="text-xs text-[#6B7682]">50 derniers transferts</p>}
+        </div>}
       </Modal>
     </div>
   )

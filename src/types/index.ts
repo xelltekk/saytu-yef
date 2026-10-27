@@ -123,12 +123,24 @@ export interface AbroadProduct {
   source_country: string
   synced: boolean
   activated: boolean
+  transferred_quantity?: number
+  inventory_product_id?: string | null
   created_at: string
   local_id?: string
   exchange_rate?: number
   converted_purchase_price?: number
   rate_source?: string
   rate_updated_at?: string
+}
+
+export interface AbroadTransfer {
+  id: string
+  abroad_product_id: string
+  product_id: string | null
+  quantity: number
+  buying_price: number
+  selling_price: number
+  created_at: string
 }
 
 export interface Category {
